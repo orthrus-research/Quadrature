@@ -48,6 +48,8 @@ each mod needs from a renderer. Read for behavior only, on 2026-11-13.
 | Texture animation optimizers (Chibi) | Skip animating unseen textures | A visible-texture report, or reported |
 | HUD caches (StellarCore, Gnetum) | Cache HUD draws in framebuffers | State containment (R1, 2.4) |
 | ReplayMod, minimaps | Read frames and depth back | Frame resource access |
+| RenderChunk rebuildChunk Hooks (used by BetterFoliage and others) | A core mod that adds events inside the game's chunk rebuild, exposing the block dispatcher and layers | Its events never fire once the game's chunk rebuild is replaced; its clients need the capture technique or the mod interface |
+| Kirino, graphics state | Replaces the game's world render | None: the game stops (decision D6; research R1, 2.5) |
 | OptiFine and other renderers | Replace the renderer | None: the game stops (decision D6) |
 
 Cleanroom's LWJGL 2 shim keeps its own list of mods that reach LWJGL 2 internals by
@@ -87,6 +89,8 @@ are selected, once Quadrature has Mixins of its own.
 - Actinium, `docs/compatibility-matrix.md` (updated 2026-11-07), read for behavior
 - Demonica, README and release notes 0.9.1, read for behavior
 - Relictium, README (known incompatibilities)
+- RenderChunk rebuildChunk Hooks, project page:
+  https://www.curseforge.com/minecraft/mc-mods/renderchunk-rebuildchunk-hooks
 - CleanroomMC/LWJGLY, `MOD_COMPATIBILITY.md`: https://github.com/CleanroomMC/LWJGLY
 - Forge 1.12.2 Javadoc, `CustomModLoadingErrorDisplayException`:
   https://skmedix.github.io/ForgeJavaDocs/javadoc/forge/1.12.2-14.23.5.2859/net/minecraftforge/fml/client/CustomModLoadingErrorDisplayException.html

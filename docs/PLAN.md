@@ -83,6 +83,8 @@ Research comes first; its answers decide the architecture.
   marked decided, default or candidate and the measurement that settles it.
 - P0-A2 is drafted (2026-11-13): [CUBE-SOURCE.md](CUBE-SOURCE.md), with six open points.
   It is not yet in Cubature's repository or agreed there.
+- Carried into Phase 1 from research: the gate must also refuse Kirino's graphics state,
+  and the frame takes its stage boundaries by injecting into the game's world pass.
 - Next: agree the contract, budgets (P0-D1), license (P0-L1), then Phase 1.
 
 ### Research status

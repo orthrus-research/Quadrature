@@ -84,6 +84,29 @@ Open design. Elements common to current engines: stage entry points with declare
 and outputs, shared include files, compile-time options that produce permutations, and
 metadata for options shown in settings.
 
+**8.1a Permutations. [V]**
+Each boolean feature compiled as a variant doubles the variant count; engines report
+thousands to millions, most never used, with long builds, memory cost and compile stutter
+as the result. The published remedies are to strip variants that are redundant or unused,
+which the same source calls the least effective fix, and to specialize late: precompile
+modules once and supply constants when a program is linked. Vulkan and Metal expose that
+as specialization constants; OpenGL has no equivalent.
+*Implication:* a Quadrature shader's options are resolved when the shader is loaded or an
+option changes, producing exactly the programs the selected options need, compiled then
+and cached. No variant is compiled for an option combination a player has not selected.
+Options that can be a uniform instead of a compile-time switch should be.
+
+**7.4a Temporal anti-aliasing practice. [V]**
+The common pipeline: jitter the projection each frame; reproject each pixel into the
+previous frame with its motion vector and the jitter difference; reject history that
+falls off screen or across a depth discontinuity; clamp what remains to the current
+frame's neighborhood, by its bounding box or by mean and deviation of the 3 by 3
+neighborhood (a factor near 1.25 is a published starting point). The scene must supply
+matching depth and motion vectors every frame. Aggressive clamping blurs; no source
+addresses blocky, high-contrast content, so that has to be tested on Quadrature's frames.
+*Implication:* motion vectors are a geometry buffer output from the start, for terrain
+and for hosted draws, where they come from the previous frame's transform.
+
 **8.2 Compilation. [V, dated]**
 See R1, 1.5: compile and link at load, cache program binaries, do not rely on parallel
 compile until tested. SPIR-V input is part of OpenGL 4.6 core [K]; its benefit on NVIDIA's
@@ -112,6 +135,17 @@ format.
   https://www.cryengine.com/docs/static/engines/cryengine-3/categories/1114113/pages/19377157
 - "The Technology of The Tomorrow Children", thesis discussion:
   https://cgvr.informatik.uni-bremen.de/theses/finishedtheses/VoxelConeTracing/TheTechnologyOfTomorrowsChildrenFinal.pdf
+- Pettineo, "The Shader Permutation Problem", parts 1 and 2:
+  https://therealmjp.github.io/posts/shader-permutations-part2
+- Unity, shader variants: https://docs.unity3d.com/Manual/shader-variants.html
+- Slang, link-time specialization (documentation copy):
+  https://shader-slanggithubio-aidanfnv-wip.readthedocs.io/en/latest/_sources/external/slang/docs/user-guide/10-link-time-specialization.md.txt
+- Arm, temporal anti-aliasing:
+  https://developer.arm.com/community/arm-community-blogs/b/mobile-graphics-and-gaming-blog/posts/temporal-anti-aliasing
+- luma.gl, temporal antialiasing pass:
+  https://luma.gl/docs/api-reference/shadertools/shader-passes/temporal-antialiasing
+- NVIDIA, "Adaptive Temporal Antialiasing" (2018):
+  https://research.nvidia.com/sites/default/files/pubs/2018-08_Adaptive-Temporal-Antialiasing/adaptive-temporal-antialiasing-preprint.pdf
 - Olsson, Billeter and Assarsson, "Clustered Deferred and Forward Shading", HPG 2012:
   https://www.cse.chalmers.se/~uffe/clustered_shading_preprint.pdf
 - Olsson et al., "Tiled and clustered forward shading: supporting transparency and MSAA":

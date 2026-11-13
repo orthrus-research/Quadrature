@@ -91,6 +91,41 @@ without changing bindings. The game caches GL state in `GlStateManager`; changin
 behind it desynchronizes the cache. Quadrature must restore what it changes or route
 changes through the same cache.
 
+**2.5 Taking the frame on Cleanroom. [V]**
+Read from Cleanroom's patch to `EntityRenderer` and Kirino's configuration, 2026-11-13.
+Kirino is woven into the game's world render in three states:
+
+| Kirino state | Configuration | Effect on the frame |
+|---|---|---|
+| Off | `enable=false` (the default in every instance examined) | None |
+| Headless | `enable=true`, `enableRenderDelegate=false`, or rendering unsupported | The game's `renderWorldPass` runs, and Kirino is called at seven named phases inside it (prepare, pre-update, update, render opaque, render transparent, post-update, render overlay) |
+| Graphics | `enable=true`, `enableRenderDelegate=true`, OpenGL 4.6 | `updateCameraAndRender` calls Kirino's world render instead of the game's `renderWorld` |
+
+Kirino treats anything but OpenGL 4.6 as unsupported, and Quadrature's platform is always
+4.6, so on Quadrature's platform the graphics state is reachable by configuration alone.
+*Implications:*
+- Kirino's graphics state is another renderer under decision D6. Both settings are static
+  fields readable before any graphics call, so the gate can refuse it at pre-initialization.
+- The game's `renderWorldPass` also carries Forge's hooks (render pass selection, block
+  highlight, render-last dispatch, first-person hand) and is where other mods inject. A
+  frame that replaces `renderWorldPass` must reproduce all of them, Kirino's headless
+  phases included. A frame that keeps `renderWorldPass` and takes its stage boundaries by
+  injecting between the calls inside it inherits them, and leaves other mods' injections
+  working. Phase 1 should take boundaries by injection.
+- The three opaque `renderBlockLayer` calls and the translucent one are the terrain
+  stages. They are the same call sites other renderers redirect, which is why two
+  renderers cannot coexist there.
+
+**2.6 GPU memory budgeting. [V, engine practice]**
+Published engine practice for a streamed budget: take the budget from the memory the
+driver reports, not the card's advertised size; keep a fixed reserve for allocations that
+are not streamed, because fluctuation there makes a streamer thrash; load more below a low
+watermark (one engine uses about 50% of the budget), unload unused data above it, and stop
+loading near a high watermark (about 90%); when demand exceeds the budget, degrade detail
+instead of failing. No vendor guidance on over-commit was found.
+*Implication:* the terrain arenas follow this shape: one budget, a reserve for
+framebuffers and textures, watermarks driving eviction and refinement.
+
 ## 9. Hosted rendering
 
 **9.1 Redirecting fixed-function draws into custom shading. [V]**
@@ -166,6 +201,12 @@ combine for the entity damage tint.
 - Khronos, `glClipControl` reference: https://registry.khronos.org/OpenGL-Refpages/gl4/html/glClipControl.xhtml
 - NVIDIA, "Depth Precision Visualized": https://developer.nvidia.com/content/depth-precision-visualized
 - CleanroomMC/LWJGLY, README, read 2026-11-13: https://github.com/CleanroomMC/LWJGLY
+- CleanroomMC/Cleanroom, `module/minecraft/patches/net/minecraft/client/renderer/EntityRenderer.java.patch`,
+  read 2026-11-13
+- BeamNG, texture streaming budget thresholds: https://documentation.beamng.com/modding/materials/texture_streaming/
+- Epic Games, texture streaming pool and metrics:
+  https://dev.epicgames.com/documentation/unreal-engine/texture-streaming-metrics-in-unreal-engine
+- Godot, texture streaming budget: https://docs.godotengine.org/en/latest/classes/class_texturestreaming.html
 - OpenGL 4.6 compatibility profile specification (May 5, 2022), chapters 12 and 16,
   sections 13.7, 13.8, 17.3.2 and 21.4: https://registry.khronos.org/OpenGL/specs/gl/glspec46.compatibility.pdf
 - OpenGL Shading Language 4.60 specification, sections 7.2 and 7.4:

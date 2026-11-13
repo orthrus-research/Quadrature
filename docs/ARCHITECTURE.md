@@ -93,6 +93,12 @@ sky -> opaque terrain -> entities -> block entities -> outline and damage
     -> particles -> weather -> translucent terrain -> clouds -> hand -> present
 ```
 
+Phase 1 does not replace the game's world pass. It takes its stage boundaries by
+injecting between the calls inside it, so Forge's hooks, Cleanroom's headless Kirino
+phases and other mods' injections there keep working (research R1, section 2.5).
+**Default.** Kirino's graphics state replaces the game's world render and is refused by
+the platform gate as another renderer. **Decided**, by D6.
+
 Later phases replace the terrain stages (Phase 2), insert mod stages (Phase 3), add
 distant terrain stages before and after near terrain (Phase 4), and wrap the whole in the
 shader's stages (Phase 5). The graph's shape changes; the stages that remain do not.
@@ -270,6 +276,8 @@ Phase 5. The shape is chosen now because the pass graph must leave room for it.
   candidate. Radiance cascades reached three dimensions in a 2026 preprint at 11.5 ms for
   its own stages on a laptop RTX 3080, which is too much of an 8.33 ms frame as published.
   **Candidate.**
+- **Motion vectors.** A geometry buffer output from the start, for terrain and hosted
+  draws, because temporal methods need them every frame. **Default.**
 - **Anti-aliasing.** Temporal, written in-house. Spatial upscaling is a shader pass and
   runs on OpenGL; DLSS has no OpenGL path. **Default.**
 
@@ -282,8 +290,9 @@ A shader implements named shading stages against declared inputs and outputs, wi
 options and metadata. The format is drafted against two concrete shaders, the baseline
 and one with shadows and atmosphere (research R4). **Candidate.**
 
-- Programs compile and link when a shader is loaded, never during a frame, and their
-  binaries are cached keyed by the driver version. **Decided.**
+- Programs compile and link when a shader is loaded or an option changes, never during a
+  frame, and their binaries are cached keyed by the driver version. Only the programs the
+  selected options need are compiled; an option that can be a uniform is one. **Decided.**
 - The interface a shader sees is the pass graph's: it names stages and resources, not GL
   objects. **Decided.**
 - Third-party shader pack formats are not loaded (D5).
@@ -310,7 +319,10 @@ Frame time is fixed by the frame cap: 8.33 ms at 120 frames per second. The bar 
 client render work is the vanilla baseline, about 6 ms per frame in flight (D14).
 
 GPU memory on the 8 GB floor is not yet apportioned. That is work order P0-D1, and it
-needs the distant terrain measurements. For orientation, the current stack uses about
+needs the distant terrain measurements. Its shape follows published engine practice
+(research R1, section 2.6): one budget taken from what the driver reports, a fixed reserve
+for framebuffers and textures, and low and high watermarks that drive refinement and
+eviction, degrading detail when demand exceeds the budget. **Default.** For orientation, the current stack uses about
 0.55 GiB in flight and 0.82 GiB with a shader pack.
 
 ## 13. What is decided, and what is not
