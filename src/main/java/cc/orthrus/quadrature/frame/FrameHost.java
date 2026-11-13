@@ -21,6 +21,7 @@ public final class FrameHost {
     private static FrameTimeline timeline;
     private static GlGpuTimer gpuTimer;
     private static final Map<String, Integer> seen = new HashMap<>();
+    private static final StateAudit audit = StateAudit.ENABLED ? new StateAudit() : null;
     private static long lastLogNanos;
 
     private FrameHost() {
@@ -38,6 +39,9 @@ public final class FrameHost {
         }
         seen.clear();
         timeline.beginFrame();
+        if (audit != null) {
+            audit.beginPass();
+        }
     }
 
     /** The game entered a profiler section inside the world pass. */
@@ -49,6 +53,9 @@ public final class FrameHost {
         String stage = BaselineGraph.stageFor(name, occurrence);
         if (stage != null && timeline.graph().indexOf(stage) != currentStage) {
             currentStage = timeline.graph().indexOf(stage);
+            if (audit != null) {
+                audit.boundary(stage);
+            }
             timeline.enter(stage);
         }
     }
@@ -59,6 +66,9 @@ public final class FrameHost {
     public static void endPass() {
         if (timeline == null) {
             return;
+        }
+        if (audit != null) {
+            audit.endPass();
         }
         timeline.endFrame();
         currentStage = -1;

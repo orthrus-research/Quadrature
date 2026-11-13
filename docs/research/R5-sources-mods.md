@@ -61,6 +61,64 @@ classes. Both fail on Cleanroom regardless of Quadrature.
 *Implication:* three needs recur: the capture technique, an honored layer query, and state
 containment. Most of the list is covered by those three.
 
+**11.3 A survey of one large pack. [V]**
+`tools/mod_survey.py` reads the constant pools of every class in a folder of mods and
+lists which OpenGL calls each mod makes and which rendering classes it patches. Run on
+2026-11-13 over the 189 client mods of Supersymmetry 0.2.0.1-patch2 (68,661 classes). A
+reference is not proof of use at runtime, and a call's arguments are not visible.
+
+Mods that patch the game's rendering classes, by Mixin or class transformer:
+
+| Class | Mods | Which |
+|---|---|---|
+| `EntityRenderer` | 9 | Aqua Acrobatics, Quark RotN, Serene Seasons, StellarCore, Susy Core, Universal Tweaks, Chibi, Darkness, GregTech CEu |
+| `RenderGlobal` | 8 | Quark RotN, StellarCore, Susy Core, Universal Tweaks, Chibi, NAE2, Phosphor, VintageFix |
+| `RenderChunk` | 5 | StellarCore, Susy Core, Chibi, GregTech CEu, VintageFix |
+| `BlockRendererDispatcher` | 3 | Susy Core, Chibi, VintageFix |
+| `BlockModelRenderer` | 4 | Quark RotN, Susy Core, Universal Tweaks, Chibi |
+| `BlockFluidRenderer` | 3 | Aqua Acrobatics, Ocean API, Chibi |
+| `BufferBuilder` | 4 | Aqua Acrobatics, Susy Core, Universal Tweaks, Chibi |
+| `GlStateManager` | 8 | Aqua Acrobatics, Retro Sophisticated Backpacks, StellarCore, Universal Tweaks, Inventory Bogo Sorter, Chibi, VintageFix, Visual Ores |
+| `TextureMap` | 7 | Aqua Acrobatics, ConnectedTexturesMod, StellarCore, Sussy Patches, Universal Tweaks, Chibi, VintageFix |
+
+Mods by the OpenGL calls they make:
+
+| Call | Mods |
+|---|---|
+| Enable or disable state directly, bypassing the game's cache | 45 |
+| Immediate-mode drawing | 20 |
+| Scissor or viewport directly | 20 |
+| The attribute stack | 18 |
+| Depth comparison through the game's state manager | 18 |
+| Matrices directly | 15 |
+| Depth mask directly | 11 |
+| Stencil | 10 |
+| Own shader programs | 9 |
+| Blend function directly | 9 |
+| Polygon offset through the game's state manager | 8 |
+| Read pixels | 6 |
+| Own framebuffers | 5 |
+| Depth clear value | 4 |
+| Buffer objects directly | 4 |
+| Display lists | 3 |
+| Depth comparison directly | 2 |
+| Pixel storage; copying the framebuffer to a texture | 2 each |
+| Vertex array objects; generic vertex attributes | 1 each |
+| Depth range; polygon offset directly | 0 |
+
+*Implications:*
+- Nine mods in one pack patch the method Quadrature observes. Observing without
+  redirecting (R1, section 2.5) is what lets them all keep working. The terrain calls
+  Phase 2 takes over are a different matter: the five mods that patch `RenderChunk` and
+  the three that patch `BlockRendererDispatcher` are the ones whose behavior Phase 2 must
+  account for one by one.
+- Hosted code changes depth state in many places and reads depth back. Reversed depth
+  therefore translates those calls where they are made, in every class (R1, section 2.2).
+- Hosted code leaves modern state behind as well as fixed-function state. That decides
+  the envelope (R1, section 9a).
+- One pack is one sample. The tool runs on any mods folder; packs the projects target
+  should each be surveyed.
+
 **11.2 When a stop message can be shown. [V, partly]**
 Forge 1.12.2 provides `CustomModLoadingErrorDisplayException`, which a client mod throws
 during loading to show its own error screen (`GuiCustomModLoadingErrorScreen`).
@@ -78,7 +136,8 @@ are selected, once Quadrature has Mixins of its own.
 ## Follow-ups
 
 1. Write the cube source contract with Cubature (3.1).
-2. Extend the table in 11.1 from a survey of the mods in the packs the projects target.
+2. Survey the other packs the projects target with `tools/mod_survey.py`, and for each mod
+   that patches `RenderChunk` or `BlockRendererDispatcher`, record what it changes.
 3. Move renderer detection to Mixin selection when Quadrature gains Mixins (11.2).
 
 ## Sources
