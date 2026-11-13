@@ -113,17 +113,31 @@ display-list drawing runs through that program, and its vertices, colors, normal
 texture coordinates are declared inputs. Fixed-function lighting, texturing and fog do not
 run; the alpha test still does, on output zero.
 
-- **Envelope.** Each hosted stage runs inside an envelope that establishes known state
-  before it and re-establishes Quadrature's state after it. Quadrature never assumes a
-  hosted stage left state clean. **Decided.**
-- **Mirroring.** Fixed-function enable flags are not readable from a shader. The host
-  observes them where the game sets them (`GlStateManager`) and mirrors them into a small
-  uniform block the hosted program reads. **Decided**, by the specification.
-- **Direct calls.** A mod that calls the GL binding directly cannot be observed. The
-  envelope's reset covers it; correctness inside that stage is the mod's. **Decided.**
-- **Own objects.** Quadrature creates and modifies its buffers, textures and framebuffers
-  through direct state access, so it does not disturb the bindings the game caches.
+- **Entering a Quadrature stage: assume nothing.** Quadrature sets every piece of state
+  its stage depends on, every time. A quarter of the mods in a surveyed pack change state
+  with direct calls that cannot be observed, so nothing a hosted stage left is trusted.
   **Decided.**
+- **Leaving a Quadrature stage: leave the context as the game believes it to be.** State
+  the game's cache (`GlStateManager`) knows is changed only through the cache. State it
+  does not know is returned to a fixed neutral value: no program, no vertex array object,
+  the game's framebuffer, no array or element buffer, no sampler objects on the units the
+  game uses, generic vertex attribute arrays disabled, default pixel storage, the matrix
+  mode and active texture unit the game expects. **Decided.**
+- **Neutral values, not saved ones.** Reading state back to save it is a synchronizing
+  query, and the game's expected values at each boundary are known. The attribute stack is
+  not used: it saves none of the state a modern renderer adds, and other mods already use
+  its limited depth. **Decided**, by the specification.
+- **Own objects.** Quadrature creates and modifies its buffers, textures and framebuffers
+  through direct state access, which changes no binding, and uses texture units and
+  binding points fixed-function drawing does not. **Decided.**
+- **Mirroring.** Fixed-function enable flags are not readable from a shader. From Phase 5
+  the host observes them where the game sets them and mirrors them into a small uniform
+  block the hosted program reads. **Decided**, by the specification.
+- **Audit.** In development builds, a fixed list of state is read back at each stage
+  boundary and compared with the cache and the neutral values, naming the first stage that
+  leaves a difference. It is a diagnostic and never runs in a normal frame. **Decided.**
+
+The research behind these rules is R1, section 9a.
 
 Until Phase 5, hosted stages run exactly as the game draws them, with no program bound.
 
@@ -134,9 +148,17 @@ Until Phase 5, hosted stages run exactly as the game draws them, with no program
 - **Color.** Lighting is computed in linear space into floating-point targets; the final
   stage applies exposure, tone mapping and display encoding. **Default** from Phase 5.
   Before that the frame stays in the game's display-encoded space.
-- **Depth.** Two candidates, chosen by prototype (research R1, section 2.2): reversed
-  depth for the whole frame with the game's depth state translated where it is set, or
-  conventional depth near and a separate range for distant terrain. **Candidate.**
+- **Depth.** The whole frame uses reversed depth: the near plane at 1, the far plane at
+  0, clip depth from 0 to 1 (`glClipControl`), a 32-bit floating-point depth buffer.
+  **Decided** (D17). Hosted code is not asked to change. A class transformer points every
+  call to a depth function, in the game and in every mod, at a translator that reverses
+  the comparison, clear value, polygon offset and depth range on the way to the driver
+  and restores them when read. The projection stack's base is a reversal matrix, so every
+  projection hosted code builds on it is reversed without being touched, and reads of the
+  projection return the conventional matrix. Quadrature's own code is not rewritten and
+  works in reversed depth directly; its projections are derived from the matrix the
+  driver holds, so its depth matches hosted depth. **Prototype built**, behind a switch;
+  what it does not yet cover is listed in research R1, section 2.2.
 
 ### 4.6 Timing
 
@@ -359,8 +381,8 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 |---|---|---|
 | Module boundaries, capability rule, technique selection at compile | Decided | |
 | Pass graph with cached compilation | Default | Frame cost of recompiling, if graphs change often |
-| Hosted stage envelope and state mirroring | Decided | |
-| Depth convention | Candidate | Prototype with hosted entity draws |
+| State envelope: assume nothing on entry, neutral values on leaving; state mirroring | Decided | Proved by the state audit |
+| Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |
 | Compact faces with indirect multi-draw, first | Default | Phase 2 measurements |

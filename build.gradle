@@ -83,7 +83,10 @@ jar {
     manifest.attributes('ModType': 'CRL', 'Implementation-Title': 'Quadrature',
         'Implementation-Version': project.version, 'Quadrature-Platform': platform.id,
         // CleanMix registers Quadrature's Mixin configuration before the game's classes load.
-        'MixinConnector': 'cc.orthrus.quadrature.mixin.QuadratureMixinConnector')
+        'MixinConnector': 'cc.orthrus.quadrature.mixin.QuadratureMixinConnector',
+        // The loading plugin registers the call rewriter; the same JAR also holds the mod.
+        'FMLCorePlugin': 'cc.orthrus.quadrature.asm.QuadratureLoadingPlugin',
+        'FMLCorePluginContainsFMLMod': 'true')
     from(files('LICENSE', 'NOTICE.md')) { into 'META-INF' }
 }
 
@@ -114,6 +117,16 @@ cleanroom {
                     systemProperty 'quadrature.dev.autoWorld', 'true'
                     systemProperty 'quadrature.dev.exitAfterSeconds', project.property('devWorld')
                     systemProperty 'quadrature.frameLog', 'true'
+                }
+                // A development run has no manifest to name the loading plugin either.
+                systemProperty 'fml.coreMods.load', 'cc.orthrus.quadrature.asm.QuadratureLoadingPlugin'
+                // -PreversedDepth switches the whole frame to reversed depth (a prototype).
+                if (project.hasProperty('reversedDepth')) {
+                    systemProperty 'quadrature.reversedDepth', 'true'
+                }
+                // -PstateAudit reads OpenGL state at every stage boundary and reports what each stage leaves.
+                if (project.hasProperty('stateAudit')) {
+                    systemProperty 'quadrature.stateAudit', 'true'
                 }
             }
         }

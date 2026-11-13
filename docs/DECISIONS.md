@@ -84,6 +84,13 @@ The contract for what Cubature supplies to a renderer lives in Cubature's reposi
 its interfaces in Cubature's public API module. It is written for any renderer, not for
 Quadrature by name. Quadrature keeps only a record of what it relies on.
 
+**D17. The whole frame uses reversed depth.**
+One depth convention for everything drawn: the near plane at depth 1, the far plane at 0,
+clip depth from 0 to 1, a floating-point depth buffer. Hosted code keeps setting and
+reading conventional depth state; Quadrature translates it where the calls are made
+(research R1, section 2.2). A prototype passes the frame comparison in a cubic instance;
+it stays behind a switch until the items listed there are covered.
+
 **D8. Narrow support, general design.**
 The supported platform is narrow; the taxonomy and paradigms are not. Vendor, API, world
 type and shader source each sit behind a seam named in `docs/REQUIREMENTS.md`, so support

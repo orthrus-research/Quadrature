@@ -82,6 +82,31 @@ authors can dedicate: their own expression of ideas, never copied code.
   conventions for registering a Mixin configuration.
 - Added: 2026-11-13
 
+### Reversed depth
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/depth/ReversedDepth.java`,
+  `src/main/java/cc/orthrus/quadrature/depth/DepthCalls.java`,
+  `src/main/java/cc/orthrus/quadrature/asm/`, `MixinFramebuffer.java`, `MixinMinecraft.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification, sections 13.7
+  and 13.8 (clip control and the depth mapping); NVIDIA's published description of
+  reversed depth; Forge's loading plugin and class transformer interfaces. Redirecting
+  OpenGL calls by rewriting call sites is a known technique in other renderers for this
+  game; none of their source was read for it.
+- Added: 2026-11-13
+
+### State audit
+- Code: `src/main/java/cc/orthrus/quadrature/frame/StateAudit.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification's state query
+  names.
+- Added: 2026-11-13
+
+### Mod survey
+- Code: `tools/mod_survey.py`
+- Source: original. Facts used: the Java class file format (constant pool), from the Java
+  Virtual Machine Specification.
+- Taken: nothing from the surveyed mods. The tool reads the names a class refers to; it
+  does not read, decompile or execute mod code.
+- Added: 2026-11-13
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

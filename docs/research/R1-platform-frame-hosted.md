@@ -65,20 +65,88 @@ Unreal and AMD's render pipeline shaders use the same coarse pass granularity.
 *Implication:* Quadrature's graph changes when the selected shader or settings change, not
 every frame, so it can compile once per configuration.
 
-**2.2 Depth precision. [V] and a conflict. [K]**
-`glClipControl` is core since 4.5. The 4.6 compatibility specification defines it in
-section 13.7 as a property of clipping, and section 13.8 changes the depth mapping to
-`s = f - n, b = n` in `ZERO_TO_ONE` mode; both apply to every primitive, however its
-vertices were transformed. Reversed depth needs the `GL_ZERO_TO_ONE` clip range, a
-floating-point depth buffer, swapped near and far, and reversed comparisons; NVIDIA's own
-write-up recommends it with an infinite far plane for large distances.
-The conflict: hosted renderers call `glDepthFunc(GL_LEQUAL)` and `glClearDepth(1)`
-themselves and assume conventional depth. Two candidates:
-- translate depth state where the game sets it (see 9.2), so hosted code runs reversed
-  without knowing;
-- keep conventional depth for the near field and give distant terrain its own depth range,
-  composited afterwards.
-*Open:* which candidate; needs a prototype.
+**2.2 Depth: the whole frame reversed. [V, measured]**
+The whole frame uses reversed depth (D17). This section records what that requires, how
+hosted code is kept unaware of it, and what a prototype showed.
+
+What reversed depth requires. `glClipControl` is core since 4.5; the compatibility
+specification defines it in section 13.7 as a property of clipping, and section 13.8
+changes the depth mapping to `s = f - n, b = n` in `ZERO_TO_ONE` mode, for every primitive
+however its vertices were transformed. To gain precision the frame also needs a
+floating-point depth buffer, a projection whose clip depth runs from w at the near plane
+to 0 at the far plane, a cleared depth of 0 instead of 1, a "greater" comparison instead
+of "less or equal", and a polygon offset of opposite sign. NVIDIA's write-up recommends
+this with an infinite far plane.
+
+Who sets that state. Every item is state the game and other mods set themselves. In the
+surveyed pack (R5, section 11.3):
+
+| State | Who sets it |
+|---|---|
+| Depth comparison | The game; 18 mods through the game's state manager; 2 mods directly |
+| Depth clear value | The game; 4 mods |
+| Polygon offset | The game (block damage); 8 mods |
+| Projection matrix | The game; 15 mods load or multiply matrices directly |
+| Depth read back | 6 mods read pixels, 2 copy the framebuffer to a texture, 5 keep their own framebuffers |
+
+How hosted code is kept unaware. Two mechanisms, both at one point each:
+
+1. **Calls are translated where they are made.** A class transformer rewrites, in every
+   class the game loads, each call to one of 27 OpenGL functions so that it lands in a
+   translator of the same name and signature. The translator swaps the comparison's
+   direction, replaces a depth value d by 1 - d, negates polygon offsets, and maps a depth
+   range (n, f) to (1 - f, 1 - n). The functions that read that state back translate the
+   other way, so a caller that saves and restores state sees the values it set. This
+   covers direct calls as well as calls through the game's state manager, which section
+   9.2 could not observe.
+2. **The projection stack's base is a reversal.** Fixed-function matrix calls multiply on
+   the right. So when a caller loads identity or a matrix onto the projection stack, the
+   translator loads the reversal R times that matrix instead, where R maps clip depth z to
+   (w - z) / 2. Every later `glOrtho`, `glFrustum` or perspective multiply keeps R in
+   front without being touched, and the fixed-function `gl_ProjectionMatrix` that other
+   mods' shaders read is already reversed. Reading the projection matrix returns it with
+   R removed, so the game's frustum culling and camera position are computed as before.
+
+The translator needs to know the current matrix mode. It tracks `glMatrixMode` and reads
+the mode again after `glPopAttrib`, which can restore a mode it never saw set. It
+translates only on the render thread; the loading screen draws on its own thread and
+context and is left alone. Reversed depth is switched on at the first pass of the game
+loop, when the render thread holds the window's context, and the state set before that
+moment is read back and set again translated.
+
+The game's framebuffers get a 32-bit floating-point depth buffer in place of the 24-bit
+fixed-point one.
+
+Measured 2026-11-13, prototype behind `-Dquadrature.reversedDepth=true`:
+
+- Development client: 1,194 frames, no OpenGL errors; the state audit, which reads the
+  driver directly, shows comparison "greater or equal" and clear value 0 at every pass
+  while the game's own cache holds "less or equal" and 1.
+- Cubic instance (Cubature, Riven, GregTech CEu: Reloaded, CodeChickenLib, ModularUI,
+  OrthLib), forest tour, second run against the settled vanilla reference: all 17 views
+  pass the near-terrain profile. The worst view changes 0.063% of pixels and the largest
+  mean difference is 0.017. No view is pixel-identical; the same comparison without
+  reversed depth had 6 identical views and a worst of 0.039%. The first run fails three
+  views, as first runs do against a settled reference (`docs/VERIFICATION.md`).
+
+*Not yet covered:*
+
+- The pixels that differ are not attributed. Different depth rounding at distant edges is
+  expected; that it is the only cause is not shown.
+- Depth read back with `glReadPixels`, depth textures sampled by other mods' shaders, and
+  `gl_FragCoord.z` in them are not translated. In the surveyed pack 6 mods read pixels;
+  which of them read depth is not known.
+- A display list that changes the matrix mode, and matrix calls through direct state
+  access, are not tracked.
+- A projection built by multiplying a perspective onto the base is reversed by the driver
+  in single precision, which shifts the effective near plane by a relative 0.02% at the
+  game's own far plane. It is monotonic and the same for everything drawn with that
+  matrix. Quadrature's own projections must be derived from the same matrix, read from
+  the driver, so its depth matches hosted depth exactly.
+- Cost is not measured: the per-call test for the render thread, the state read after
+  each `glPopAttrib`, and the rewriter's share of class loading in a large pack.
+- The larger pack. Ten mods were present; the 20 depth-setting mods of the surveyed pack
+  were not.
 
 **2.3 Color. [K]**
 The game's textures and vertex colors are display-encoded, and its own blending happens in
@@ -166,23 +234,134 @@ dropped are merged into LWJGL 3's class from generated shims and handwritten ada
 most of them a renamed delegate. So a mod's direct `GL11` call lands in LWJGL 3's own
 class. There is no routing layer to observe; seeing direct calls would mean transforming
 the calling classes, which is Cleanroom's mechanism and not one Quadrature owns.
-*Implication:* `GlStateManager` is the observation point. Direct LWJGL calls are handled
-by reading back or resetting the affected state at stage boundaries, not by interception.
+*Implication:* `GlStateManager` is the observation point for mirroring state. Depth is
+the exception: Quadrature rewrites the calling classes for a fixed list of depth functions
+(section 2.2). Measured there: the binding's own classes pass through class transformers
+too and must be excluded, or the translator's calls return to itself.
 *Open:* how many common mods bypass `GlStateManager`.
 
-**9.3 Fixed-function state the game uses. [K]**
-Texture unit 0 for the base texture and unit 1 for the lightmap with a texture matrix; two
-directional lights with color material for entities and items; linear and exponential fog;
-alpha test at 0.1; texture matrix animation for enchantment glint; texture environment
-combine for the entity damage tint.
-*Follow-up:* turn this into a complete list by instrumenting a running client.
+**9.3 The state the game really uses and leaves. [V, measured]**
+Measured 2026-11-13 with the state audit (`-Dquadrature.stateAudit=true`), which reads 41
+state items at every stage boundary for 120 frames. Two runs: the development client (the
+game alone, a flat world) and a cubic instance of the current stack (Cubature, Riven,
+GregTech CEu: Reloaded, CodeChickenLib, ModularUI, OrthLib), at the forest tour's first
+view.
+
+At the start of the world pass, in both runs and every frame: no program, no vertex array
+object, the game's framebuffer bound for drawing and reading, no array or element buffer,
+no sampler objects, pack and unpack alignment 4, matrix mode modelview, an empty attribute
+stack, texture unit 0 active, depth test on with "less or equal", depth writes on, depth
+cleared to 1, blending off, alpha test on, culling on, lighting and fog off.
+
+What the stages leave:
+
+- **Fixed-function state is never restored between stages.** Fog, lighting, color
+  material, blending and its factors, the alpha test and its reference, culling, the
+  depth mask, the shade model and the bound textures change at nearly every boundary and
+  stay changed. For example the opaque terrain stage leaves lighting on and the alpha
+  reference at 0.1, and the entities stage leaves blending on and culling off.
+- **Modern state is never left changed.** In neither run did any stage leave a different
+  program, vertex array object, framebuffer, buffer, sampler, pixel storage mode, matrix
+  mode or active texture unit from the one it found.
+- **The mod stack shows up in one stage.** In the cubic instance the translucent terrain
+  stage leaves a different texture on unit 0 and none on unit 1, and the next stage puts
+  them back. Which mod does it is not established; GregTech CEu's bloom hooks this stage
+  and is the first candidate.
+
+*Implication:* both envelope rules match the frame as it is. A stage cannot rely on what
+the one before left, because the game itself does not tidy up; and the neutral values
+Quadrature returns to on leaving are the ones the game holds at every boundary.
+*Limits:* 120 frames at one view in each run, and ten mods, not the 189 of the surveyed
+pack. The audit sees state at boundaries, not what a stage does and undoes inside itself.
 
 **9.4 Cost of state tracking. [M]**
 
+## 9a. The state envelope
+
+What keeps Quadrature's drawing and hosted drawing from corrupting each other. Researched
+2026-11-13 from the specification, published practice and the survey in R5, section 11.3.
+
+**9a.1 What the attribute stack saves, and what it does not. [V]**
+The compatibility specification, section 21.6: `PushAttrib` and `PopAttrib` save and
+restore state by attribute group, and `PushClientAttrib` covers pixel storage and vertex
+array state. Three limits matter:
+- Matrix stacks are never pushed or popped.
+- Sampler object bindings and state are not pushed or popped.
+- Texture state is pushed only for the fixed-function texture units, up to
+  `MAX_TEXTURE_UNITS`; a renderer that uses higher units gets no help for them.
+
+The bound program, vertex array object, framebuffer and buffer bindings belong to no
+attribute group and are not saved either [K, by their absence from the groups; published
+reports agree]. The stack is at least 16 deep, and 18 mods in the survey already use it,
+so Quadrature must not consume much of that depth.
+*Implication:* the attribute stack cannot be the envelope. It misses exactly the state a
+modern renderer adds.
+
+**9a.2 The game's state cache. [K]**
+`GlStateManager` remembers what it last set (blend, depth, alpha, cull, fog, lighting,
+color mask, polygon offset, the active texture unit and each unit's bound 2D texture,
+color, shade model and others) and skips a call that would repeat it. State changed
+behind it is therefore silently wrong: the cache says one thing and the context another.
+It does not cache matrices, viewport, scissor, the program, the vertex array object, the
+framebuffer, buffer bindings, samplers or pixel storage.
+
+**9a.3 The hazards, each a known class of defect. [V for the first two, K otherwise]**
+
+| State left behind by a modern renderer | What the hosted code then does |
+|---|---|
+| Pixel storage modes (unpack alignment and others) | Uploads textures skewed. They are client state, outside `PushAttrib`; the Khronos pitfalls article singles them out |
+| A selector: active texture unit, matrix mode, bound buffer | Edits the wrong object. NVIDIA's direct state access specification was written to remove this hazard for layered libraries |
+| A vertex array object | Fixed-function vertex arrays are set on the wrong object |
+| A sampler object bound to a unit | The game's texture is sampled with the wrong filtering and wrapping; nothing in the attribute stack restores it |
+| An enabled generic vertex attribute array | A fixed-function draw reads from an array it never set |
+| A bound program | Fixed-function drawing silently runs through it |
+| A bound framebuffer | The game draws into the wrong target |
+| Any cached state changed directly | The cache skips the call that would have fixed it |
+
+**9a.4 What the surveyed mods do. [V]**
+In one pack of 189 client mods: 45 enable or disable state with direct calls, bypassing
+the cache; 18 use the attribute stack; 9 bind their own shader programs; 5 bind their own
+framebuffers; 10 use the stencil buffer; 4 bind buffers directly; 2 change pixel storage;
+1 binds vertex array objects; 1 uses generic vertex attributes; 8 patch the state manager
+itself. Hosted code is not a clean fixed-function guest: it leaves modern state behind
+too.
+
+**9a.5 The envelope that follows from this.**
+Two rules, one for each direction.
+
+*Entering a Quadrature stage: assume nothing.* Quadrature sets every piece of state its
+stage depends on, every time. It never relies on what a hosted stage left, because a
+quarter of the surveyed mods change state where it cannot be seen.
+
+*Leaving a Quadrature stage: leave the context as the game believes it to be.*
+- State the cache knows is changed only through the cache, so the cache stays true.
+  Where Quadrature must set such state directly, it resets the cache's entry on leaving.
+- State the cache does not know is returned to a fixed neutral value on leaving: no
+  program, no vertex array object, the game's framebuffer, no array or element buffer
+  bound, no sampler objects on the units the game uses, generic vertex attribute arrays
+  disabled, default pixel storage, the matrix mode and active texture unit the game
+  expects.
+- Quadrature's own objects are created and modified through direct state access, which
+  changes no binding at all.
+- Quadrature uses texture units, buffer binding points and sampler units the game and
+  fixed-function drawing do not, wherever it can, so there is less to return.
+
+Neutral values, not saved ones, are the deliberate choice: reading state back to save it
+is a synchronizing query (section 1.7), and the game's expected values at each boundary
+are known constants.
+
+**9a.6 Proving it. [M]**
+An audit, in development builds only: at each stage boundary, read back a fixed list of
+state and compare it with what the cache holds and with the neutral values, and report
+the first stage that leaves a difference. Run against the game alone it yields the list
+of state the game really uses (section 9.3); run with other mods installed it shows which
+of them leave state behind. It reads state back, so it is a diagnostic, never part of a
+normal frame.
+
 ## Follow-ups
 
-1. Prototype reversed depth with hosted entity draws (2.2).
-2. Instrument a client for fixed-function state use and direct LWJGL calls (9.2, 9.3).
+1. Prototype the distant terrain composite and its transition band, in Phase 4 (2.2).
+2. Run the state audit on more views and with a larger pack installed (9.3).
 3. Test parallel compile and program binary caching on a current driver (1.5).
 
 ## Sources
@@ -199,6 +378,14 @@ combine for the entity damage tint.
 - O'Donnell, "FrameGraph: Extensible Rendering Architecture in Frostbite", GDC 2017:
   https://www.slideshare.net/DICEStudio/framegraph-extensible-rendering-architecture-in-frostbite
 - Khronos, `glClipControl` reference: https://registry.khronos.org/OpenGL-Refpages/gl4/html/glClipControl.xhtml
+- Kilgard, "Avoiding 16 Common OpenGL Pitfalls" (pixel store state):
+  https://www.opengl.org/archives/resources/features/KilgardTechniques/oglpitfall/
+- NVIDIA, `EXT_direct_state_access` specification (selectors and layered libraries):
+  https://developer.download.nvidia.com/opengl/specs/GL_EXT_direct_state_access.txt
+- Microsoft, saving and restoring sets of state variables:
+  https://learn.microsoft.com/en-us/windows/win32/opengl/saving-and-restoring-sets-of-state-variables
+- Cesium, "Graphics Tech in Cesium" (multiple frustums, depth cleared between them):
+  https://cesium.com/blog/2015/05/14/graphics-tech-in-cesium/
 - NVIDIA, "Depth Precision Visualized": https://developer.nvidia.com/content/depth-precision-visualized
 - CleanroomMC/LWJGLY, README, read 2026-11-13: https://github.com/CleanroomMC/LWJGLY
 - CleanroomMC/Cleanroom, `module/minecraft/patches/net/minecraft/client/renderer/EntityRenderer.java.patch`,

@@ -36,7 +36,9 @@ Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 25):
 
 `./gradlew runClient` starts a development client. Adding `-PdevWorld=<seconds>` enters a
 flat development world unattended, logs each stage's CPU and GPU time every five seconds,
-and quits after that many seconds. Adding `-PtestMemoryFloorMiB=<n>`
+and quits after that many seconds. Adding `-PstateAudit` also reads OpenGL state at every
+stage boundary and reports what each stage leaves changed. Adding `-PreversedDepth` switches the
+whole frame to reversed depth, a prototype that is off by default. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 
