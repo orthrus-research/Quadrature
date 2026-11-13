@@ -76,8 +76,8 @@ Research comes first; its answers decide the architecture.
   measured in flight (two captures) and stationary (one) in [BASELINE.md](BASELINE.md).
   That baseline is the bar for P2 (decision D14). Celeritas is measured beside it as a
   comparison, in flight (two captures, through the harness extended to the shader stack)
-  and as tour frames. Open: the canonical world; an 8 GB card; what render work spans
-  under Celeritas.
+  and as tour frames, and again with a shader pack enabled (two captures). Open: the
+  canonical world; an 8 GB card; GPU time; what render work spans under Celeritas.
 - P0-V2 is done to the extent this machine allows.
 - Next: the architecture document (P0-A1).
 

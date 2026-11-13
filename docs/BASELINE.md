@@ -90,6 +90,36 @@ Client, during the 60 s of flight:
 Server tick times are the same within the spread between captures, as expected: the
 renderer is client-side.
 
+### With a shader pack
+
+The same again with Complementary Reimagined r5.9.3 enabled through Demonica. Two captures;
+both passed, and the client log confirms the pack loaded (2.3 s to build its pipeline).
+
+| Measure, during the 60 s of flight | Celeritas, no pack | Celeritas with the pack |
+|---|---|---|
+| Render work per frame, median | 2.62, 2.44 ms | 4.52, 4.55 ms |
+| Render work per frame, 95th percentile | 5.10, 4.63 ms | 8.25, 8.28 ms |
+| Render work per frame, 99th percentile | 7.61, 7.06 ms | 11.31, 11.68 ms |
+| Frame time, 95th percentile | 11.12, 11.22 ms | 11.50, 11.76 ms |
+| Frame time, 99th percentile | 18.97, 16.52 ms | 19.07, 19.89 ms |
+| Frames over 16.7 ms | 117, 67 | 122, 117 |
+| Frames over 33.3 ms | 6, 8 | 17, 17 |
+| Frames drawn | 7,192, 7,205 | 7,068, 7,042 |
+| Client process, peak working set | 7.55, 7.65 GiB | 7.81, 7.71 GiB |
+| GPU memory, peak above pre-launch | 565, 559 MiB | 822, 812 MiB |
+| GPU utilization, mean | 26%, 26% | 35%, 36% |
+| GPU utilization, peak | 60%, 57% | 69%, 63% |
+
+The pack adds about 2 ms of render work per frame on the client and about 250 MiB of GPU
+memory, and raises mean GPU utilization by about ten points. Its render work stays below
+the vanilla renderer's (4.5 ms against about 6 ms). The frame cap still holds: the client
+does not fall below 120 frames per second at the median. While the full view loads, the
+99th-percentile frame time rises to 30.86 and 22.78 ms, against 16.82 and 16.86 ms without
+the pack.
+
+Render work is measured on the client thread. GPU time spent in the pack's passes is not
+in it; GPU utilization is the only view of that here.
+
 Render work is measured by observer hooks written against the vanilla renderer. Celeritas
 moves terrain work off that path, so the two render-work columns may not span the same
 work; the ratio is indicative. The frame counts do not depend on those hooks and point the
@@ -124,8 +154,9 @@ this capture; its peak of 381 MiB above the starting level is a lower bound.
 
 ## What this baseline does not cover
 
-- **A shader pack.** Celeritas is measured with no pack enabled; Demonica's shader
-  pipeline is not.
+- **GPU time.** Nothing here times the GPU; with a shader pack that is where much of the
+  cost is.
+- **Other packs.** One pack is measured; Riven also pins Complementary Unbound and BSL.
 - **What render work spans under Celeritas.** See the caution in that section.
 - **The canonical 32 km world.** The capture command takes no seed or scale; this is the
   benchmark world.
@@ -134,6 +165,7 @@ this capture; its peak of 381 MiB above the starting level is a lower bound.
 - **Frames.** Reference images are in VERIFICATION.md's two tour instances, not here.
 
 Captured instances: `quadrature-baseline-flight-01` and `-02` (vanilla),
-`quadrature-baseline-celeritas-01` and `-02`, and `quadrature-baseline-lifecycle-01`
+`quadrature-baseline-celeritas-01` and `-02`, `quadrature-baseline-complementary-01` and
+`-02` (shader pack), and `quadrature-baseline-lifecycle-01`
 (stationary), each with a record in Riven's telemetry ledger; tour frames in
 `quadrature-celeritas-01`.
