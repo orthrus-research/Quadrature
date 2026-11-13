@@ -97,10 +97,14 @@ As of 2026-11-13.
 | Stage boundaries from the game's world pass, without redirecting anything | Done. In the development client: 14 hosted stages, 2,379 frames, no stage out of order, unknown or outside a frame |
 | CPU and GPU time per stage | Done. No GPU result was dropped in that run |
 | The gate refuses Kirino's graphics state | Done. Verified in the development client: loading halts with the message |
-| A cubic world, with Cubature | Not done. The development client is a non-cubic world without Cubature |
-| The frame compared against the vanilla reference | Not done. It needs Quadrature installed in a Riven instance, which the launcher cannot yet do |
+| A cubic world, with Cubature | Done. Installed from its JAR in a Riven instance: the Mixin configuration registered through the manifest, and 43,452 frames ran with no stage out of order, unknown or outside a frame and no GPU result dropped |
+| The frame compared against the vanilla reference | Done. All 17 forest tour views pass the near-terrain profile against the vanilla reference; 6 are pixel-identical and the worst changes 0.039% of pixels ([VERIFICATION.md](VERIFICATION.md)) |
 | State envelope around hosted stages | Not started; nothing of Quadrature's draws yet, so there is no state to protect |
 | Reversed depth prototype; fixed-function state survey | Not started |
+
+Phase 1's closing condition, a cubic world matching the vanilla image within the stated
+tolerance, is met for a frame in which Quadrature observes and draws nothing. The state
+envelope and the two prototypes remain before the phase closes.
 
 The development client reaches a world on its own with `./gradlew runClient -PdevWorld=<seconds>`,
 logs stage times every five seconds, and quits.

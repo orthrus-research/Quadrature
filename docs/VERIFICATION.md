@@ -82,6 +82,24 @@ What this establishes:
   against run 2 on view 16. `repeat.json` passes run 2 against run 3 with Distant Horizons
   and fails run 1 against run 2 on nine frames.
 
+## Quadrature against the vanilla reference
+
+Measured 2026-11-13, at the commit that added the timed baseline graph. Quadrature was
+installed from its JAR on a fresh instance prepared like the near-terrain reference (seed
+2485331, scale 4, no Distant Horizons), the forest tour was captured twice, and the second
+run was compared with the reference's settled run under `near.json`.
+
+| Result | |
+|---|---|
+| Frames passing | 17 of 17 |
+| Pixel-identical frames | 6 |
+| Worst changed fraction | 0.039% (`07-boreal_forest`, the same view that differs between two vanilla runs) |
+
+At this commit Quadrature observes the game's world pass and draws nothing, so this shows
+that observing it does not change the frame. Stage times from that run, at the last view,
+medians: opaque terrain 0.73 ms on the CPU and 2.55 ms on the GPU; translucent terrain
+0.12 ms and 0.31 ms; all stages together 1.09 ms and 2.89 ms.
+
 ## Limits
 
 - The harness cannot wait for a settled state; it relies on discarding the first run.
