@@ -64,9 +64,11 @@ What changed in each case:
   not been identified.
 - **Near terrain, first run.** One view (`16-temperate_rainforest-near`) changed by 0.93%:
   patches of ground under the canopy lit differently. The same 0.9297% appeared on both
-  instances between runs 1 and 2 and was gone between runs 2 and 3. Light on freshly
-  generated terrain differs there from light after a save and reload. Every other view
-  changed by 0.086% at most.
+  instances between runs 1 and 2 and was gone between runs 2 and 3. The two instances'
+  run 1 frames are pixel-identical to each other, as are their run 2 frames, so the
+  first-run state is deterministic; in every changed pixel run 1 is the darker. Light on
+  freshly generated terrain differs there from light after a save and reload. Every other
+  view changed by 0.086% at most.
 - **Near terrain, settled.** One view changed by 0.055%; the rest by nothing, or by a few
   pixels under the threshold.
 

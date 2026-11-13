@@ -10,7 +10,7 @@ the replacement is proven. Requirements for each area are in
 |---|---|---|
 | P0 Foundations | Research answers, architecture, repository, platform gate, capture and comparison harness, baselines | A frame can be captured and compared automatically, and every requirement section has its research answered |
 | P1 Frame | The pass graph hosting the game's own drawing, vanilla terrain still inside it | A cubic world matches the vanilla image within the stated tolerance |
-| P2 Terrain | Cube source, meshing, visibility, submission | Quadrature's terrain replaces vanilla's at or above the baseline; Cubature's chunk-render Mixins are deleted |
+| P2 Terrain | Cube source, meshing, visibility, submission | Quadrature's terrain replaces vanilla's at or above the vanilla renderer's measured baseline ([BASELINE.md](BASELINE.md)); Cubature's chunk-render Mixins are deleted |
 | P3 Mod interface and post-processing | Layers, emissive, bloom, stage hooks, state containment | GTCEu: Reloaded's bloom runs on it and its renderer Mixins are deleted |
 | P4 Levels of detail | Distant source, detail levels, streaming, transitions | Distant Horizons and Cubature's integration with it are removed, at parity or better |
 | P5 Shaders | Shading stages, shader format, first shader, the suite | Quadrature's shaders light near terrain, distant terrain, entities and the hand, and can be switched in game |
@@ -72,7 +72,12 @@ Research comes first; its answers decide the architecture.
   ([VERIFICATION.md](VERIFICATION.md)). A settled near-terrain instance reproduces 13 of
   17 frames exactly. Carried forward: the harness cannot wait for a settled state, and two
   differences are unexplained (first-run lighting under canopy; the settled horizon).
-- Next: P0-V2 (baselines).
+- P0-V2 is partly done (2026-11-13): the vanilla near renderer with Distant Horizons is
+  measured in flight (two captures) and stationary (one) in [BASELINE.md](BASELINE.md).
+  That baseline is the bar for P2 (decision D14). Open: Celeritas as a comparison, which
+  needs the harness extended to the shader stack; the canonical world; an 8 GB card.
+- Next: the Celeritas comparison (tours with the shader stack, then the harness), then the
+  architecture document.
 
 ### Research status
 
@@ -107,7 +112,7 @@ Quadrature is an original implementation (decision D2).
 
 | Risk | Where it bites | Response |
 |---|---|---|
-| Performance below the baseline | P2 cannot close | Baseline first (P0-V2); measure from the first terrain frame |
+| Performance below the vanilla baseline | P2 cannot close | Baseline recorded (P0-V2); measure from the first terrain frame |
 | Mods that inject into vanilla chunk rendering | P2 and P3 | Survey in P0-R5; policy before P2 starts |
 | Hosted fixed-function draws resist relighting | P5 | Research in P0-R1 before the pass graph is fixed |
 | Distant terrain storage and bandwidth | P4 | Budgets in P0-D1; representation chosen against them |

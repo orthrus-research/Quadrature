@@ -50,6 +50,7 @@ no Minecraft dependency.
 
 - [docs/VERIFICATION.md](docs/VERIFICATION.md): how frames are captured and compared, and
   the measured repeatability
+- [docs/BASELINE.md](docs/BASELINE.md): what the current stack measures, as the bar to meet
 - [docs/research/](docs/research/README.md): research findings per work order, with the
   basis of each and what is still open
 

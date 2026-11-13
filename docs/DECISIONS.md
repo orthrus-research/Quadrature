@@ -66,6 +66,12 @@ definitions. Resource packs that follow the convention therefore work, while the
 model stays free to carry properties the convention has no channel for. LabPBR is a
 resource pack format, not a shader pack format, so this does not touch D5.
 
+**D14. Phase 2's performance bar is the vanilla renderer's measured baseline.**
+Quadrature's terrain must match or beat the vanilla near renderer as recorded in
+`docs/BASELINE.md`, under the same workload. That baseline exists and can be repeated with
+the same harness. Celeritas is measured as a comparison to report alongside, not as the
+condition for closing the phase.
+
 **D8. Narrow support, general design.**
 The supported platform is narrow; the taxonomy and paradigms are not. Vendor, API, world
 type and shader source each sit behind a seam named in `docs/REQUIREMENTS.md`, so support
