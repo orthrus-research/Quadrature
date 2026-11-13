@@ -1,0 +1,96 @@
+plugins {
+    id 'java-library'
+    id 'com.cleanroommc.cleanroomgradle'
+}
+
+// Every platform version comes from platform.json; nothing is pinned anywhere else.
+ext.platform = new groovy.json.JsonSlurper().parse(file('platform.json'))
+ext.cleanroom_version = platform.cleanroom.version
+if (platform.schema != 1) {
+    throw new GradleException('platform.json has an unknown schema.')
+}
+if (System.getProperty('java.runtime.version') != platform.java.runtimeVersion ||
+        System.getProperty('java.vendor') != platform.java.vendor) {
+    throw new GradleException("Run Gradle with ${platform.java.vendor} ${platform.java.runtimeVersion}; " +
+        "observed ${System.getProperty('java.vendor')} ${System.getProperty('java.runtime.version')}.")
+}
+
+group = 'cc.orthrus.quadrature'
+version = mod_version
+base.archivesName = 'quadrature'
+
+allprojects {
+    repositories { mavenCentral() }
+    plugins.withId('java') {
+        java.toolchain {
+            languageVersion = JavaLanguageVersion.of(rootProject.platform.java.major as int)
+            vendor = JvmVendorSpec.ADOPTIUM
+        }
+        tasks.withType(JavaCompile).configureEach {
+            options.encoding = 'UTF-8'
+            options.release = rootProject.platform.java.major as int
+            options.compilerArgs.addAll(['-Xlint:all,-processing,-serial'])
+        }
+    }
+}
+
+java {
+    withSourcesJar()
+}
+
+evaluationDependsOn(':core')
+
+dependencies {
+    implementation cleanroom.userdev(cleanroom_version)
+    implementation project(':core')
+}
+
+def constantsDirectory = layout.buildDirectory.dir('generated/sources/quadrature')
+tasks.register('generateModConstants') {
+    inputs.properties(modVersion: project.version, cleanroomVersion: cleanroom_version)
+    outputs.dir(constantsDirectory)
+    doLast {
+        def destination = constantsDirectory.get().file('cc/orthrus/quadrature/QuadratureBuild.java').asFile
+        destination.parentFile.mkdirs()
+        destination.setText("""package cc.orthrus.quadrature;
+
+/** Build constants generated from gradle.properties and platform.json. */
+final class QuadratureBuild {
+    static final String VERSION = \"${project.version}\";
+    static final String CLEANROOM = \"${cleanroom_version}\";
+    private QuadratureBuild() {}
+}
+""", 'UTF-8')
+    }
+}
+sourceSets.main.java.srcDir(constantsDirectory)
+tasks.named('compileJava') { dependsOn 'generateModConstants' }
+tasks.named('sourcesJar') { dependsOn 'generateModConstants' }
+
+processResources {
+    inputs.properties(version: project.version, cleanroom: cleanroom_version)
+    filesMatching('mcmod.info') {
+        expand(version: project.version, cleanroom: cleanroom_version)
+    }
+}
+
+jar {
+    // One runtime JAR: the Minecraft host plus the Minecraft-free core.
+    from(project(':core').sourceSets.main.output)
+    manifest.attributes('ModType': 'CRL', 'Implementation-Title': 'Quadrature',
+        'Implementation-Version': project.version, 'Quadrature-Platform': platform.id)
+    from('NOTICE') { into 'META-INF' }
+}
+
+sourcesJar {
+    from(project(':core').sourceSets.main.allSource)
+    from('NOTICE') { into 'META-INF' }
+}
+
+tasks.named('check') { dependsOn ':core:check' }
+
+cleanroom {
+    runs {
+        client { configure { maxHeapSize = '8G' } }
+    }
+}

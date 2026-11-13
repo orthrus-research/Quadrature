@@ -1,0 +1,10 @@
+plugins { id 'java-library' }
+
+// The core has no Minecraft dependency: it must compile and test without the game.
+group = rootProject.group
+version = rootProject.version
+base.archivesName = 'quadrature-core'
+
+java {
+    withSourcesJar()
+}

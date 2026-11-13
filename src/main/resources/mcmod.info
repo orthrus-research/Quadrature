@@ -1,0 +1,13 @@
+[
+  {
+    "modid": "quadrature",
+    "name": "Quadrature",
+    "description": "A rendering pipeline for cubic worlds.",
+    "version": "${version}",
+    "mcversion": "1.12.2",
+    "authorList": ["Orthrus Research"],
+    "dependencies": ["cleanroom@[${cleanroom}]"],
+    "requiredMods": ["cleanroom@[${cleanroom}]"],
+    "useDependencyInformation": false
+  }
+]

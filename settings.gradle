@@ -1,0 +1,17 @@
+pluginManagement {
+    def target = new groovy.json.JsonSlurper().parse(file('platform.json'))
+    repositories {
+        maven { url = 'https://maven.cleanroommc.com' }
+        gradlePluginPortal()
+    }
+    plugins {
+        id 'com.cleanroommc.cleanroomgradle.settings' version target.cleanroomGradle.version
+    }
+}
+
+plugins {
+    id 'com.cleanroommc.cleanroomgradle.settings'
+}
+
+rootProject.name = 'Quadrature'
+include 'core'

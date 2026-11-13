@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "quadrature-java25-cleanroom-0.7.14-alpha",
+  "java": {
+    "major": 25,
+    "runtimeVersion": "25.0.5+8-LTS",
+    "vendor": "Eclipse Adoptium"
+  },
+  "cleanroom": {
+    "version": "0.7.14-alpha"
+  },
+  "cleanroomGradle": {
+    "version": "0.23.0"
+  },
+  "graphics": {
+    "api": "OpenGL",
+    "version": "4.6",
+    "profile": "compatibility",
+    "vendor": "NVIDIA",
+    "minimumGeneration": "Turing",
+    "minimumMemoryMiB": 8192
+  }
+}

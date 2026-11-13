@@ -1,0 +1,11 @@
+.gradle/
+.local/
+.worktrees/
+**/build/
+reference/
+run/
+runs/
+logs/
+.idea/
+*.iml
+__pycache__/
