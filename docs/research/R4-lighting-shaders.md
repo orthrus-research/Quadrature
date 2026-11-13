@@ -67,8 +67,11 @@ Most blocks ship a color texture only. Three sources of material data:
 - Per-block definitions shipped by Quadrature and by mods through the mod interface.
 - Defaults derived from the block's own properties.
 LabPBR is a resource pack format, not a shader pack format, so reading it does not conflict
-with decision D5. Whether Quadrature's material model adopts its channels directly, maps
-from them, or ignores them is a project decision.
+with decision D5. Decision D13: Quadrature designs its own material model and maps LabPBR
+into it at load.
+*Implication:* the model needs at least what LabPBR carries (normal, occlusion, height,
+roughness, reflectance or a metal identity, porosity, subsurface scattering, emission), so
+nothing a conforming pack provides is discarded. What it carries beyond that is open.
 
 **7.7 Baseline shader. [K]**
 A shader that reproduces the game's look is the reference for image comparison in P1 and
@@ -95,7 +98,7 @@ format.
 
 1. A second, deeper pass on 7.1 to 7.3 with primary sources, once R1's hosted-rendering
    questions are answered; those answers constrain the pipeline shape.
-2. Decide how the material model relates to LabPBR (7.6).
+2. Design the material model and write the LabPBR mapping channel by channel (7.6).
 3. Read NVIDIA's DLSS programming guide itself (7.4).
 4. Find measured costs for shadows at long range, or measure them (7.2).
 5. Draft the shader format against two concrete shaders: the baseline and one with

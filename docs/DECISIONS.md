@@ -56,6 +56,14 @@ Riven's terrain is a pure function of the seed and the world's recorded definiti
 client that holds both computes ungenerated distant terrain itself, so the server sends
 only terrain that differs from generation. Exposing the seed to players is accepted.
 
+**D13. Quadrature has its own material model; LabPBR is mapped into it.**
+The material model is designed for Quadrature's shading, not copied from a texture format.
+LabPBR, the resource pack convention for material textures, is read as one input and
+converted into that model at load, alongside Quadrature's and mods' own per-block
+definitions. Resource packs that follow the convention therefore work, while the internal
+model stays free to carry properties the convention has no channel for. LabPBR is a
+resource pack format, not a shader pack format, so this does not touch D5.
+
 **D8. Narrow support, general design.**
 The supported platform is narrow; the taxonomy and paradigms are not. Vendor, API, world
 type and shader source each sit behind a seam named in `docs/REQUIREMENTS.md`, so support

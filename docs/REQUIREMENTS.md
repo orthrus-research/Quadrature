@@ -176,7 +176,11 @@ measurement) and its date.
 ## 7. Lighting and shading
 
 **Must**
-- Define a material model that blocks, fluids, entities and distant terrain all map into.
+- Define a material model of Quadrature's own that blocks, fluids, entities and distant
+  terrain all map into.
+- Convert material inputs into that model at load: LabPBR textures from resource packs
+  (decision D13), per-block definitions from Quadrature and from mods, and defaults
+  derived from a block's own properties. State the precedence among them.
 - Light from sun and moon, sky, and block light sources, with shadows.
 - Provide atmosphere, fog, clouds and water as stages a shader can implement.
 - Produce the final image: exposure, tone mapping, anti-aliasing.
@@ -190,6 +194,8 @@ measurement) and its date.
 - Block light beyond the game's 16-level lightmap: colored light, light volumes.
 - Anti-aliasing and upscaling available on OpenGL.
 - Sourcing material data for blocks from other mods that supply none.
+- The mapping from each LabPBR channel into the material model, including what the model
+  carries that LabPBR cannot express and what is lost in the other direction.
 
 ## 8. Shader system
 

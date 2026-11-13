@@ -69,7 +69,7 @@ follow-ups. The ones that block the architecture document:
 | Terrain technique (A1) | Mesh shaders against compute culling with indirect multi-draw, measured on an 8 GB Turing card or under an enforced 8 GB budget (R2, 5.6) |
 | Distant terrain (P4) | Representation prototypes with memory per square kilometer (R3, 6.1) |
 | Lighting (P5) | Measured costs for shadows and indirect light at long range (R4, 7.2 and 7.3) |
-| Materials (P5) | How the material model relates to LabPBR (R4, 7.6) |
+| Materials (P5) | The material model and its channel-by-channel mapping from LabPBR (R4, 7.6) |
 
 Order: R1 to R5 can run in parallel. A1 follows R1, R2 and R4. A2 follows R5. B1 and V2
 depend on nothing and can start at once. B2 and V1 follow B1.
