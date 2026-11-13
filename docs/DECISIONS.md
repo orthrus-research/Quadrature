@@ -79,6 +79,11 @@ license. Because everything in Quadrature is dedicated, everything in it must be
 authors' own expression. That is the reason behind D2 and the rules in
 `docs/PROVENANCE.md`.
 
+**D16. Cubature owns the cube source contract.**
+The contract for what Cubature supplies to a renderer lives in Cubature's repository and
+its interfaces in Cubature's public API module. It is written for any renderer, not for
+Quadrature by name. Quadrature keeps only a record of what it relies on.
+
 **D8. Narrow support, general design.**
 The supported platform is narrow; the taxonomy and paradigms are not. Vendor, API, world
 type and shader source each sit behind a seam named in `docs/REQUIREMENTS.md`, so support

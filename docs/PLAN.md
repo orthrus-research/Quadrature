@@ -40,7 +40,7 @@ Research comes first; its answers decide the architecture.
 | P0-R4 | Research pass over sections 7 and 8 (lighting, shader system) | Findings with sources |
 | P0-R5 | Research pass over sections 3, 10, 11 (scene sources, mod interface, other mods) | Findings with sources, including the list of mods that inject into chunk rendering |
 | P0-A1 | Architecture document: taxonomy, pass graph, capability set, module layout | `docs/ARCHITECTURE.md` |
-| P0-A2 | Cube source contract, written with Cubature | Interface specification in both repositories |
+| P0-A2 | Cube source contract, written with Cubature | The contract in Cubature's repository; what Quadrature relies on here |
 | P0-B1 | Repository scaffold: Gradle modules, Java 25, CleanroomGradle, platform manifest | A build that produces an empty mod |
 | P0-B2 | Platform gate: context check, foreign renderer detection, stop message | A client that starts on the supported platform and stops with a message elsewhere |
 | P0-V1 | Capture and comparison harness: fixed world, camera path, tolerance | A repeatable capture and a pass or fail against a reference |
@@ -50,15 +50,14 @@ Research comes first; its answers decide the architecture.
 
 ### Phase 0 status
 
-As of 2026-11-13. Phase 0 is closed except for the agreement it needs from Cubature; what
-it could not settle without running code is carried into the phase that produces that
-code.
+As of 2026-11-13. Phase 0 is closed. What it could not settle without running code is
+carried into the phase that produces that code.
 
 | ID | Status | Where |
 |---|---|---|
 | P0-R1 to R5 | First pass and reading pass done; findings marked verified, known or needing measurement | [research/](research/README.md) |
 | P0-A1 | Done | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| P0-A2 | Drafted with proposed answers to its open points; not yet agreed with Cubature or present in its repository | [CUBE-SOURCE.md](CUBE-SOURCE.md) |
+| P0-A2 | Done as a draft: the contract is owned by Cubature and drafted in its repository (D16), with proposed answers to its open points; not implemented | [CUBE-SOURCE.md](CUBE-SOURCE.md) |
 | P0-B1 | Done: `./gradlew build` on Temurin 25 produces the mod JAR with Java 25 class files | |
 | P0-B2 | Done: ten unit tests; verified in the development client by log lines and live objects, not by eye | |
 | P0-V1 | Done: frames compared against profiles; a settled near-terrain instance reproduces 13 of 17 frames exactly | [VERIFICATION.md](VERIFICATION.md) |
@@ -77,7 +76,7 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 1 | Stage boundaries by injection into the game's world pass |
 | Phase 1 | Reversed depth with hosted entity draws, by prototype (research R1, 2.2) |
 | Phase 1 | The fixed-function state the game and common mods actually use, by instrumenting a client |
-| Phase 2 | Whether cube data can be shared between snapshots, measured in Cubature |
+| Phase 2 | Implementing the cube source in Cubature, and whether cube data can be shared between snapshots |
 | Phase 2 | Face merging against per-face output with smooth lighting on |
 | Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
 | Phase 4 | Distant terrain representation, by memory per square kilometer |

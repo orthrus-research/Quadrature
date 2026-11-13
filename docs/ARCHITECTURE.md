@@ -154,8 +154,8 @@ closes that gap from the first frame Quadrature owns.
 - A snapshot is safe to read on any thread and presents the block access interface the
   game's model code expects, so existing block models work against it unchanged.
   **Decided.**
-- The cube source contract is drafted in [CUBE-SOURCE.md](CUBE-SOURCE.md), from what
-  Cubature's current renderer integration already supplies. It awaits agreement.
+- Cubature owns the cube source contract (D16); it is a design draft in Cubature's
+  repository. [CUBE-SOURCE.md](CUBE-SOURCE.md) records what Quadrature relies on.
 - Each source reports when it is settled: no build, load or refinement outstanding for
   the current view. The capture harness waits on this instead of discarding a first run
   ([VERIFICATION.md](VERIFICATION.md)). **Decided.**

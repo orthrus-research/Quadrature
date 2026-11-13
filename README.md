@@ -56,7 +56,8 @@ no Minecraft dependency.
 - [docs/research/](docs/research/README.md): research findings per work order, with the
   basis of each and what is still open
 
-- [docs/CUBE-SOURCE.md](docs/CUBE-SOURCE.md): the draft contract for what Cubature supplies
+- [docs/CUBE-SOURCE.md](docs/CUBE-SOURCE.md): what Quadrature relies on from Cubature's cube
+  source contract
 - [docs/PROVENANCE.md](docs/PROVENANCE.md): where each technique came from, and the rules
   for what may be used
 
