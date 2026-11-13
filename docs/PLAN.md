@@ -86,6 +86,25 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 5 | The material model and its mapping from LabPBR; the shader format |
 | Any | What render work spans under Celeritas, if that comparison is used again |
 
+## Phase 1 status
+
+As of 2026-11-13.
+
+| Step | Status |
+|---|---|
+| Pass graph in `core`: declared stages and resources, ordering, dropping unused stages | Done; 8 unit tests |
+| Stage timeline and statistics in `core` | Done; 7 unit tests |
+| Stage boundaries from the game's world pass, without redirecting anything | Done. In the development client: 14 hosted stages, 2,379 frames, no stage out of order, unknown or outside a frame |
+| CPU and GPU time per stage | Done. No GPU result was dropped in that run |
+| The gate refuses Kirino's graphics state | Done. Verified in the development client: loading halts with the message |
+| A cubic world, with Cubature | Not done. The development client is a non-cubic world without Cubature |
+| The frame compared against the vanilla reference | Not done. It needs Quadrature installed in a Riven instance, which the launcher cannot yet do |
+| State envelope around hosted stages | Not started; nothing of Quadrature's draws yet, so there is no state to protect |
+| Reversed depth prototype; fixed-function state survey | Not started |
+
+The development client reaches a world on its own with `./gradlew runClient -PdevWorld=<seconds>`,
+logs stage times every five seconds, and quits.
+
 ## Reading rules
 
 The rules for what may be read and used, and a record for each technique, are in

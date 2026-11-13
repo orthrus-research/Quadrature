@@ -1,7 +1,8 @@
 # Quadrature
 
-**Status:** Phase 0. The mod checks the platform and stops with a message where it is not
-supported; no rendering code exists yet.
+**Status:** Phase 1. The mod checks the platform, stops with a message where it is not
+supported, and times each stage of the game's own world rendering on the CPU and the GPU.
+It draws nothing of its own yet.
 
 Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on Cleanroom with
 Cubature. It draws the whole frame: near terrain meshed directly from cubes, distant terrain
@@ -33,7 +34,9 @@ Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 25):
 ./gradlew build
 ```
 
-`./gradlew runClient` starts a development client. Adding `-PtestMemoryFloorMiB=<n>`
+`./gradlew runClient` starts a development client. Adding `-PdevWorld=<seconds>` enters a
+flat development world unattended, logs each stage's CPU and GPU time every five seconds,
+and quits after that many seconds. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 

@@ -50,6 +50,38 @@ authors can dedicate: their own expression of ideas, never copied code.
   measures, chosen from Quadrature's own repeatability measurements.
 - Added: 2026-11-13
 
+### Pass graph
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/frame/PassGraph.java`,
+  `CompiledGraph.java`, `StageDefinition.java`, `StageKind.java`
+- Source: O'Donnell, "FrameGraph: Extensible Rendering Architecture in Frostbite", GDC
+  2017; Unity's render graph documentation.
+- Taken: a frame declared as stages that name the resources they read and write, ordered
+  by those dependencies, with stages whose results nothing reads dropped.
+- Not taken: transient resource allocation and aliasing, which nothing needs yet.
+- Added: 2026-11-13
+
+### Stage timeline and statistics
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/frame/FrameTimeline.java`,
+  `StageStatistics.java`, `GpuTimer.java`
+- Source: original.
+- Added: 2026-11-13
+
+### GPU stage timing
+- Code: `src/main/java/cc/orthrus/quadrature/frame/GlGpuTimer.java`
+- Source: OpenGL 4.6 specification (timer queries, `TIME_ELAPSED`, result availability);
+  Lighthouse3D, "OpenGL Timer Query".
+- Taken: reading a query only once the driver reports its result available, from queries
+  issued some frames earlier, so reading never stalls.
+- Added: 2026-11-13
+
+### Stage boundaries from the game's world pass
+- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRenderer.java`,
+  `src/main/java/cc/orthrus/quadrature/frame/BaselineGraph.java`, `FrameHost.java`
+- Source: original. Facts used: the profiler section names the game passes in
+  `EntityRenderer.renderWorldPass`, and Cleanroom's `crl.dev.mixin` and `MixinConnector`
+  conventions for registering a Mixin configuration.
+- Added: 2026-11-13
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

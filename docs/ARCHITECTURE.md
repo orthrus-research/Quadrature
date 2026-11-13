@@ -4,8 +4,9 @@ How Quadrature is put together. Requirements are in [REQUIREMENTS.md](REQUIREMEN
 decisions in [DECISIONS.md](DECISIONS.md), measurements in [BASELINE.md](BASELINE.md) and
 the research behind this document in [research/](research/README.md).
 
-Only the platform gate exists in code. Everything else here is design. Each choice carries
-a status:
+The platform gate, the pass graph and the timed baseline graph of hosted stages exist in
+code (sections 3, 4.1, 4.3 and 4.6). Everything else here is design. Each choice carries a
+status:
 
 - **Decided**: fixed by a decision or by the specification.
 - **Default**: what is built first; a named measurement can replace it.
@@ -94,7 +95,8 @@ sky -> opaque terrain -> entities -> block entities -> outline and damage
 ```
 
 Phase 1 does not replace the game's world pass. It takes its stage boundaries by
-injecting between the calls inside it, so Forge's hooks, Cleanroom's headless Kirino
+observing the profiler sections the game already enters inside it, with one injection that
+redirects nothing, so Forge's hooks, Cleanroom's headless Kirino
 phases and other mods' injections there keep working (research R1, section 2.5).
 **Default.** Kirino's graphics state replaces the game's world render and is refused by
 the platform gate as another renderer. **Decided**, by D6.
@@ -138,7 +140,7 @@ Until Phase 5, hosted stages run exactly as the game draws them, with no program
 
 ### 4.6 Timing
 
-Every stage is bracketed by a GPU timer query and a CPU timer. Query results are read
+Built. Every stage is bracketed by a GPU timer query and a CPU timer. Query results are read
 only when the driver reports them available, from a ring a few frames deep, so reading
 never stalls the frame. **Decided.** The baseline could not time the GPU at all; this
 closes that gap from the first frame Quadrature owns.

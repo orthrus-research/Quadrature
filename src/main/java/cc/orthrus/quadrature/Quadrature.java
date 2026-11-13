@@ -4,6 +4,7 @@ import cc.orthrus.quadrature.core.platform.Capability;
 import cc.orthrus.quadrature.core.platform.GateFailure;
 import cc.orthrus.quadrature.core.platform.PlatformGate;
 import cc.orthrus.quadrature.core.platform.PlatformRequirements;
+import cc.orthrus.quadrature.dev.DevSession;
 import cc.orthrus.quadrature.platform.ForeignRenderers;
 import cc.orthrus.quadrature.platform.ForeignRendererException;
 import cc.orthrus.quadrature.platform.PlatformGateHandler;
@@ -45,6 +46,11 @@ public final class Quadrature {
         ClassLoader loader = Quadrature.class.getClassLoader();
         List<GateFailure> foreign = PlatformGate.foreignRenderers(ForeignRenderers.KNOWN,
             Loader::isModLoaded, resource -> loader.getResource(resource) != null);
+        GateFailure kirino = kirinoGraphics();
+        if (kirino != null) {
+            foreign = new java.util.ArrayList<>(foreign);
+            foreign.add(kirino);
+        }
         if (!foreign.isEmpty()) {
             foreign.forEach(failure -> LOGGER.fatal("Stopping: {} {}", failure.found(), failure.required()));
             throw new ForeignRendererException(foreign);
@@ -53,6 +59,31 @@ public final class Quadrature {
         // The graphics context belongs to the loading screen until loading ends; it is read at the first screen.
         MinecraftForge.EVENT_BUS.register(new PlatformGateHandler(REQUIREMENTS));
         LOGGER.info("No other renderer found; the graphics context is checked when the first screen opens.");
+        DevSession session = DevSession.fromProperties();
+        if (session != null) {
+            MinecraftForge.EVENT_BUS.register(session);
+        }
+    }
+
+    /**
+     * Kirino, Cleanroom's rendering engine, replaces the game's world render when it is enabled with its
+     * render delegate on. That is another renderer. Both settings are plain configuration, readable
+     * before any graphics call; Cleanroom's API is not stable, so a missing class is not an error.
+     */
+    private static GateFailure kirinoGraphics() {
+        try {
+            if (com.cleanroommc.kirino.config.KirinoConfig.NEEDS_RESTART.enable
+                    && com.cleanroommc.kirino.config.KirinoConfig.NEEDS_RESTART.enableRenderDelegate) {
+                return new GateFailure(
+                    "Kirino's render delegate is on (config/kirino_engine.cfg: enable and enableRenderDelegate).",
+                    "Quadrature replaces the game's renderer and does not run beside another one.",
+                    "Set enableRenderDelegate to false to use Quadrature, or remove Quadrature to use Kirino's "
+                        + "renderer.");
+            }
+        } catch (LinkageError e) {
+            LOGGER.debug("Kirino's configuration could not be read.", e);
+        }
+        return null;
     }
 
     /**

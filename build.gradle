@@ -81,7 +81,9 @@ jar {
     // One runtime JAR: the Minecraft host plus the Minecraft-free core.
     from(project(':core').sourceSets.main.output)
     manifest.attributes('ModType': 'CRL', 'Implementation-Title': 'Quadrature',
-        'Implementation-Version': project.version, 'Quadrature-Platform': platform.id)
+        'Implementation-Version': project.version, 'Quadrature-Platform': platform.id,
+        // CleanMix registers Quadrature's Mixin configuration before the game's classes load.
+        'MixinConnector': 'cc.orthrus.quadrature.mixin.QuadratureMixinConnector')
     from(files('LICENSE', 'NOTICE.md')) { into 'META-INF' }
 }
 
@@ -100,9 +102,18 @@ cleanroom {
             configure {
                 maxHeapSize = '8G'
                 systemProperty 'foundation.loadsall', 'true'
+                // A development run loads the mod from class folders, which have no manifest to name the
+                // Mixin connector; Cleanroom takes the configuration from this property instead.
+                systemProperty 'crl.dev.mixin', 'quadrature.mixins.json'
                 // -PtestMemoryFloorMiB=<n> raises the GPU memory floor so the stop screen can be exercised.
                 if (project.hasProperty('testMemoryFloorMiB')) {
                     systemProperty 'quadrature.test.minimumGpuMemoryMiB', project.property('testMemoryFloorMiB')
+                }
+                // -PdevWorld=<seconds> enters a development world unattended, logs stage times and quits.
+                if (project.hasProperty('devWorld')) {
+                    systemProperty 'quadrature.dev.autoWorld', 'true'
+                    systemProperty 'quadrature.dev.exitAfterSeconds', project.property('devWorld')
+                    systemProperty 'quadrature.frameLog', 'true'
                 }
             }
         }
