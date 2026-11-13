@@ -55,7 +55,19 @@ Research comes first; its answers decide the architecture.
 - A reading pass on 2026-11-13 confirmed hosted rendering against the OpenGL 4.6
   compatibility and GLSL 4.60 specifications, and read Cleanroom's LWJGL shim, the LabPBR
   material standard, and sources on clustered shading and virtual shadow maps.
-- Next: P0-B2 (platform gate), which also loads the JAR in a client for the first time.
+- P0-B2 is done (2026-11-13). The gate's decision is in `core` with ten unit tests; the
+  host reads the context and shows the result. Verified in the development client on an
+  RTX 3060 (driver 610.88), by log lines and live objects, not by eye:
+  - supported platform: "Platform gate passed" at the first screen;
+  - GPU memory below the floor (floor raised with `-PtestMemoryFloorMiB=16384`): the main
+    menu is replaced by the stop screen;
+  - another renderer present (a stand-in jar carrying OptiFine's marker class): Forge's
+    loading error screen with Quadrature's message.
+  Not verified: how either screen looks; the vendor and mesh shader refusals in a client
+  (unit tests only); any real second renderer.
+  One case cannot show a screen: with Cleanroom's compatibility profile off, the game
+  itself aborts during startup. Quadrature logs the cause before that happens.
+- Next: P0-V1 (capture and comparison harness) and P0-V2 (baselines).
 
 ### Research status
 

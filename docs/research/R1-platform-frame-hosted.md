@@ -13,6 +13,13 @@ Cleanroom requests OpenGL 4.6 with the compatibility profile by default
 settings are player-configurable.
 *Implication:* Quadrature requests nothing. Its gate reads the context it was given and
 stops if the version is below 4.6 or the profile is core.
+Observed in the development client, 2026-11-13, RTX 3060, driver 610.88 [V]:
+- With the version setting lowered to 4.5, the driver still returned a 4.6 compatibility
+  context. A lower version setting does not produce a lower context on NVIDIA.
+- With the compatibility profile setting off, the game aborted in `Minecraft.init` on its
+  first fixed-function call (`glAlphaFunc`), after mod pre-initialization and before any
+  screen. No mod can show a screen in that state; the cause can only be logged.
+- The context reports 405 extensions and 12288 MiB through `GL_NVX_gpu_memory_info`.
 
 **1.2 Identifying Turing and later. [V, partly]**
 Mesh shaders arrived with Turing and are exposed in OpenGL as `GL_NV_mesh_shader`. Pascal

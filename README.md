@@ -1,7 +1,7 @@
 # Quadrature
 
-**Status:** Phase 0. The build produces an empty mod; no rendering code exists yet. No
-license is granted; see [NOTICE](NOTICE).
+**Status:** Phase 0. The mod checks the platform and stops with a message where it is not
+supported; no rendering code exists yet. No license is granted; see [NOTICE](NOTICE).
 
 Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on Cleanroom with
 Cubature. It draws the whole frame: near terrain meshed directly from cubes, distant terrain
@@ -32,6 +32,10 @@ Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 25):
 ```sh
 ./gradlew build
 ```
+
+`./gradlew runClient` starts a development client. Adding `-PtestMemoryFloorMiB=<n>`
+raises the GPU memory floor for that run, to see the stop screen on a supported card; the
+property can only raise the floor.
 
 `platform.json` is the one place platform versions are pinned: Java, Cleanroom,
 CleanroomGradle and the graphics floor. The root module is the Minecraft host; `core` has

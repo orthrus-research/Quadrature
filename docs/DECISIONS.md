@@ -31,7 +31,9 @@ planned at this time.
 **D6. No coexistence with other renderers.**
 A player runs Quadrature or another renderer, never both. When another renderer is
 installed, or the graphics context does not meet the requirements, the game stops with a
-message that names the cause and the remedy.
+message that names the cause and the remedy. One case has no screen: with Cleanroom's
+compatibility profile turned off, the game itself aborts during startup before any screen
+exists. There Quadrature writes the cause to the log, and that is accepted as sufficient.
 
 **D7. Platform: OpenGL 4.6 compatibility profile, NVIDIA GPUs, Cleanroom, Java 25.**
 Cleanroom requests OpenGL 4.6 with the compatibility profile by default. The compatibility

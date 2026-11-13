@@ -47,7 +47,8 @@ dependencies {
 
 def constantsDirectory = layout.buildDirectory.dir('generated/sources/quadrature')
 tasks.register('generateModConstants') {
-    inputs.properties(modVersion: project.version, cleanroomVersion: cleanroom_version)
+    inputs.properties(modVersion: project.version, cleanroomVersion: cleanroom_version,
+        graphics: platform.graphics.toString())
     outputs.dir(constantsDirectory)
     doLast {
         def destination = constantsDirectory.get().file('cc/orthrus/quadrature/QuadratureBuild.java').asFile
@@ -58,6 +59,8 @@ tasks.register('generateModConstants') {
 final class QuadratureBuild {
     static final String VERSION = \"${project.version}\";
     static final String CLEANROOM = \"${cleanroom_version}\";
+    static final String GRAPHICS_VENDOR = \"${platform.graphics.vendor}\";
+    static final long MINIMUM_GPU_MEMORY_MIB = ${platform.graphics.minimumMemoryMiB}L;
     private QuadratureBuild() {}
 }
 """, 'UTF-8')
@@ -91,6 +94,17 @@ tasks.named('check') { dependsOn ':core:check' }
 
 cleanroom {
     runs {
-        client { configure { maxHeapSize = '8G' } }
+        // Without loadsall the mod's classes load outside Cleanroom's class loader in a dev run,
+        // and Forge then never matches the mod's event handler methods to the events it sends.
+        client {
+            configure {
+                maxHeapSize = '8G'
+                systemProperty 'foundation.loadsall', 'true'
+                // -PtestMemoryFloorMiB=<n> raises the GPU memory floor so the stop screen can be exercised.
+                if (project.hasProperty('testMemoryFloorMiB')) {
+                    systemProperty 'quadrature.test.minimumGpuMemoryMiB', project.property('testMemoryFloorMiB')
+                }
+            }
+        }
     }
 }

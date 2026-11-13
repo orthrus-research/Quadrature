@@ -64,14 +64,20 @@ Forge 1.12.2 provides `CustomModLoadingErrorDisplayException`, which a client mo
 during loading to show its own error screen (`GuiCustomModLoadingErrorScreen`).
 Detection can happen earlier, when Mixin configurations are selected, but no screen exists
 then.
-*Implication:* detect early, record the reason, and raise the error screen at the first
-point Forge can display it. Whether Cleanroom offers an earlier display is open.
+Confirmed on Cleanroom 0.7.14-alpha, 2026-11-13 [V]: thrown from pre-initialization, the
+exception makes Forge log "the game will display an error screen and halt" and open that
+screen. The graphics context cannot be read at pre-initialization, because the loading
+screen's thread holds it; it is read when the first screen opens, and an unsupported
+context replaces every screen with a stop screen from then on.
+*Implication:* other renderers are refused at pre-initialization; the context is refused
+at the first screen. Detection will have to move earlier, to where Mixin configurations
+are selected, once Quadrature has Mixins of its own.
 
 ## Follow-ups
 
 1. Write the cube source contract with Cubature (3.1).
 2. Extend the table in 11.1 from a survey of the mods in the packs the projects target.
-3. Confirm the stop-screen path on Cleanroom 0.7.14 with a test mod (11.2).
+3. Move renderer detection to Mixin selection when Quadrature gains Mixins (11.2).
 
 ## Sources
 

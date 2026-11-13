@@ -75,9 +75,9 @@ Mesh and task shaders (Turing). Variable-rate shading as `NV_shading_rate_image`
 textures. `NV_command_list`: current status not checked.
 
 **5.6 Mesh shaders against compute culling with indirect multi-draw. [M]**
-Not measured. It needs the repository scaffold and a terrain prototype. The development
-machine has an RTX 3060 with 12 GB (Ampere); the floor is an 8 GB Turing card, so the
-decisive run needs that hardware or an enforced 8 GB budget.
+Not measured. It needs the repository scaffold and a terrain prototype. The hardware
+available so far is an RTX 3060 with 12 GB (Ampere); the floor is an 8 GB Turing card, so
+the decisive run needs that hardware or an enforced 8 GB budget.
 
 ## Follow-ups
 
