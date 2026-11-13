@@ -13,7 +13,8 @@ worlds.
 **D2. The implementation is original.**
 No code is taken from Celeritas, Sodium, Iris, Demonica, Actinium, Nothirium, RenderLib,
 Distant Horizons or any other renderer. Specifications, papers, vendor documentation and
-public API references are the sources. `docs/PLAN.md` states the reading rules.
+public API references are the sources. `docs/PROVENANCE.md` states the rules and holds a
+record for each technique.
 
 **D3. Cubic worlds only.**
 Quadrature renders worlds served by Cubature. This removes vanilla's column assumptions from
@@ -71,6 +72,12 @@ Quadrature's terrain must match or beat the vanilla near renderer as recorded in
 `docs/BASELINE.md`, under the same workload. That baseline exists and can be repeated with
 the same harness. Celeritas is measured as a comparison to report alongside, not as the
 condition for closing the phase.
+
+**D15. Quadrature is licensed NRR 1.0.**
+The same license as Riven: a public-domain dedication with an unconditional fallback
+license. Because everything in Quadrature is dedicated, everything in it must be the
+authors' own expression. That is the reason behind D2 and the rules in
+`docs/PROVENANCE.md`.
 
 **D8. Narrow support, general design.**
 The supported platform is narrow; the taxonomy and paradigms are not. Vendor, API, world

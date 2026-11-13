@@ -318,12 +318,38 @@ client (research R5). The design is drafted in Phase 3.
 Frame time is fixed by the frame cap: 8.33 ms at 120 frames per second. The bar for
 client render work is the vanilla baseline, about 6 ms per frame in flight (D14).
 
-GPU memory on the 8 GB floor is not yet apportioned. That is work order P0-D1, and it
-needs the distant terrain measurements. Its shape follows published engine practice
-(research R1, section 2.6): one budget taken from what the driver reports, a fixed reserve
-for framebuffers and textures, and low and high watermarks that drive refinement and
-eviction, degrading detail when demand exceeds the budget. **Default.** For orientation, the current stack uses about
-0.55 GiB in flight and 0.82 GiB with a shader pack.
+GPU memory follows published engine practice (research R1, section 2.6): one budget taken
+from what the driver reports, a fixed reserve for what is not streamed, and low and high
+watermarks that drive refinement and eviction, degrading detail when demand exceeds the
+budget. **Default.**
+
+The apportionment below is provisional. It is a starting split to build against, not a
+measurement; each line is revised when the phase that fills it measures its real use.
+
+| Pool, on an 8 GiB card | Provisional budget | Revised in |
+|---|---|---|
+| Left for the desktop, other programs and the driver | 2.0 GiB | |
+| Reserve: framebuffers, geometry buffer, depth pyramid, texture arrays, the game's own textures | 1.5 GiB | Phase 1 |
+| Near terrain arenas | 1.5 GiB | Phase 2 |
+| Distant terrain arenas | 2.0 GiB | Phase 4 |
+| Shading: shadow maps, light volumes | 1.0 GiB | Phase 5 |
+
+The first line is not arbitrary: the test machine had 2.2 GiB in use before the game
+started. The budget is computed at startup from the memory the driver reports as free, so
+a card with more memory, or a quieter desktop, gets larger pools in the same proportions.
+Streamed pools load freely below half their budget, evict unused data above it, and stop
+loading at nine tenths.
+
+| Other budgets | Provisional value | Basis |
+|---|---|---|
+| Client render work per frame, bar | 6 ms | The vanilla baseline in flight (D14) |
+| Client render work per frame, aim | 2.5 ms | Celeritas on the same flight |
+| Client-thread time placing finished builds per frame | 1 ms | Leaves the rest of the bar for drawing |
+| Native memory outside the Java heap | 1 GiB | Mesh staging before upload; revised in Phase 2 |
+| Java heap added by Quadrature | 256 MiB | The 8 GiB heap floor is shared with the game and other mods |
+
+For orientation, the current stack uses about 0.55 GiB of GPU memory in flight and
+0.82 GiB with a shader pack.
 
 ## 13. What is decided, and what is not
 

@@ -159,20 +159,33 @@ each one closes (decision D10).
 
 ## Open points
 
-1. **Where the interfaces live.** In Cubature's public API module, so the owner of the
-   data owns the contract, or in OrthLib, which already carries a Cubature adapter.
+Each has a proposed answer from Quadrature's side. None is agreed until Cubature accepts
+it.
+
+1. **Where the interfaces live.** In Cubature's public API module, or in OrthLib, which
+   already carries a Cubature adapter.
+   *Proposed:* Cubature's API module. The owner of the data owns the contract, and
+   Quadrature already depends on Cubature.
 2. **Sharing against copying.** Whether cube data can be shared between snapshots
-   without changing how Cubature stores it, and what a copy costs if not. Needs
-   measurement in Cubature.
-3. **Settled on the client.** A client does not know what the server has yet to send.
-   What "expects" means in section 6 needs a definition Cubature can compute, or a
-   signal from the server.
+   without changing how Cubature stores it, and what a copy costs if not.
+   *Proposed:* start by copying, as today's integration does, and measure. The guarantees
+   in section 2 do not change if sharing is added later.
+3. **Settled on the client.** The server pushes cubes and the client holds no list of
+   what to expect.
+   *Proposed:* define settled as quiet: no cube packet applied and no client light work
+   outstanding for a stated number of consecutive ticks. That is computable on the client
+   today. A signal from the server that a player's view is fully sent would be exact and
+   can replace it later.
 4. **Biome data.** Whether the stored biomes are enough for the game's color blending at
-   neighborhood edges, or a wider ring is needed.
-5. **Block entities off-thread.** Guarantee 1 inherits the game's hazard. Whether
-   Quadrature should restrict which blocks read their block entity during a build is a
-   Quadrature decision that this contract permits either way.
+   neighborhood edges.
+   *Proposed:* the neighborhood is enough for the game's default blend radius; confirm
+   against the game's biome color code before Phase 2.
+5. **Block entities off-thread.** Guarantee 1 inherits the game's hazard.
+   *Proposed:* accept it, as the game and every replacement renderer do. Quadrature may
+   later route blocks that read their block entity through the capture technique on the
+   client thread.
 6. **First-run light.** Frames show light on freshly generated terrain differing from the
-   same terrain after a reload (VERIFICATION.md). If the cause is the client's own
-   relight of small edits, the version and change events must cover it; that is to be
-   confirmed once the cause is known.
+   same terrain after a reload (VERIFICATION.md).
+   *Proposed:* no change to the contract. Whatever the cause, a light change must raise a
+   change event; if one is found that does not, that is a defect against guarantee 3 of
+   section 3.

@@ -48,73 +48,49 @@ Research comes first; its answers decide the architecture.
 | P0-D1 | Budgets: frame time, heap, GPU memory, disk | Targets written into the architecture document |
 | P0-L1 | License choice and provenance template | `LICENSE`, provenance record format |
 
-### Work order status
+### Phase 0 status
 
-- P0-B1 is done (2026-11-13): `./gradlew build` on Temurin 25 produces the mod JAR with
-  Java 25 class files. The JAR has not been loaded in a client yet; that is part of P0-B2.
-- A reading pass on 2026-11-13 confirmed hosted rendering against the OpenGL 4.6
-  compatibility and GLSL 4.60 specifications, and read Cleanroom's LWJGL shim, the LabPBR
-  material standard, and sources on clustered shading and virtual shadow maps.
-- P0-B2 is done (2026-11-13). The gate's decision is in `core` with ten unit tests; the
-  host reads the context and shows the result. Verified in the development client on an
-  RTX 3060 (driver 610.88), by log lines and live objects, not by eye:
-  - supported platform: "Platform gate passed" at the first screen;
-  - GPU memory below the floor (floor raised with `-PtestMemoryFloorMiB=16384`): the main
-    menu is replaced by the stop screen;
-  - another renderer present (a stand-in jar carrying OptiFine's marker class): Forge's
-    loading error screen with Quadrature's message.
-  Not verified: how either screen looks; the vendor and mesh shader refusals in a client
-  (unit tests only); any real second renderer.
-  One case cannot show a screen: with Cleanroom's compatibility profile off, the game
-  itself aborts during startup. Quadrature logs the cause before that happens.
-- P0-V1 is done (2026-11-13): `tools/frames.py` compares frames against a profile, capture
-  reuses Riven's tours, and repeatability is measured with and without Distant Horizons
-  ([VERIFICATION.md](VERIFICATION.md)). A settled near-terrain instance reproduces 13 of
-  17 frames exactly. Carried forward: the harness cannot wait for a settled state, and two
-  differences are unexplained (first-run lighting under canopy; the settled horizon).
-- P0-V2 is partly done (2026-11-13): the vanilla near renderer with Distant Horizons is
-  measured in flight (two captures) and stationary (one) in [BASELINE.md](BASELINE.md).
-  That baseline is the bar for P2 (decision D14). Celeritas is measured beside it as a
-  comparison, in flight (two captures, through the harness extended to the shader stack)
-  and as tour frames, and again with a shader pack enabled (two captures). Open: the
-  canonical world; an 8 GB card; GPU time; what render work spans under Celeritas.
-- P0-V2 is done to the extent this machine allows.
-- P0-A1 is drafted (2026-11-13): [ARCHITECTURE.md](ARCHITECTURE.md), with each choice
-  marked decided, default or candidate and the measurement that settles it.
-- P0-A2 is drafted (2026-11-13): [CUBE-SOURCE.md](CUBE-SOURCE.md), with six open points.
-  It is not yet in Cubature's repository or agreed there.
-- Carried into Phase 1 from research: the gate must also refuse Kirino's graphics state,
-  and the frame takes its stage boundaries by injecting into the game's world pass.
-- Next: agree the contract, budgets (P0-D1), license (P0-L1), then Phase 1.
+As of 2026-11-13. Phase 0 is closed except for the agreement it needs from Cubature; what
+it could not settle without running code is carried into the phase that produces that
+code.
 
-### Research status
+| ID | Status | Where |
+|---|---|---|
+| P0-R1 to R5 | First pass and reading pass done; findings marked verified, known or needing measurement | [research/](research/README.md) |
+| P0-A1 | Done | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| P0-A2 | Drafted with proposed answers to its open points; not yet agreed with Cubature or present in its repository | [CUBE-SOURCE.md](CUBE-SOURCE.md) |
+| P0-B1 | Done: `./gradlew build` on Temurin 25 produces the mod JAR with Java 25 class files | |
+| P0-B2 | Done: ten unit tests; verified in the development client by log lines and live objects, not by eye | |
+| P0-V1 | Done: frames compared against profiles; a settled near-terrain instance reproduces 13 of 17 frames exactly | [VERIFICATION.md](VERIFICATION.md) |
+| P0-V2 | Done on the available machine: vanilla, Celeritas and Celeritas with a shader pack, two flight captures each | [BASELINE.md](BASELINE.md) |
+| P0-D1 | Provisional budgets set, to be revised by each phase's measurements | [ARCHITECTURE.md](ARCHITECTURE.md), section 12 |
+| P0-L1 | Done: NRR 1.0 (decision D15), provenance rules and record format | [PROVENANCE.md](PROVENANCE.md) |
 
-A first pass over R1 to R5 was made on 2026-11-13; findings are in
-[research/](research/README.md). None of the five is closed. Each file ends with its
-follow-ups. The ones that block the architecture document:
+Not verified in Phase 0: how the gate's two screens look; the vendor and mesh shader
+refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB card.
 
-| Blocks | Follow-up |
+### Carried forward
+
+| Into | Item |
 |---|---|
-| Pass graph (A1) | Reversed depth with hosted draws, by prototype (R1, 2.2) |
-| Terrain technique (A1) | Mesh shaders against compute culling with indirect multi-draw, measured on an 8 GB Turing card or under an enforced 8 GB budget (R2, 5.6) |
-| Distant terrain (P4) | Representation prototypes with memory per square kilometer (R3, 6.1) |
-| Lighting (P5) | Measured costs for shadows and indirect light at long range (R4, 7.2 and 7.3) |
-| Materials (P5) | The material model and its channel-by-channel mapping from LabPBR (R4, 7.6) |
-
-Order: R1 to R5 can run in parallel. A1 follows R1, R2 and R4. A2 follows R5. B1 and V2
-depend on nothing and can start at once. B2 and V1 follow B1.
+| Phase 1 | The gate also refuses Kirino's graphics state (research R1, 2.5) |
+| Phase 1 | Stage boundaries by injection into the game's world pass |
+| Phase 1 | Reversed depth with hosted entity draws, by prototype (research R1, 2.2) |
+| Phase 1 | The fixed-function state the game and common mods actually use, by instrumenting a client |
+| Phase 2 | Whether cube data can be shared between snapshots, measured in Cubature |
+| Phase 2 | Face merging against per-face output with smooth lighting on |
+| Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
+| Phase 4 | Distant terrain representation, by memory per square kilometer |
+| Phase 4 | Mesh shaders as a second technique, measured on distant terrain |
+| Phase 4 | The unexplained 1.67% difference on a settled horizon |
+| Phase 5 | Costs of shadows and indirect light at long range |
+| Phase 5 | The material model and its mapping from LabPBR; the shader format |
+| Any | What render work spans under Celeritas, if that comparison is used again |
 
 ## Reading rules
 
-Quadrature is an original implementation (decision D2).
-
-- Allowed sources: the OpenGL and GLSL specifications, vendor documentation and
-  presentations, published papers and talks, public interface documentation of the game,
-  Forge and Cleanroom, and measurements.
-- Other renderers' source code is not a source for implementation. Their public
-  documentation of behavior, requirements and known conflicts may be read.
-- Each technique adopted gets a provenance record: where the idea came from and under what
-  terms.
+The rules for what may be read and used, and a record for each technique, are in
+[PROVENANCE.md](PROVENANCE.md).
 
 ## Risks
 

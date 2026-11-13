@@ -82,12 +82,12 @@ jar {
     from(project(':core').sourceSets.main.output)
     manifest.attributes('ModType': 'CRL', 'Implementation-Title': 'Quadrature',
         'Implementation-Version': project.version, 'Quadrature-Platform': platform.id)
-    from('NOTICE') { into 'META-INF' }
+    from(files('LICENSE', 'NOTICE.md')) { into 'META-INF' }
 }
 
 sourcesJar {
     from(project(':core').sourceSets.main.allSource)
-    from('NOTICE') { into 'META-INF' }
+    from(files('LICENSE', 'NOTICE.md')) { into 'META-INF' }
 }
 
 tasks.named('check') { dependsOn ':core:check' }

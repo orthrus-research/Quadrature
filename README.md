@@ -1,7 +1,7 @@
 # Quadrature
 
 **Status:** Phase 0. The mod checks the platform and stops with a message where it is not
-supported; no rendering code exists yet. No license is granted; see [NOTICE](NOTICE).
+supported; no rendering code exists yet.
 
 Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on Cleanroom with
 Cubature. It draws the whole frame: near terrain meshed directly from cubes, distant terrain
@@ -55,6 +55,16 @@ no Minecraft dependency.
 - [docs/BASELINE.md](docs/BASELINE.md): what the current stack measures, as the bar to meet
 - [docs/research/](docs/research/README.md): research findings per work order, with the
   basis of each and what is still open
+
+- [docs/CUBE-SOURCE.md](docs/CUBE-SOURCE.md): the draft contract for what Cubature supplies
+- [docs/PROVENANCE.md](docs/PROVENANCE.md): where each technique came from, and the rules
+  for what may be used
+
+## License
+
+Original Quadrature material is offered under [NRR 1.0](LICENSE), a public-domain
+dedication with an unconditional fallback license. [NOTICE.md](NOTICE.md) lists what is
+covered separately.
 
 ## Related projects
 
