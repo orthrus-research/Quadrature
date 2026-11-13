@@ -50,6 +50,12 @@ each mod needs from a renderer. Read for behavior only, on 2026-11-13.
 | ReplayMod, minimaps | Read frames and depth back | Frame resource access |
 | OptiFine and other renderers | Replace the renderer | None: the game stops (decision D6) |
 
+Cleanroom's LWJGL 2 shim keeps its own list of mods that reach LWJGL 2 internals by
+reflection and fail at runtime [V, `MOD_COMPATIBILITY.md`, read 2026-11-13]. Two entries
+concern rendering: FarPlaneTwo's LWJGL 2 backend resolves GL entry points through members
+the shim does not provide, and Vivecraft's input injection drives LWJGL 2's platform
+classes. Both fail on Cleanroom regardless of Quadrature.
+
 *Implication:* three needs recur: the capture technique, an honored layer query, and state
 containment. Most of the list is covered by those three.
 
@@ -75,5 +81,6 @@ point Forge can display it. Whether Cleanroom offers an earlier display is open.
 - Actinium, `docs/compatibility-matrix.md` (updated 2026-11-07), read for behavior
 - Demonica, README and release notes 0.9.1, read for behavior
 - Relictium, README (known incompatibilities)
+- CleanroomMC/LWJGLY, `MOD_COMPATIBILITY.md`: https://github.com/CleanroomMC/LWJGLY
 - Forge 1.12.2 Javadoc, `CustomModLoadingErrorDisplayException`:
   https://skmedix.github.io/ForgeJavaDocs/javadoc/forge/1.12.2-14.23.5.2859/net/minecraftforge/fml/client/CustomModLoadingErrorDisplayException.html

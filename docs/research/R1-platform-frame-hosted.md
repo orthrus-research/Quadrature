@@ -41,8 +41,7 @@ driver version; treat parallel compile as unproven until tested on a current dri
 LWJGL 3.4.0 added a backend built on the foreign function and memory API, enabled by
 default on JDK 25 and later, and runs with unsafe memory access denied.
 OrthLib's platform manifest records LWJGL 3.4.3 for Cleanroom 0.7.14-alpha, so that
-backend is the one in use.
-*Open:* how Cleanroom's LWJGL 2 shim routes calls.
+backend is the one in use. The LWJGL 2 shim is described in 9.2.
 
 **1.7 Driver threading. [K]**
 A GL context is current on one thread at a time. NVIDIA's driver can move work to its own
@@ -109,11 +108,25 @@ geometry outputs. Enable flags must be mirrored into uniforms. A geometry buffer
 an alpha-bearing, non-integer attachment at draw buffer zero so the game's alpha-tested
 draws (entities, cutout textures) keep working.
 
-**9.2 Where state can be observed. [K]**
+**9.1a Display lists. [V]**
+Section 21.4 of the compatibility specification: executing a list runs its commands "just
+as if they were given normally", so a list drawn while Quadrature's program is bound runs
+through that program. Program and shader object commands (create, compile, link, attach)
+are never compiled into a list; they execute immediately. The game's display lists
+(entity models, sky, some block entity renderers) therefore need no special handling.
+
+**9.2 Where state can be observed. [K, partly V]**
 Minecraft 1.12.2 routes nearly all state changes through `GlStateManager`. That is one
-place to mirror state and translate depth. Mods that call LWJGL directly bypass it;
-Cleanroom's LWJGL 2 shim is a possible second observation point.
-*Open:* how many common mods bypass `GlStateManager`, and whether the shim can be observed.
+place to mirror state and translate depth. Mods that call LWJGL directly bypass it.
+Cleanroom's LWJGL 2 shim (LWJGLY) [V, README read 2026-11-13] works at class load: where a
+class exists in both LWJGL versions, such as `GL11`, the methods LWJGL 2 had and LWJGL 3
+dropped are merged into LWJGL 3's class from generated shims and handwritten adapters,
+most of them a renamed delegate. So a mod's direct `GL11` call lands in LWJGL 3's own
+class. There is no routing layer to observe; seeing direct calls would mean transforming
+the calling classes, which is Cleanroom's mechanism and not one Quadrature owns.
+*Implication:* `GlStateManager` is the observation point. Direct LWJGL calls are handled
+by reading back or resetting the affected state at stage boundaries, not by interception.
+*Open:* how many common mods bypass `GlStateManager`.
 
 **9.3 Fixed-function state the game uses. [K]**
 Texture unit 0 for the base texture and unit 1 for the lightmap with a texture matrix; two
@@ -126,11 +139,9 @@ combine for the entity damage tint.
 
 ## Follow-ups
 
-1. Confirm how display lists interact with the bound program (specification chapter 21).
-2. Prototype reversed depth with hosted entity draws (2.2).
-3. Instrument a client for fixed-function state use and direct LWJGL calls (9.2, 9.3).
-4. Trace how Cleanroom's LWJGL 2 shim routes calls (1.6).
-5. Test parallel compile and program binary caching on a current driver (1.5).
+1. Prototype reversed depth with hosted entity draws (2.2).
+2. Instrument a client for fixed-function state use and direct LWJGL calls (9.2, 9.3).
+3. Test parallel compile and program binary caching on a current driver (1.5).
 
 ## Sources
 
@@ -147,7 +158,8 @@ combine for the entity damage tint.
   https://www.slideshare.net/DICEStudio/framegraph-extensible-rendering-architecture-in-frostbite
 - Khronos, `glClipControl` reference: https://registry.khronos.org/OpenGL-Refpages/gl4/html/glClipControl.xhtml
 - NVIDIA, "Depth Precision Visualized": https://developer.nvidia.com/content/depth-precision-visualized
+- CleanroomMC/LWJGLY, README, read 2026-11-13: https://github.com/CleanroomMC/LWJGLY
 - OpenGL 4.6 compatibility profile specification (May 5, 2022), chapters 12 and 16,
-  sections 13.7, 13.8 and 17.3.2: https://registry.khronos.org/OpenGL/specs/gl/glspec46.compatibility.pdf
+  sections 13.7, 13.8, 17.3.2 and 21.4: https://registry.khronos.org/OpenGL/specs/gl/glspec46.compatibility.pdf
 - OpenGL Shading Language 4.60 specification, sections 7.2 and 7.4:
   https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.4.60.pdf

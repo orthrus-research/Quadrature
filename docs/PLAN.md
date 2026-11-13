@@ -52,7 +52,10 @@ Research comes first; its answers decide the architecture.
 
 - P0-B1 is done (2026-11-13): `./gradlew build` on Temurin 25 produces the mod JAR with
   Java 25 class files. The JAR has not been loaded in a client yet; that is part of P0-B2.
-- Next: a deeper reading pass on the research follow-ups, then P0-B2.
+- A reading pass on 2026-11-13 confirmed hosted rendering against the OpenGL 4.6
+  compatibility and GLSL 4.60 specifications, and read Cleanroom's LWJGL shim, the LabPBR
+  material standard, and sources on clustered shading and virtual shadow maps.
+- Next: P0-B2 (platform gate), which also loads the JAR in a client for the first time.
 
 ### Research status
 
@@ -65,7 +68,8 @@ follow-ups. The ones that block the architecture document:
 | Pass graph (A1) | Reversed depth with hosted draws, by prototype (R1, 2.2) |
 | Terrain technique (A1) | Mesh shaders against compute culling with indirect multi-draw, measured on an 8 GB Turing card or under an enforced 8 GB budget (R2, 5.6) |
 | Distant terrain (P4) | Representation prototypes with memory per square kilometer (R3, 6.1) |
-| Lighting (P5) | A second, sourced pass on pipeline shape, shadows and indirect light (R4) |
+| Lighting (P5) | Measured costs for shadows and indirect light at long range (R4, 7.2 and 7.3) |
+| Materials (P5) | How the material model relates to LabPBR (R4, 7.6) |
 
 Order: R1 to R5 can run in parallel. A1 follows R1, R2 and R4. A2 follows R5. B1 and V2
 depend on nothing and can start at once. B2 and V1 follow B1.
