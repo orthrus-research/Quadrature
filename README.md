@@ -48,6 +48,8 @@ no Minecraft dependency.
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md): what each part of the pipeline must do, and
   the questions a research pass has to answer before implementation
 
+- [docs/VERIFICATION.md](docs/VERIFICATION.md): how frames are captured and compared, and
+  the measured repeatability
 - [docs/research/](docs/research/README.md): research findings per work order, with the
   basis of each and what is still open
 

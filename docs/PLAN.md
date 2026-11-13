@@ -67,7 +67,12 @@ Research comes first; its answers decide the architecture.
   (unit tests only); any real second renderer.
   One case cannot show a screen: with Cleanroom's compatibility profile off, the game
   itself aborts during startup. Quadrature logs the cause before that happens.
-- Next: P0-V1 (capture and comparison harness) and P0-V2 (baselines).
+- P0-V1 is done (2026-11-13): `tools/frames.py` compares frames against a profile, capture
+  reuses Riven's tours, and repeatability is measured with and without Distant Horizons
+  ([VERIFICATION.md](VERIFICATION.md)). A settled near-terrain instance reproduces 13 of
+  17 frames exactly. Carried forward: the harness cannot wait for a settled state, and two
+  differences are unexplained (first-run lighting under canopy; the settled horizon).
+- Next: P0-V2 (baselines).
 
 ### Research status
 
