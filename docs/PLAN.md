@@ -74,10 +74,12 @@ Research comes first; its answers decide the architecture.
   differences are unexplained (first-run lighting under canopy; the settled horizon).
 - P0-V2 is partly done (2026-11-13): the vanilla near renderer with Distant Horizons is
   measured in flight (two captures) and stationary (one) in [BASELINE.md](BASELINE.md).
-  That baseline is the bar for P2 (decision D14). Open: Celeritas as a comparison, which
-  needs the harness extended to the shader stack; the canonical world; an 8 GB card.
-- Next: the Celeritas comparison (tours with the shader stack, then the harness), then the
-  architecture document.
+  That baseline is the bar for P2 (decision D14). Celeritas is measured beside it as a
+  comparison, in flight (two captures, through the harness extended to the shader stack)
+  and as tour frames. Open: the canonical world; an 8 GB card; what render work spans
+  under Celeritas.
+- P0-V2 is done to the extent this machine allows.
+- Next: the architecture document (P0-A1).
 
 ### Research status
 

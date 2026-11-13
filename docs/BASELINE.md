@@ -64,6 +64,44 @@ Memory and load (capture 1, capture 2):
 | GPU utilization, mean and peak | 26% and 51%, 25% and 48% |
 | Cubes loaded at the end of flight | 72,065 and 73,334 |
 
+## Celeritas, for comparison
+
+The same flight workload, builds and settings with the shader pins on the client, so
+Celeritas draws near terrain (Demonica present, no shader pack enabled). Two captures;
+both passed. Phase 2's bar is the vanilla baseline above (decision D14); these show where
+an established replacement renderer sits.
+
+Client, during the 60 s of flight:
+
+| Measure | Vanilla (two captures) | Celeritas (two captures) |
+|---|---|---|
+| Render work per frame, median | 5.84, 6.23 ms | 2.62, 2.44 ms |
+| Render work per frame, 95th percentile | 9.93, 10.28 ms | 5.10, 4.63 ms |
+| Render work per frame, 99th percentile | 13.56, 14.50 ms | 7.61, 7.06 ms |
+| Frame time, 95th percentile | 12.99, 13.95 ms | 11.12, 11.22 ms |
+| Frame time, 99th percentile | 21.19, 22.60 ms | 18.97, 16.52 ms |
+| Frames over 16.7 ms | 165, 209 | 117, 67 |
+| Frames over 33.3 ms | 27, 29 | 6, 8 |
+| Frames drawn | 6,822, 6,718 | 7,192, 7,205 |
+| Client process, peak working set | 7.81, 7.76 GiB | 7.55, 7.65 GiB |
+| GPU memory, peak above pre-launch | 534, 529 MiB | 565, 559 MiB |
+| GPU utilization, mean | 26%, 25% | 26%, 26% |
+
+Server tick times are the same within the spread between captures, as expected: the
+renderer is client-side.
+
+Render work is measured by observer hooks written against the vanilla renderer. Celeritas
+moves terrain work off that path, so the two render-work columns may not span the same
+work; the ratio is indicative. The frame counts do not depend on those hooks and point the
+same way.
+
+Frames: the forest tour on a Celeritas instance without Distant Horizons differs from the
+vanilla reference on every view, by 4.4% to 60.3% of pixels at threshold 8, with a mean
+difference of 3 to 13. Celeritas renders about 6 to 8% darker overall, with a different sky
+gradient; geometry matches. Two working renderers are therefore not pixel-equal, and a
+comparison of Quadrature's own terrain against vanilla needs either identical shading or a
+tolerance that admits an even offset.
+
 ## Stationary
 
 Workload `terrain-pipeline-fixed-v1`: load a full view, then idle. One capture; passed.
@@ -86,14 +124,16 @@ this capture; its peak of 381 MiB above the starting level is a lower bound.
 
 ## What this baseline does not cover
 
-- **Celeritas and Demonica.** The harness runs the vanilla near renderer and has no option
-  for the shader stack. Phase 2's bar is the vanilla baseline above (decision D14);
-  Celeritas is a comparison still to be measured.
+- **A shader pack.** Celeritas is measured with no pack enabled; Demonica's shader
+  pipeline is not.
+- **What render work spans under Celeritas.** See the caution in that section.
 - **The canonical 32 km world.** The capture command takes no seed or scale; this is the
   benchmark world.
 - **The 8 GB floor.** The card measured has 12 GB.
 - **Mesh shaders against compute culling.** That measurement needs a terrain prototype.
 - **Frames.** Reference images are in VERIFICATION.md's two tour instances, not here.
 
-Captured instances: `quadrature-baseline-flight-01`, `quadrature-baseline-flight-02` and
-`quadrature-baseline-lifecycle-01`, each with a record in Riven's telemetry ledger.
+Captured instances: `quadrature-baseline-flight-01` and `-02` (vanilla),
+`quadrature-baseline-celeritas-01` and `-02`, and `quadrature-baseline-lifecycle-01`
+(stationary), each with a record in Riven's telemetry ledger; tour frames in
+`quadrature-celeritas-01`.
