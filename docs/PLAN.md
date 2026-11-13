@@ -79,7 +79,11 @@ Research comes first; its answers decide the architecture.
   and as tour frames, and again with a shader pack enabled (two captures). Open: the
   canonical world; an 8 GB card; GPU time; what render work spans under Celeritas.
 - P0-V2 is done to the extent this machine allows.
-- Next: the architecture document (P0-A1).
+- P0-A1 is drafted (2026-11-13): [ARCHITECTURE.md](ARCHITECTURE.md), with each choice
+  marked decided, default or candidate and the measurement that settles it.
+- P0-A2 is drafted (2026-11-13): [CUBE-SOURCE.md](CUBE-SOURCE.md), with six open points.
+  It is not yet in Cubature's repository or agreed there.
+- Next: agree the contract, budgets (P0-D1), license (P0-L1), then Phase 1.
 
 ### Research status
 

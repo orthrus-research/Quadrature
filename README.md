@@ -44,6 +44,8 @@ no Minecraft dependency.
 ## Documents
 
 - [docs/DECISIONS.md](docs/DECISIONS.md): standing decisions and their reasons
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the pipeline is put together, and which
+  choices are decided, default or still candidates
 - [docs/PLAN.md](docs/PLAN.md): phases, what closes each one, and the first work orders
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md): what each part of the pipeline must do, and
   the questions a research pass has to answer before implementation

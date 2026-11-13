@@ -53,10 +53,13 @@ for larger objects and shader-side clustering for small ones. A 2025 voxel rende
 culling sample built on indirect multi-draw.
 OpenGL 4.6 adds the GPU-side draw count to core. [K]
 
-**5.2 Occlusion for cave-heavy worlds. [K]**
-The game's own method, published by its developers in 2014, precomputes which faces of a
-16-cubed section can see each other and walks sections from the camera. It is already
-three-dimensional per section, so it extends to cubes without change. The depth-pyramid
+**5.2 Occlusion for cave-heavy worlds. [V]**
+The game's own method, published by its developer in August 2014, builds a connectivity
+graph per 16-cubed section when an opaque block changes and searches it breadth-first
+from the camera in linear time; it reported culling 50% to 99% of geometry. It is already
+three-dimensional per section, so it extends to cubes without change. Its known flaw is
+that the search does not follow real lines of sight, so a large cave can expose caves
+beyond it; later refinements reject steps whose incoming angle is too shallow. The depth-pyramid
 method handles what connectivity cannot (large open caverns).
 *Implication:* the two are complementary; connectivity is cheap on the CPU and can seed
 the GPU pass.
@@ -74,8 +77,20 @@ driver overhead", GDC 2014). Defragmentation strategy is open.
 Mesh and task shaders (Turing). Variable-rate shading as `NV_shading_rate_image`. Bindless
 textures. `NV_command_list`: current status not checked.
 
-**5.6 Mesh shaders against compute culling with indirect multi-draw. [M]**
-Not measured. It needs the repository scaffold and a terrain prototype. The hardware
+**5.6 Mesh shaders against compute culling with indirect multi-draw. [M, with published data V]**
+Published throughput, read 2026-11-13 [V]: Tellusim's comparison reports 12.5 billion
+triangles per second with indirect multi-draw and 13.3 billion with mesh shaders on an
+RTX 2080 Ti, a difference of about 6%, and 14.6 against 20.7 billion on an RTX 3090. On
+Turing, the floor, the two are near parity; the gap opens on later cards. NVIDIA's own
+sample reports per-primitive culling in the mesh shader saving almost a millisecond when
+triangles are smaller than a pixel. Other reports show task-shader culling overhead
+nearly cancelling its savings. These are different scenes and years, not a controlled
+comparison.
+*Implication:* build the compact-face technique with indirect multi-draw first. It is
+near parity on the floor card and is the technique any other vendor would need. Mesh
+shaders remain a second technique to measure where triangles get small, which is distant
+terrain.
+Our own measurement: not made. It needs the repository scaffold and a terrain prototype. The hardware
 available so far is an RTX 3060 with 12 GB (Ampere); the floor is an 8 GB Turing card, so
 the decisive run needs that hardware or an enforced 8 GB budget.
 
@@ -93,6 +108,11 @@ the decisive run needs that hardware or an enforced 8 GB budget.
 - NVIDIA, "Introduction to Turing Mesh Shaders": https://developer.nvidia.com/blog/introduction-turing-mesh-shaders
 - NVIDIA, "Advanced API Performance: Mesh Shaders": https://developer.nvidia.com/blog/advanced-api-performance-mesh-shaders/
 - Kapoulkine, "Meshlet size tradeoffs" (2023): https://zeux.io/2023/01/16/meshlet-size-tradeoffs/
+- Checchi, "The Advanced Cave Culling Algorithm", parts 1 and 2 (2014):
+  https://tomcc.github.io/2014/08/31/visibility-1.html
+- Tellusim, "Mesh Shader Performance": https://tellusim.com/mesh-shader-performance/
+- NVIDIA, meshlet sample notes: https://github.com/nvpro-samples/gl_vk_meshlet_cadscene/blob/master/README.md
+- "GPU-Driven Rendering Performance: Traditional vs Mesh": https://www.williscool.com/technical/task-mesh-benchmarking/task-mesh-benchmarking.md.html
 - Haar and Aaltonen, "GPU-Driven Rendering Pipelines", SIGGRAPH 2015 course:
   https://advances.realtimerendering.com/s2015/
 - Aaltonen, follow-up discussion: https://forum.beyond3d.com/threads/gpu-driven-rendering-siggraph-2015-follow-up.57240
