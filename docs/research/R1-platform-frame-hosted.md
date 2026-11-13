@@ -129,10 +129,40 @@ Measured 2026-11-13, prototype behind `-Dquadrature.reversedDepth=true`:
   reversed depth had 6 identical views and a worst of 0.039%. The first run fails three
   views, as first runs do against a settled reference (`docs/VERIFICATION.md`).
 
+- Nine more mods, client-side, from the surveyed pack, each of which sets depth state:
+  JourneyMap, Had Enough Items, CustomLoadingScreen, Chisel with CTM, Storage Drawers with
+  Chameleon, BetterAdvancements and Universal Tweaks. Five tours ran, two with reversed
+  depth and three without, none with an error. The same instance with the switch on and
+  off, both settled: all 17 views pass, worst 0.056% of pixels. Of the 2,627 pixels that
+  differ across the 17 views, 2,506 have at most two differing neighbors, and most lie in
+  the band of the frame that holds distant terrain. That is the pattern of depth rounding
+  along distant edges, and it is what reversed depth alone changes.
+- Two instances with the switch on in one and off in the other: 16 views pass and one
+  fails at 0.13%. About 860 of its pixels are one patch of ground lit differently, which
+  is gone in the same-instance comparison: a difference between instances, not of depth.
+  The reference instance against itself is identical in 16 views.
+
+Cost, measured 2026-11-13 with four flight captures (lifecycle flight workload, RTX 3060,
+no distant terrain, frame rate capped at 120), two with the switch off and two with it on:
+
+| | Off | On |
+|---|---|---|
+| Render work per frame, median | 1.51, 1.51 ms | 1.60, 1.83 ms |
+| Render work per frame, 95th percentile | 4.43, 4.29 ms | 4.34, 4.79 ms |
+| Frame time, 99th percentile | 19.5, 19.5 ms | 18.5, 18.0 ms |
+| World pass, sum of stage medians, CPU | 1.11 ms (one capture) | 1.10, 1.17 ms |
+| World pass, sum of stage medians, GPU | 1.08 ms (one capture) | 1.14, 1.16 ms |
+
+Median render work is 0.09 and 0.32 ms higher with the switch on. The two captures with it
+on differ from each other by more than the smaller of those, so four captures bound the
+cost at a few tenths of a millisecond without fixing it. Frame-time percentiles do not
+move. The stage times cover the whole capture, not the flight alone.
+
 *Not yet covered:*
 
-- The pixels that differ are not attributed. Different depth rounding at distant edges is
-  expected; that it is the only cause is not shown.
+- The added mods were loaded and rewritten, but a terrain tour opens no inventory and
+  places no block, so their own depth-setting code mostly did not run. JourneyMap's map
+  and CustomLoadingScreen's loading screen did draw.
 - Depth read back with `glReadPixels`, depth textures sampled by other mods' shaders, and
   `gl_FragCoord.z` in them are not translated. In the surveyed pack 6 mods read pixels;
   which of them read depth is not known.
@@ -143,10 +173,9 @@ Measured 2026-11-13, prototype behind `-Dquadrature.reversedDepth=true`:
   game's own far plane. It is monotonic and the same for everything drawn with that
   matrix. Quadrature's own projections must be derived from the same matrix, read from
   the driver, so its depth matches hosted depth exactly.
-- Cost is not measured: the per-call test for the render thread, the state read after
-  each `glPopAttrib`, and the rewriter's share of class loading in a large pack.
-- The larger pack. Ten mods were present; the 20 depth-setting mods of the surveyed pack
-  were not.
+- The rewriter's share of class loading, in a large pack, is not measured.
+- The rest of the pack: 19 mods in all were present, 9 of the surveyed pack's 27 that set
+  depth state.
 
 **2.3 Color. [K]**
 The game's textures and vertex colors are display-encoded, and its own blending happens in
