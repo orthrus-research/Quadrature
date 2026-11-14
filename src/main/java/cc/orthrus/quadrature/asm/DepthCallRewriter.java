@@ -24,7 +24,7 @@ public final class DepthCallRewriter implements IClassTransformer {
     private static final boolean REQUESTED = Boolean.getBoolean("quadrature.reversedDepth");
     private static final String TARGET = "cc/orthrus/quadrature/depth/DepthCalls";
     private static final String OWN_PACKAGE = "cc.orthrus.quadrature.";
-    private static final byte[] MARKER = "/opengl/GL".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] MARKER = "/opengl/".getBytes(StandardCharsets.US_ASCII);
 
     /** Name and descriptor of every call that is redirected. Each has a twin in DepthCalls. */
     private static final Set<String> CALLS = Set.of(
@@ -59,7 +59,22 @@ public final class DepthCallRewriter implements IClassTransformer {
         "glReadPixels(IIIIII[F)V",
         "glReadPixels(IIIIIILjava/nio/ByteBuffer;)V",
         "glReadPixels(IIIIIILjava/nio/IntBuffer;)V",
-        "glReadPixels(IIIIIILjava/nio/ShortBuffer;)V");
+        "glReadPixels(IIIIIILjava/nio/ShortBuffer;)V",
+        "glNewList(II)V",
+        "glEndList()V",
+        "glLoadTransposeMatrix(Ljava/nio/FloatBuffer;)V",
+        "glLoadTransposeMatrix(Ljava/nio/DoubleBuffer;)V",
+        "glLoadTransposeMatrixf(Ljava/nio/FloatBuffer;)V",
+        "glLoadTransposeMatrixf([F)V",
+        "glLoadTransposeMatrixd(Ljava/nio/DoubleBuffer;)V",
+        "glLoadTransposeMatrixd([D)V",
+        "glMatrixLoadIdentityEXT(I)V",
+        "glMatrixLoadEXT(ILjava/nio/FloatBuffer;)V",
+        "glMatrixLoadEXT(ILjava/nio/DoubleBuffer;)V",
+        "glMatrixLoadfEXT(ILjava/nio/FloatBuffer;)V",
+        "glMatrixLoadfEXT(I[F)V",
+        "glMatrixLoaddEXT(ILjava/nio/DoubleBuffer;)V",
+        "glMatrixLoaddEXT(I[D)V");
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] bytes) {
@@ -97,7 +112,8 @@ public final class DepthCallRewriter implements IClassTransformer {
 
     /** The binding's classes, under either of the two package names calls to them carry. */
     private static boolean isOpenGl(String owner) {
-        return owner.startsWith("org/lwjgl/opengl/GL") || owner.startsWith("org/lwjglx/opengl/GL");
+        return owner.startsWith("org/lwjgl/opengl/GL") || owner.startsWith("org/lwjglx/opengl/GL")
+            || owner.endsWith("/opengl/EXTDirectStateAccess") || owner.endsWith("/opengl/ARBTransposeMatrix");
     }
 
     /** A cheap test that spares parsing the many classes that never name an OpenGL class. */

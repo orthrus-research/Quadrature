@@ -3,7 +3,9 @@ package cc.orthrus.quadrature.depth;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.depth.ReversedDepth;
 
+import org.lwjgl.opengl.EXTDirectStateAccess;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL41;
 import org.lwjgl.opengl.GL45;
 
@@ -43,8 +45,18 @@ public final class DepthCalls {
     private static final int UNSIGNED_INT = 0x1405;
     private static final int FLOAT = 0x1406;
 
+    private static final int COMPILE = 0x1300;
+
     private static Thread renderThread;
     private static int matrixMode;
+    /** The matrix mode to return to when the display list being compiled ends; -1 outside one. */
+    private static int modeBeforeList = -1;
+    /**
+     * Set for good once a display list that sets the matrix mode has been compiled. Calling such a
+     * list changes the mode where no rewritten call sees it, so from then on the mode is read from
+     * the driver instead of taken from this class's own record.
+     */
+    private static boolean listsSetMatrixMode;
     private static final double[] scratch = new double[16];
     private static final float[] scratchFloats = new float[16];
 
@@ -88,6 +100,9 @@ public final class DepthCalls {
         glLoadMatrixf(scratchFloats.clone());
         glMatrixMode(mode);
         Quadrature.LOGGER.info("Reversed depth is on: clip depth 0 to 1, near plane at 1.");
+        if (Boolean.getBoolean("quadrature.depthSelfTest")) {
+            DepthSelfTest.run();
+        }
     }
 
     // Depth state.
@@ -134,6 +149,39 @@ public final class DepthCalls {
     public static void glMatrixMode(int mode) {
         matrixMode = mode;
         GL11.glMatrixMode(mode);
+        if (modeBeforeList != -1 && !listsSetMatrixMode && translating()) {
+            listsSetMatrixMode = true;
+            Quadrature.LOGGER.warn("A display list sets the matrix mode; the mode is now read from the driver "
+                + "on every projection load. Loads in a list that rely on the caller's mode are not reversed.");
+        }
+    }
+
+    /**
+     * Whether a matrix load now goes to the projection stack. Inside a display list being compiled
+     * the answer is the mode the list itself has set so far, since that is what will hold when it
+     * runs.
+     */
+    private static boolean projection() {
+        if (listsSetMatrixMode && modeBeforeList == -1) {
+            matrixMode = GL11.glGetInteger(MATRIX_MODE);
+        }
+        return matrixMode == PROJECTION;
+    }
+
+    public static void glNewList(int list, int mode) {
+        GL11.glNewList(list, mode);
+        if (translating() && mode == COMPILE) {
+            // Compiling runs nothing, so the driver's mode stays what it is now.
+            modeBeforeList = matrixMode;
+        }
+    }
+
+    public static void glEndList() {
+        GL11.glEndList();
+        if (modeBeforeList != -1) {
+            matrixMode = modeBeforeList;
+            modeBeforeList = -1;
+        }
     }
 
     public static void glPopAttrib() {
@@ -145,7 +193,7 @@ public final class DepthCalls {
     }
 
     public static void glLoadIdentity() {
-        if (translating() && matrixMode == PROJECTION) {
+        if (translating() && projection()) {
             loadReversed(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
         } else {
             GL11.glLoadIdentity();
@@ -153,7 +201,7 @@ public final class DepthCalls {
     }
 
     public static void glLoadMatrixf(float[] matrix) {
-        if (translating() && matrixMode == PROJECTION) {
+        if (translating() && projection()) {
             for (int i = 0; i < 16; i++) {
                 scratch[i] = matrix[i];
             }
@@ -164,7 +212,7 @@ public final class DepthCalls {
     }
 
     public static void glLoadMatrixf(FloatBuffer matrix) {
-        if (translating() && matrixMode == PROJECTION) {
+        if (translating() && projection()) {
             for (int i = 0; i < 16; i++) {
                 scratch[i] = matrix.get(matrix.position() + i);
             }
@@ -179,7 +227,7 @@ public final class DepthCalls {
     }
 
     public static void glLoadMatrixd(double[] matrix) {
-        if (translating() && matrixMode == PROJECTION) {
+        if (translating() && projection()) {
             System.arraycopy(matrix, 0, scratch, 0, 16);
             loadReversed();
         } else {
@@ -188,7 +236,7 @@ public final class DepthCalls {
     }
 
     public static void glLoadMatrixd(DoubleBuffer matrix) {
-        if (translating() && matrixMode == PROJECTION) {
+        if (translating() && projection()) {
             for (int i = 0; i < 16; i++) {
                 scratch[i] = matrix.get(matrix.position() + i);
             }
@@ -200,6 +248,132 @@ public final class DepthCalls {
 
     public static void glLoadMatrix(DoubleBuffer matrix) {
         glLoadMatrixd(matrix);
+    }
+
+    // Row-major loads: transposed into the scratch array, then loaded like any other.
+
+    public static void glLoadTransposeMatrixf(float[] matrix) {
+        if (translating() && projection()) {
+            for (int i = 0; i < 16; i++) {
+                scratch[(i & 3) * 4 + (i >> 2)] = matrix[i];
+            }
+            loadReversed();
+        } else {
+            GL13.glLoadTransposeMatrixf(matrix);
+        }
+    }
+
+    public static void glLoadTransposeMatrixf(FloatBuffer matrix) {
+        if (translating() && projection()) {
+            for (int i = 0; i < 16; i++) {
+                scratch[(i & 3) * 4 + (i >> 2)] = matrix.get(matrix.position() + i);
+            }
+            loadReversed();
+        } else {
+            GL13.glLoadTransposeMatrixf(matrix);
+        }
+    }
+
+    public static void glLoadTransposeMatrix(FloatBuffer matrix) {
+        glLoadTransposeMatrixf(matrix);
+    }
+
+    public static void glLoadTransposeMatrixd(double[] matrix) {
+        if (translating() && projection()) {
+            for (int i = 0; i < 16; i++) {
+                scratch[(i & 3) * 4 + (i >> 2)] = matrix[i];
+            }
+            loadReversed();
+        } else {
+            GL13.glLoadTransposeMatrixd(matrix);
+        }
+    }
+
+    public static void glLoadTransposeMatrixd(DoubleBuffer matrix) {
+        if (translating() && projection()) {
+            for (int i = 0; i < 16; i++) {
+                scratch[(i & 3) * 4 + (i >> 2)] = matrix.get(matrix.position() + i);
+            }
+            loadReversed();
+        } else {
+            GL13.glLoadTransposeMatrixd(matrix);
+        }
+    }
+
+    public static void glLoadTransposeMatrix(DoubleBuffer matrix) {
+        glLoadTransposeMatrixd(matrix);
+    }
+
+    // Loads that name their stack instead of using the matrix mode.
+
+    public static void glMatrixLoadIdentityEXT(int stack) {
+        if (translating() && stack == PROJECTION) {
+            identity();
+            ReversedDepth.reverse(scratch);
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, scratch);
+        } else {
+            EXTDirectStateAccess.glMatrixLoadIdentityEXT(stack);
+        }
+    }
+
+    public static void glMatrixLoadfEXT(int stack, float[] matrix) {
+        if (translating() && stack == PROJECTION) {
+            for (int i = 0; i < 16; i++) {
+                scratch[i] = matrix[i];
+            }
+            ReversedDepth.reverse(scratch);
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, scratch);
+        } else {
+            EXTDirectStateAccess.glMatrixLoadfEXT(stack, matrix);
+        }
+    }
+
+    public static void glMatrixLoadfEXT(int stack, FloatBuffer matrix) {
+        if (translating() && stack == PROJECTION) {
+            for (int i = 0; i < 16; i++) {
+                scratch[i] = matrix.get(matrix.position() + i);
+            }
+            ReversedDepth.reverse(scratch);
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, scratch);
+        } else {
+            EXTDirectStateAccess.glMatrixLoadfEXT(stack, matrix);
+        }
+    }
+
+    public static void glMatrixLoadEXT(int stack, FloatBuffer matrix) {
+        glMatrixLoadfEXT(stack, matrix);
+    }
+
+    public static void glMatrixLoaddEXT(int stack, double[] matrix) {
+        if (translating() && stack == PROJECTION) {
+            System.arraycopy(matrix, 0, scratch, 0, 16);
+            ReversedDepth.reverse(scratch);
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, scratch);
+        } else {
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, matrix);
+        }
+    }
+
+    public static void glMatrixLoaddEXT(int stack, DoubleBuffer matrix) {
+        if (translating() && stack == PROJECTION) {
+            for (int i = 0; i < 16; i++) {
+                scratch[i] = matrix.get(matrix.position() + i);
+            }
+            ReversedDepth.reverse(scratch);
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, scratch);
+        } else {
+            EXTDirectStateAccess.glMatrixLoaddEXT(stack, matrix);
+        }
+    }
+
+    public static void glMatrixLoadEXT(int stack, DoubleBuffer matrix) {
+        glMatrixLoaddEXT(stack, matrix);
+    }
+
+    private static void identity() {
+        for (int i = 0; i < 16; i++) {
+            scratch[i] = (i % 5 == 0) ? 1.0 : 0.0;
+        }
     }
 
     private static void loadReversed(double... matrix) {

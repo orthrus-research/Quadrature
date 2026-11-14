@@ -92,7 +92,7 @@ surveyed pack (R5, section 11.3):
 How hosted code is kept unaware. Two mechanisms, both at one point each:
 
 1. **Calls are translated where they are made.** A class transformer rewrites, in every
-   class the game loads, each call to one of 32 OpenGL functions so that it lands in a
+   class the game loads, each call to one of 47 OpenGL functions so that it lands in a
    translator of the same name and signature. The translator swaps the comparison's
    direction, replaces a depth value d by 1 - d, negates polygon offsets, and maps a depth
    range (n, f) to (1 - f, 1 - n). The functions that read that state back translate the
@@ -108,7 +108,15 @@ How hosted code is kept unaware. Two mechanisms, both at one point each:
    R removed, so the game's frustum culling and camera position are computed as before.
 
 The translator needs to know the current matrix mode. It tracks `glMatrixMode` and reads
-the mode again after `glPopAttrib`, which can restore a mode it never saw set. It
+the mode again after `glPopAttrib`, which can restore a mode it never saw set. A display
+list can also change the mode when it is called, where no rewritten call sees it. The
+translator therefore watches lists being compiled: inside one it follows the mode the list
+sets, and afterwards returns to the mode that held before, since compiling runs nothing.
+If any list sets the mode, the translator stops trusting its own record for the rest of
+the session and asks the driver before every projection load. In the surveyed pack and the
+current stack no class that compiles a display list sets the matrix mode, so that path is
+not taken there. Row-major loads and loads that name their stack (`glLoadTransposeMatrix`,
+`glMatrixLoad*EXT`) are translated too; no surveyed mod calls them. It
 translates only on the render thread; the loading screen draws on its own thread and
 context and is left alone. Reversed depth is switched on at the first pass of the game
 loop, when the render thread holds the window's context, and the state set before that
@@ -147,7 +155,10 @@ in the current stack: GregTech's world scene renderer and ModularUI's schema ren
 reads the depth under the pointer and unprojects it through the projection to find the
 hovered block of a multiblock preview. `glReadPixels` with the depth format is therefore
 translated as well: floating-point values become 1 - d and normalized integers their
-bitwise complement. Checked in the development client: with the switch on, a sky pixel
+bitwise complement. A self-test (`-Dquadrature.depthSelfTest=true`) loads projections each
+way hosted code can, including inside a display list that sets the matrix mode and after
+one has changed it, and compares what the driver then holds; all cases pass. Also checked
+in the development client: with the switch on, a sky pixel
 reads 0 from the driver and 1 through the translator. A preview's picking in the game was
 not exercised.
 
@@ -167,6 +178,14 @@ on differ from each other by more than the smaller of those, so four captures bo
 cost at a few tenths of a millisecond without fixing it. Frame-time percentiles do not
 move. The stage times cover the whole capture, not the flight alone.
 
+The rewriter's share of class loading, measured 2026-11-13 outside the game by passing
+every class of a mod folder through it once: the surveyed pack's 68,661 classes (252 MiB)
+take 0.25 to 0.41 s on a first pass and rewrite 56 classes; the current stack's classes
+take about 0.1 s. No class failed. That is an upper bound on the classes
+involved, since the game loads only some of them, and it excludes the game's own classes
+and JARs nested inside JARs. Nearly all the time is the byte search that rules a class
+out; a class is parsed only when it names an OpenGL class.
+
 *Not yet covered:*
 
 - The added mods were loaded and rewritten, but a terrain tour opens no inventory and
@@ -176,14 +195,13 @@ move. The stage times cover the whole capture, not the flight alone.
   `gl_FragCoord.z` in those shaders, are not translated and cannot be from outside the
   shader. In the surveyed pack three mods create or attach a depth texture (IvToolkit,
   GroovyScript, Commons0815); none is in the current stack. These are reported, not fixed.
-- A display list that changes the matrix mode, and matrix calls through direct state
-  access, are not tracked.
+- A display list that loads a projection without setting the matrix mode itself, relying
+  on the mode its caller has set, is not reversed. No surveyed mod compiles such a list.
 - A projection built by multiplying a perspective onto the base is reversed by the driver
   in single precision, which shifts the effective near plane by a relative 0.02% at the
   game's own far plane. It is monotonic and the same for everything drawn with that
   matrix. Quadrature's own projections must be derived from the same matrix, read from
   the driver, so its depth matches hosted depth exactly.
-- The rewriter's share of class loading, in a large pack, is not measured.
 - The rest of the pack: 19 mods in all were present, 9 of the surveyed pack's 27 that set
   depth state.
 

@@ -124,6 +124,10 @@ cleanroom {
                 if (project.hasProperty('reversedDepth')) {
                     systemProperty 'quadrature.reversedDepth', 'true'
                 }
+                // -PdepthSelfTest checks the projection translations against the driver as reversed depth starts.
+                if (project.hasProperty('depthSelfTest')) {
+                    systemProperty 'quadrature.depthSelfTest', 'true'
+                }
                 // -PstateAudit reads OpenGL state at every stage boundary and reports what each stage leaves.
                 if (project.hasProperty('stateAudit')) {
                     systemProperty 'quadrature.stateAudit', 'true'
