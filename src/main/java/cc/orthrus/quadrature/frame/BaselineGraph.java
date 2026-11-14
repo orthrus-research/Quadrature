@@ -3,9 +3,11 @@ package cc.orthrus.quadrature.frame;
 import cc.orthrus.quadrature.core.frame.CompiledGraph;
 import cc.orthrus.quadrature.core.frame.PassGraph;
 import cc.orthrus.quadrature.core.frame.StageDefinition;
+import cc.orthrus.quadrature.core.frame.StageKind;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The game's world pass as a graph of hosted stages. It draws nothing new: each stage is a stretch of
@@ -49,6 +51,10 @@ public final class BaselineGraph {
         String previous = null;
         for (String[] section : SECTIONS) {
             if (!section[1].equals(previous)) {
+                if (Probe.ENABLED && section[1].equals(Probe.BEFORE)) {
+                    graph.add(new StageDefinition(Probe.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
+                        true));
+                }
                 graph.add(StageDefinition.hosted(section[1], FRAME));
                 previous = section[1];
             }

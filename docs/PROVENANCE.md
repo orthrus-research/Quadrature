@@ -93,6 +93,12 @@ authors can dedicate: their own expression of ideas, never copied code.
   game; none of their source was read for it.
 - Added: 2026-11-13
 
+### State envelope and probe stage
+- Code: `src/main/java/cc/orthrus/quadrature/frame/StateEnvelope.java`, `Probe.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification (direct state
+  access; the state the attribute stack does not save) and the state audit's measurements.
+- Added: 2026-11-13
+
 ### State audit
 - Code: `src/main/java/cc/orthrus/quadrature/frame/StateAudit.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification's state query

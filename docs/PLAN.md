@@ -76,6 +76,8 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 1 | Stage boundaries by injection into the game's world pass |
 | Phase 4 | The distant terrain composite and its transition band, by prototype (research R1, 2.2) |
 | Phase 2 | The state audit repeated on more views and with a larger pack installed |
+| Phase 2 | Hosted drawing that lies exactly on Quadrature's terrain: its depth and the game's fixed-function depth are not bit-identical (research R1, 9a.7) |
+| Phase 2 | Reversed depth on by default; a scripted scene with a screen open, for multiblock preview picking and other mods' own depth code |
 | Phase 2 | Implementing the cube source in Cubature, and whether cube data can be shared between snapshots |
 | Phase 2 | Face merging against per-face output with smooth lighting on |
 | Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
@@ -99,14 +101,15 @@ As of 2026-11-13.
 | The gate refuses Kirino's graphics state | Done. Verified in the development client: loading halts with the message |
 | A cubic world, with Cubature | Done. Installed from its JAR in a Riven instance: the Mixin configuration registered through the manifest, and 43,452 frames ran with no stage out of order, unknown or outside a frame and no GPU result dropped |
 | The frame compared against the vanilla reference | Done. All 17 forest tour views pass the near-terrain profile against the vanilla reference; 6 are pixel-identical and the worst changes 0.039% of pixels ([VERIFICATION.md](VERIFICATION.md)) |
-| State envelope around hosted stages | Rules decided from the specification and a survey of 189 mods ([ARCHITECTURE.md](ARCHITECTURE.md), 4.4). Not implemented: nothing of Quadrature's draws yet |
+| State envelope around hosted stages | Done. A development stage of Quadrature's own draws with a program, a vertex array object, a buffer and its own framebuffer between two hosted stages. The state audit shows it leaving none of 41 items changed, and in a cubic instance the frame is unchanged by it (research R1, 9a.7) |
 | Depth strategy | Decided (D17): the whole frame uses reversed depth. Prototype built behind `-Dquadrature.reversedDepth=true`: depth calls are translated where they are made and the projection stack's base is a reversal. In a cubic instance all 17 forest tour views pass the near-terrain profile against the vanilla reference, worst 0.063% of pixels; with nine depth-setting mods of the surveyed pack added, the same instance with the switch on and off differs by at most 0.056%, in isolated distant pixels. Cost in four flight captures: median render work 1.51 ms off, 1.60 and 1.83 ms on. Depth pixel reads are translated; depth textures in other mods' shaders are reported only. The rewriter passes a 189-mod pack's 68,661 classes in 0.4 s. Open: the added mods' own drawing exercised (research R1, 2.2) |
 | Survey of common mods | Done for one pack: `tools/mod_survey.py` over 189 client mods (research R5, 11.3) |
 | State audit: the state the game and mods really leave, measured in a client | Done for two runs: the game alone and a cubic instance of the current stack, 41 state items over 120 frames each (research R1, 9.3). Fixed-function state is never restored between stages; modern state is never left changed |
 
-Phase 1's closing condition, a cubic world matching the vanilla image within the stated
-tolerance, is met for a frame in which Quadrature observes and draws nothing. The state
-envelope and the two prototypes remain before the phase closes.
+Phase 1 is closed. Its condition, a cubic world matching the vanilla image within the
+stated tolerance, is met for a frame Quadrature observes, and for one in which a stage of
+its own runs inside the envelope. Reversed depth stays behind its switch until Phase 2
+turns it on with the first terrain.
 
 The development client reaches a world on its own with `./gradlew runClient -PdevWorld=<seconds>`,
 logs stage times every five seconds, and quits.

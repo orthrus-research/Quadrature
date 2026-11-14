@@ -118,7 +118,9 @@ run; the alpha test still does, on output zero.
   with direct calls that cannot be observed, so nothing a hosted stage left is trusted.
   **Decided.**
 - **Leaving a Quadrature stage: leave the context as the game believes it to be.** State
-  the game's cache (`GlStateManager`) knows is changed only through the cache. State it
+  the game's cache (`GlStateManager`) knows is changed only through the cache, and put
+  back to what that place in the frame expects: the game relies on state set earlier in
+  its own pass, such as face culling. State it
   does not know is returned to a fixed neutral value: no program, no vertex array object,
   the game's framebuffer, no array or element buffer, no sampler objects on the units the
   game uses, generic vertex attribute arrays disabled, default pixel storage, the matrix
@@ -381,7 +383,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 |---|---|---|
 | Module boundaries, capability rule, technique selection at compile | Decided | |
 | Pass graph with cached compilation | Default | Frame cost of recompiling, if graphs change often |
-| State envelope: assume nothing on entry, neutral values on leaving; state mirroring | Decided | Proved by the state audit |
+| State envelope: assume nothing on entry, neutral values on leaving; state mirroring | Decided; built and measured with a development stage (research R1, 9a.7) | Mirroring, from Phase 5 |
 | Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |

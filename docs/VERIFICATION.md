@@ -100,6 +100,16 @@ that observing it does not change the frame. Stage times from that run, at the l
 medians: opaque terrain 0.73 ms on the CPU and 2.55 ms on the GPU; translucent terrain
 0.12 ms and 0.31 ms; all stages together 1.09 ms and 2.89 ms.
 
+## A stage of Quadrature's own
+
+Measured 2026-11-13 on one instance prepared like the near-terrain reference, with reversed
+depth on, the forest tour captured after a settling run, under `near.json`.
+
+| Comparison | Result |
+|---|---|
+| Probe drawing into its own framebuffer, against no probe | 17 of 17 pass; 16 identical, one at 0.077% |
+| Probe also drawing into the frame: reversed against conventional depth | 16 of 17 pass, worst 0.042%; one view at 1.6%, where the conventional run shows two coplanar surfaces fighting |
+
 ## Limits
 
 - The harness cannot wait for a settled state; it relies on discarding the first run.

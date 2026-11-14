@@ -39,7 +39,8 @@ flat development world unattended, logs each stage's CPU and GPU time every five
 and quits after that many seconds. Adding `-PstateAudit` also reads OpenGL state at every
 stage boundary and reports what each stage leaves changed. Adding `-PreversedDepth` switches the
 whole frame to reversed depth, a prototype that is off by default; `-PdepthSelfTest` with it checks
-the projection translations against the driver. Adding `-PtestMemoryFloorMiB=<n>`
+the projection translations against the driver. `-Pprobe=offscreen` or `-Pprobe=visible` runs a
+development stage of Quadrature's own inside the world pass. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 

@@ -128,6 +128,10 @@ cleanroom {
                 if (project.hasProperty('depthSelfTest')) {
                     systemProperty 'quadrature.depthSelfTest', 'true'
                 }
+                // -Pprobe=offscreen|visible runs a development stage of Quadrature's own inside the world pass.
+                if (project.hasProperty('probe')) {
+                    systemProperty 'quadrature.probe', project.property('probe')
+                }
                 // -PstateAudit reads OpenGL state at every stage boundary and reports what each stage leaves.
                 if (project.hasProperty('stateAudit')) {
                     systemProperty 'quadrature.stateAudit', 'true'

@@ -53,6 +53,14 @@ public final class FrameHost {
         String stage = BaselineGraph.stageFor(name, occurrence);
         if (stage != null && timeline.graph().indexOf(stage) != currentStage) {
             currentStage = timeline.graph().indexOf(stage);
+            if (Probe.ENABLED && stage.equals(Probe.BEFORE)) {
+                // A stage of Quadrature's own, run between two hosted ones.
+                if (audit != null) {
+                    audit.boundary(Probe.STAGE);
+                }
+                timeline.enter(Probe.STAGE);
+                Probe.run();
+            }
             if (audit != null) {
                 audit.boundary(stage);
             }

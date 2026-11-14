@@ -136,6 +136,7 @@ final class StateAudit {
         }
         String[] after = new String[names.length];
         read(after);
+        changes.computeIfAbsent(currentStage, key -> new LinkedHashMap<>());
         for (int i = 0; i < names.length; i++) {
             if (!after[i].equals(before[i])) {
                 changes.computeIfAbsent(currentStage, key -> new LinkedHashMap<>())
@@ -184,7 +185,7 @@ final class StateAudit {
             + hosted[0]);
         lines.add("State each stage left different from what it found (found -> left x frames):");
         changes.forEach((stage, items) -> {
-            lines.add("  " + stage + ":");
+            lines.add("  " + stage + ":" + (items.isEmpty() ? " nothing" : ""));
             items.forEach((name, transitions) -> lines.add("    " + name + ": " + transitions));
         });
         Quadrature.LOGGER.info(String.join(System.lineSeparator(), lines));

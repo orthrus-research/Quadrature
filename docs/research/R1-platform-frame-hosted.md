@@ -415,6 +415,35 @@ of state the game really uses (section 9.3); run with other mods installed it sh
 of them leave state behind. It reads state back, so it is a diagnostic, never part of a
 normal frame.
 
+**9a.7 The envelope, measured. [V]**
+Measured 2026-11-13 with a development stage of Quadrature's own, the probe
+(`-Dquadrature.probe`), which runs between the sky and terrain setup and draws with a
+shader program, a vertex array object, a buffer and its own framebuffer, all created
+through direct state access.
+
+- State audit, development client, reversed depth off and on: the probe stage leaves none
+  of the 41 state items changed.
+- Frame, cubic instance, forest tour, one instance, settled: with the probe drawing only
+  into its own framebuffer, 16 of 17 views are identical to the run without it and the
+  seventeenth differs by 0.077%, the view that differs between any two runs.
+- Depth, same instance: with the probe also drawing a flat square into the game's frame,
+  two blocks below the eye, terrain drawn afterwards cuts it where it rises above it, and
+  16 of 17 views agree between reversed and conventional depth within 0.042% of pixels.
+- The seventeenth view differs by 1.6%, and the difference is in the conventional run: the
+  square lies in the plane of the ground there, and with conventional 24-bit depth the two
+  fight in stripes, while with reversed floating-point depth the ground, drawn later,
+  wins everywhere.
+
+*Implication:* a shader of Quadrature's own and the game's fixed-function path do not
+produce bit-identical depth for one surface. Reversed depth keeps that from showing in
+this case. Phase 2 must not rely on it: hosted drawing that lies exactly on Quadrature's
+terrain, such as overlays and decals from other mods, needs to be checked there.
+
+One correction to the rule as first written. The game does rely on state set earlier in
+its own pass, such as face culling enabled once at the top. So neutral values are for
+state the game's cache does not know; state the cache does know, a stage puts back to what
+its place in the frame expects, through the cache.
+
 ## Follow-ups
 
 1. Prototype the distant terrain composite and its transition band, in Phase 4 (2.2).
