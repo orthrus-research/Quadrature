@@ -110,6 +110,27 @@ depth on, the forest tour captured after a settling run, under `near.json`.
 | Probe drawing into its own framebuffer, against no probe | 17 of 17 pass; 16 identical, one at 0.077% |
 | Probe also drawing into the frame: reversed against conventional depth | 16 of 17 pass, worst 0.042%; one view at 1.6%, where the conventional run shows two coplanar surfaces fighting |
 
+## Own terrain against the vanilla reference
+
+Measured 2026-11-14 with `-Dquadrature.terrain=own` on an instance prepared like the
+near-terrain reference, with the Cubature build that carries the cube source; the second
+of two forest tours, under `near.json`.
+
+| Result | |
+|---|---|
+| Frames passing | 11 of 17 |
+| Worst changed fraction | 0.168% (`07-boreal_forest`) |
+| Failing frames | Between 0.107% and 0.168%; one of them passed an earlier run at 0.084% |
+
+What differs: about seven in ten differing pixels are isolated, along edges; the densest
+regions are distant terrain at the horizon that Quadrature draws and the game does not,
+identically in all three reference runs. Two causes found on the way are fixed. The game
+restores the light map's linear filter inside the draw Quadrature replaces, so Quadrature
+sets it itself; without that, faces flickered between two light levels and up to 6.8% of
+pixels differed. The game draws a cube only if the eye is within the render distance, in
+blocks, of the cube's lowest corner on each axis, which reaches one cube less toward
+negative coordinates; Quadrature applies the same bound.
+
 ## Limits
 
 - The harness cannot wait for a settled state; it relies on discarding the first run.

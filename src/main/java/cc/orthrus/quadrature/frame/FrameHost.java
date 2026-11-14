@@ -106,6 +106,10 @@ public final class FrameHost {
         line.append(String.format("%n  frames %d, out of order %d, unknown stages %d, outside a frame %d, "
                 + "GPU results dropped %d", timeline.frames(), timeline.outOfOrder(), timeline.unknownStages(),
             timeline.outsideFrame(), gpuTimer.dropped()));
+        String terrain = cc.orthrus.quadrature.terrain.TerrainHook.summary();
+        if (terrain != null) {
+            line.append(String.format("%n  %s", terrain));
+        }
         Quadrature.LOGGER.info(line.toString());
     }
 }

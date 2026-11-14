@@ -40,7 +40,11 @@ and quits after that many seconds. Adding `-PstateAudit` also reads OpenGL state
 stage boundary and reports what each stage leaves changed. Adding `-PreversedDepth` switches the
 whole frame to reversed depth, a prototype that is off by default; `-PdepthSelfTest` with it checks
 the projection translations against the driver. `-Pprobe=offscreen` or `-Pprobe=visible` runs a
-development stage of Quadrature's own inside the world pass. Adding `-PtestMemoryFloorMiB=<n>`
+development stage of Quadrature's own inside the world pass.
+
+Own terrain needs a cubic world, so it runs in an instance with Cubature, not in the development
+client: start the game with `-Dquadrature.terrain=own`. The build takes Cubature's API from the
+sibling checkout's development JAR (`../Cubature`), or from the JAR named with `-PcubatureDevJar`. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 

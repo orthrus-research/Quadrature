@@ -114,6 +114,19 @@ turns it on with the first terrain.
 The development client reaches a world on its own with `./gradlew runClient -PdevWorld=<seconds>`,
 logs stage times every five seconds, and quits.
 
+## Phase 2 status
+
+As of 2026-11-14.
+
+| Step | Status |
+|---|---|
+| Cube source in Cubature | Built for events, versions, queries and snapshots; the work executor and the settled signal are not built (Cubature's `docs/CUBE-SOURCE.md`) |
+| Near terrain, first form | Built behind `-Dquadrature.terrain=own`: every loaded cube is meshed from a snapshot with the game's block models, on the client thread within 4 ms a frame, nearest first; the three opaque layers are drawn from those meshes in place of the game's draw. Translucent terrain, layers other mods add and block entities are still the game's, which also still builds its own meshes |
+| Frame against the vanilla reference | 11 of 17 forest tour views pass the near-terrain profile; the worst differs in 0.168% of pixels. The excess is distant terrain the game leaves out and isolated edge pixels ([VERIFICATION.md](VERIFICATION.md)) |
+| First numbers | 1.2 ms to mesh a cube; 709 MiB for 5,427 meshes in the game's 28-byte vertex format; 3,810 draws in a frame; opaque terrain 1.12 ms on the CPU and 2.47 ms on the GPU, against 0.73 and 2.55 ms for the game's own draw |
+| Why the game omits terrain Quadrature draws | Open: being established from the game's own selection |
+| Compact face stream, visibility, submission, the work executor | Not started |
+
 ## Reading rules
 
 The rules for what may be read and used, and a record for each technique, are in

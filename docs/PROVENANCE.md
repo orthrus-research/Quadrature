@@ -93,6 +93,15 @@ authors can dedicate: their own expression of ideas, never copied code.
   game; none of their source was read for it.
 - Added: 2026-11-13
 
+### Near terrain, first form
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/`, `MixinRenderGlobal.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/CubeKey.java`
+- Source: original. It calls the game's own block model renderer against a snapshot, as
+  the game's chunk builder calls it against its render cache. Facts used: the game's world
+  pass (where each layer is drawn and what state is set for it, including the light map),
+  its block vertex format, and Cubature's cube source interfaces and render distance bound.
+- Added: 2026-11-14
+
 ### State envelope and probe stage
 - Code: `src/main/java/cc/orthrus/quadrature/frame/StateEnvelope.java`, `Probe.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (direct state

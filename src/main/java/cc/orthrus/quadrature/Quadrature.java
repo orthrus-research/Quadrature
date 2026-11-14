@@ -12,6 +12,7 @@ import cc.orthrus.quadrature.platform.PlatformGateHandler;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Loader;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 
 import org.apache.logging.log4j.LogManager;
@@ -39,6 +40,18 @@ public final class Quadrature {
     static final PlatformRequirements REQUIREMENTS = new PlatformRequirements(
         EnumSet.allOf(Capability.class), List.of(QuadratureBuild.GRAPHICS_VENDOR),
         Math.max(QuadratureBuild.MINIMUM_GPU_MEMORY_MIB, Long.getLong(TEST_MEMORY_FLOOR, 0L)));
+
+    @Mod.EventHandler
+    public void postInit(FMLPostInitializationEvent event) {
+        // Cubature installs its cube source while it initializes, which is over by now.
+        if (cc.orthrus.quadrature.terrain.TerrainHook.requested()) {
+            if (Loader.isModLoaded("cubicchunks")) {
+                cc.orthrus.quadrature.terrain.TerrainHook.start();
+            } else {
+                LOGGER.error("Own terrain was requested, but Cubature is not installed.");
+            }
+        }
+    }
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {

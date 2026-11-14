@@ -43,6 +43,15 @@ evaluationDependsOn(':core')
 dependencies {
     implementation cleanroom.userdev(cleanroom_version)
     implementation project(':core')
+    // Cubature's public API, for the cube source. Compile only: Cubature supplies it at runtime.
+    // The JAR is the development build of the sibling checkout (python tools/build_cubature.py there),
+    // or the one named with -PcubatureDevJar.
+    def cubature = providers.gradleProperty('cubatureDevJar')
+        .getOrElse('../Cubature/cleanroom/build/cleanroom/libs/Cubature-1.12.2-0.1.4.0-cleanroom-dev.jar')
+    if (!file(cubature).exists()) {
+        throw new GradleException("Cubature's development JAR is missing at ${cubature}; build Cubature first")
+    }
+    compileOnly files(cubature)
 }
 
 def constantsDirectory = layout.buildDirectory.dir('generated/sources/quadrature')
