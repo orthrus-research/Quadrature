@@ -7,9 +7,12 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL41;
 import org.lwjgl.opengl.GL45;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.nio.ShortBuffer;
 
 /**
  * Where every depth-related OpenGL call in the game and in other mods arrives once the call rewriter
@@ -34,6 +37,11 @@ public final class DepthCalls {
     private static final int DEPTH_FUNC = 0x0B74;
     private static final int POLYGON_OFFSET_UNITS = 0x2A00;
     private static final int POLYGON_OFFSET_FACTOR = 0x8038;
+    private static final int DEPTH_COMPONENT = 0x1902;
+    private static final int UNSIGNED_BYTE = 0x1401;
+    private static final int UNSIGNED_SHORT = 0x1403;
+    private static final int UNSIGNED_INT = 0x1405;
+    private static final int FLOAT = 0x1406;
 
     private static Thread renderThread;
     private static int matrixMode;
@@ -321,6 +329,86 @@ public final class DepthCalls {
 
     public static void glGetDouble(int name, DoubleBuffer into) {
         glGetDoublev(name, into);
+    }
+
+    // Reading depth pixels. Hosted code that reads a depth value unprojects it through the projection
+    // it also read here, which is conventional, so the depth must be conventional too. For the
+    // normalized integer types, 1 - d is the bitwise complement.
+
+    public static void glReadPixels(int x, int y, int width, int height, int format, int type, FloatBuffer pixels) {
+        GL11.glReadPixels(x, y, width, height, format, type, pixels);
+        if (translating() && format == DEPTH_COMPONENT && type == FLOAT) {
+            restoreFloats(pixels, width * height);
+        }
+    }
+
+    public static void glReadPixels(int x, int y, int width, int height, int format, int type, float[] pixels) {
+        GL11.glReadPixels(x, y, width, height, format, type, pixels);
+        if (translating() && format == DEPTH_COMPONENT && type == FLOAT) {
+            for (int i = 0; i < width * height; i++) {
+                pixels[i] = 1.0f - pixels[i];
+            }
+        }
+    }
+
+    public static void glReadPixels(int x, int y, int width, int height, int format, int type, ByteBuffer pixels) {
+        GL11.glReadPixels(x, y, width, height, format, type, pixels);
+        if (!translating() || format != DEPTH_COMPONENT) {
+            return;
+        }
+        // The driver writes in the machine's byte order whatever order the buffer declares.
+        ByteBuffer view = pixels.duplicate().order(ByteOrder.nativeOrder());
+        int count = width * height;
+        int at = view.position();
+        switch (type) {
+            case FLOAT:
+                restoreFloats(view.asFloatBuffer(), count);
+                break;
+            case UNSIGNED_INT:
+                for (int i = 0; i < count; i++) {
+                    view.putInt(at + 4 * i, ~view.getInt(at + 4 * i));
+                }
+                break;
+            case UNSIGNED_SHORT:
+                for (int i = 0; i < count; i++) {
+                    view.putShort(at + 2 * i, (short) ~view.getShort(at + 2 * i));
+                }
+                break;
+            case UNSIGNED_BYTE:
+                for (int i = 0; i < count; i++) {
+                    view.put(at + i, (byte) ~view.get(at + i));
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    public static void glReadPixels(int x, int y, int width, int height, int format, int type, IntBuffer pixels) {
+        GL11.glReadPixels(x, y, width, height, format, type, pixels);
+        if (translating() && format == DEPTH_COMPONENT && type == UNSIGNED_INT) {
+            int at = pixels.position();
+            for (int i = 0; i < width * height; i++) {
+                pixels.put(at + i, ~pixels.get(at + i));
+            }
+        }
+    }
+
+    public static void glReadPixels(int x, int y, int width, int height, int format, int type, ShortBuffer pixels) {
+        GL11.glReadPixels(x, y, width, height, format, type, pixels);
+        if (translating() && format == DEPTH_COMPONENT && type == UNSIGNED_SHORT) {
+            int at = pixels.position();
+            for (int i = 0; i < width * height; i++) {
+                pixels.put(at + i, (short) ~pixels.get(at + i));
+            }
+        }
+    }
+
+    private static void restoreFloats(FloatBuffer pixels, int count) {
+        int at = pixels.position();
+        for (int i = 0; i < count; i++) {
+            pixels.put(at + i, 1.0f - pixels.get(at + i));
+        }
     }
 
     private static boolean translated(int name) {

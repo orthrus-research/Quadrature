@@ -54,7 +54,12 @@ public final class DepthCallRewriter implements IClassTransformer {
         "glGetDouble(I)D",
         "glGetDouble(ILjava/nio/DoubleBuffer;)V",
         "glGetDoublev(ILjava/nio/DoubleBuffer;)V",
-        "glGetDoublev(I[D)V");
+        "glGetDoublev(I[D)V",
+        "glReadPixels(IIIIIILjava/nio/FloatBuffer;)V",
+        "glReadPixels(IIIIII[F)V",
+        "glReadPixels(IIIIIILjava/nio/ByteBuffer;)V",
+        "glReadPixels(IIIIIILjava/nio/IntBuffer;)V",
+        "glReadPixels(IIIIIILjava/nio/ShortBuffer;)V");
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] bytes) {

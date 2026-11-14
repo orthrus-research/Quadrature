@@ -114,6 +114,10 @@ Mods by the OpenGL calls they make:
   account for one by one.
 - Hosted code changes depth state in many places and reads depth back. Reversed depth
   therefore translates those calls where they are made, in every class (R1, section 2.2).
+- Of the six mods that read pixels, two read depth: GregTech (`WorldSceneRenderer`) and
+  ModularUI (`BaseSchemaRenderer`, `Projection`). Three mods create or attach a depth
+  texture: IvToolkit, GroovyScript and Commons0815. Found by pairing each call with a depth
+  constant in the same method, a heuristic that can report an unrelated pair.
 - Hosted code leaves modern state behind as well as fixed-function state. That decides
   the envelope (R1, section 9a).
 - One pack is one sample. The tool runs on any mods folder; packs the projects target

@@ -92,7 +92,7 @@ surveyed pack (R5, section 11.3):
 How hosted code is kept unaware. Two mechanisms, both at one point each:
 
 1. **Calls are translated where they are made.** A class transformer rewrites, in every
-   class the game loads, each call to one of 27 OpenGL functions so that it lands in a
+   class the game loads, each call to one of 32 OpenGL functions so that it lands in a
    translator of the same name and signature. The translator swaps the comparison's
    direction, replaces a depth value d by 1 - d, negates polygon offsets, and maps a depth
    range (n, f) to (1 - f, 1 - n). The functions that read that state back translate the
@@ -142,6 +142,15 @@ Measured 2026-11-13, prototype behind `-Dquadrature.reversedDepth=true`:
   is gone in the same-instance comparison: a difference between instances, not of depth.
   The reference instance against itself is identical in 16 views.
 
+Depth read back. The survey (R5, section 11.3) finds two mods that read depth pixels, both
+in the current stack: GregTech's world scene renderer and ModularUI's schema renderer. Each
+reads the depth under the pointer and unprojects it through the projection to find the
+hovered block of a multiblock preview. `glReadPixels` with the depth format is therefore
+translated as well: floating-point values become 1 - d and normalized integers their
+bitwise complement. Checked in the development client: with the switch on, a sky pixel
+reads 0 from the driver and 1 through the translator. A preview's picking in the game was
+not exercised.
+
 Cost, measured 2026-11-13 with four flight captures (lifecycle flight workload, RTX 3060,
 no distant terrain, frame rate capped at 120), two with the switch off and two with it on:
 
@@ -163,9 +172,10 @@ move. The stage times cover the whole capture, not the flight alone.
 - The added mods were loaded and rewritten, but a terrain tour opens no inventory and
   places no block, so their own depth-setting code mostly did not run. JourneyMap's map
   and CustomLoadingScreen's loading screen did draw.
-- Depth read back with `glReadPixels`, depth textures sampled by other mods' shaders, and
-  `gl_FragCoord.z` in them are not translated. In the surveyed pack 6 mods read pixels;
-  which of them read depth is not known.
+- Depth textures that other mods create and sample in their own shaders, and
+  `gl_FragCoord.z` in those shaders, are not translated and cannot be from outside the
+  shader. In the surveyed pack three mods create or attach a depth texture (IvToolkit,
+  GroovyScript, Commons0815); none is in the current stack. These are reported, not fixed.
 - A display list that changes the matrix mode, and matrix calls through direct state
   access, are not tracked.
 - A projection built by multiplying a perspective onto the base is reversed by the driver

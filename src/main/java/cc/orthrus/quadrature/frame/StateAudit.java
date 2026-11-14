@@ -170,6 +170,18 @@ final class StateAudit {
         lines.add("State audit over " + SAMPLED_FRAMES + " frames, " + names.length + " items.");
         lines.add("State at the start of the world pass (value x frames):");
         atPassStart.forEach((name, values) -> lines.add("  " + name + ": " + values));
+        // One depth pixel at the middle of the window, as the driver holds it and as hosted code reads it.
+        int[] viewport = new int[4];
+        GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
+        int x = viewport[0] + viewport[2] / 2;
+        int y = viewport[1] + viewport[3] / 2;
+        float[] driver = new float[1];
+        float[] hosted = new float[1];
+        GL11.glReadPixels(x, y, 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, driver);
+        cc.orthrus.quadrature.depth.DepthCalls.glReadPixels(x, y, 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT,
+            hosted);
+        lines.add("Depth at the middle of the window: driver " + driver[0] + ", as hosted code reads it "
+            + hosted[0]);
         lines.add("State each stage left different from what it found (found -> left x frames):");
         changes.forEach((stage, items) -> {
             lines.add("  " + stage + ":");

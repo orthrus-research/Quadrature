@@ -129,20 +129,122 @@ def constant_pool(data: bytes):
     return set(utf8.values()), class_names, methods
 
 
+# Calls that can move depth out of the depth buffer, and the constants that say they do.
+DEPTH_CALLS = {
+    "reads depth pixels": {"glReadPixels"},
+    "copies depth to a texture": {"glCopyTexImage2D", "glCopyTexSubImage2D"},
+    "creates a depth texture": {"glTexImage2D", "glTexStorage2D"},
+    "attaches a depth texture": {"glFramebufferTexture2D", "glFramebufferTexture2DEXT", "glFramebufferTexture"},
+}
+# DEPTH_COMPONENT, DEPTH_STENCIL, the sized depth formats and the depth attachment points.
+DEPTH_CONSTANTS = {0x1902, 0x84F9, 0x81A5, 0x81A6, 0x81A7, 0x8CAC, 0x8CAD, 0x88F0, 0x8D00, 0x821A}
+
+
+def depth_reads(data: bytes) -> set[str]:
+    """Categories of DEPTH_CALLS for which one method both makes the call and names a depth constant.
+
+    A heuristic over raw bytecode: it looks for the call's and the constant's instruction bytes in
+    the same method body without decoding instructions, so it can report a pair that is unrelated.
+    """
+    if data[:4] != b"\xca\xfe\xba\xbe":
+        return set()
+    count = struct.unpack_from(">H", data, 8)[0]
+    position = 10
+    utf8, classes, name_and_type, member_refs, integers = {}, {}, {}, {}, {}
+    index = 1
+    try:
+        while index < count:
+            tag = data[position]
+            if tag == 1:
+                length = struct.unpack_from(">H", data, position + 1)[0]
+                utf8[index] = data[position + 3:position + 3 + length].decode("utf-8", "replace")
+                position += 3 + length
+            elif tag == 3:
+                integers[index] = struct.unpack_from(">i", data, position + 1)[0]
+                position += 5
+            elif tag == 4:
+                position += 5
+            elif tag in (5, 6):
+                position += 9
+                index += 1
+            elif tag == 7:
+                classes[index] = struct.unpack_from(">H", data, position + 1)[0]
+                position += 3
+            elif tag in (8, 16, 19, 20):
+                position += 3
+            elif tag in (9, 10, 11):
+                member_refs[index] = struct.unpack_from(">HH", data, position + 1)
+                position += 5
+            elif tag == 12:
+                name_and_type[index] = struct.unpack_from(">H", data, position + 1)[0]
+                position += 5
+            elif tag == 15:
+                position += 4
+            elif tag in (17, 18):
+                position += 5
+            else:
+                return set()
+            index += 1
+        # Instruction bytes that push a depth constant: sipush for small values, ldc for the rest.
+        pushes = [b"\x11" + struct.pack(">h", c) for c in DEPTH_CONSTANTS if c <= 0x7FFF]
+        for pool_index, value in integers.items():
+            if value in DEPTH_CONSTANTS:
+                pushes.append(b"\x13" + struct.pack(">H", pool_index))
+                if pool_index < 256:
+                    pushes.append(b"\x12" + bytes([pool_index]))
+        calls = defaultdict(list)
+        for pool_index, (class_index, nat_index) in member_refs.items():
+            owner = utf8.get(classes.get(class_index, 0), "")
+            name = utf8.get(name_and_type.get(nat_index, 0), "")
+            if "/opengl/" not in owner and owner != HELPER:
+                continue
+            for category, names in DEPTH_CALLS.items():
+                if name in names:
+                    calls[category].append(b"\xb8" + struct.pack(">H", pool_index))
+        if not calls:
+            return set()
+        # Skip the class header and interfaces to reach the fields and methods.
+        position += 6
+        position += 2 + 2 * struct.unpack_from(">H", data, position)[0]
+        found = set()
+        for members in ("fields", "methods"):
+            member_count = struct.unpack_from(">H", data, position)[0]
+            position += 2
+            for _ in range(member_count):
+                attribute_count = struct.unpack_from(">H", data, position + 6)[0]
+                position += 8
+                for _ in range(attribute_count):
+                    name_index, length = struct.unpack_from(">HI", data, position)
+                    body = data[position + 6:position + 6 + length]
+                    position += 6 + length
+                    if members == "methods" and utf8.get(name_index) == "Code" \
+                            and any(push in body for push in pushes):
+                        for category, patterns in calls.items():
+                            if any(pattern in body for pattern in patterns):
+                                found.add(category)
+        return found
+    except (IndexError, struct.error):
+        return set()
+
+
 def survey_jar(path: Path) -> dict:
     calls = defaultdict(int)
     patches = defaultdict(set)
+    depth = defaultdict(set)
     try:
         archive = zipfile.ZipFile(path)
     except zipfile.BadZipFile:
-        return {"calls": {}, "patches": {}, "classes": 0, "error": "not a readable archive"}
+        return {"calls": {}, "patches": {}, "classes": 0, "depth": {}, "error": "not a readable archive"}
     classes = 0
     with archive:
         for entry in archive.infolist():
             if not entry.filename.endswith(".class"):
                 continue
             classes += 1
-            strings, class_names, methods = constant_pool(archive.read(entry))
+            data = archive.read(entry)
+            strings, class_names, methods = constant_pool(data)
+            for category in depth_reads(data):
+                depth[category].add(entry.filename[:-6])
             for category, owners in CALLS.items():
                 for owner, names in owners:
                     if any((o == owner or (owner.endswith("/") and o.startswith(owner))) and n in names
@@ -157,7 +259,8 @@ def survey_jar(path: Path) -> dict:
                     if internal in class_names or internal in strings or dotted in strings \
                             or ("L" + internal + ";") in strings:
                         patches[label].add("Mixin" if is_mixin else "transformer")
-    return {"calls": dict(calls), "patches": {k: sorted(v) for k, v in patches.items()}, "classes": classes}
+    return {"calls": dict(calls), "patches": {k: sorted(v) for k, v in patches.items()}, "classes": classes,
+            "depth": {k: sorted(v) for k, v in depth.items()}}
 
 
 def main(argv: list[str]) -> int:
@@ -180,6 +283,12 @@ def main(argv: list[str]) -> int:
     for label in TARGETS:
         mods = sorted(name for name, r in results.items() if label in r["patches"])
         print(f"  {len(mods):4d}  {label}: " + ", ".join(mods))
+    print("\nDepth leaving the depth buffer (a method makes the call and names a depth constant):")
+    for category in DEPTH_CALLS:
+        print(f"  {category}:")
+        for name, r in sorted(results.items()):
+            if category in r["depth"]:
+                print(f"    {name}: " + ", ".join(c.rsplit("/", 1)[-1] for c in r["depth"][category]))
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps(results, indent=1) + "\n", encoding="utf-8")
