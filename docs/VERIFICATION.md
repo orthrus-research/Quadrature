@@ -306,6 +306,40 @@ Pages are therefore written through the driver. Scored on a third instance:
   that view, while the own-terrain runs matched the settling run's there within 0.006%.
   The cause in the capture is not established.
 
+Free blocks were then split and joined, pages made ahead of need, and placing capped at
+1 ms a frame. Scored on a fourth instance, the two ways of reusing blocks in one build:
+
+| Fourth instance | Game | Reuse by exact size | Blocks split and joined |
+|---|---|---|---|
+| Frames passing | reference | 16 of 17 | 17 of 17 |
+| Worst changed fraction | | 0.1158% (`07-boreal_forest`) | 0.0310% (`07-boreal_forest`) |
+| Changed pixels, all 17 views, and outside the river | | 2,190 and 1,264 | 1,391 and 1,240 |
+| Pages and memory taken | | 14, 896 MiB | 10, 640 MiB |
+| In use at the end and at most | | 592.1 and 594.5 MiB | 592.1 and 594.5 MiB |
+| Taken over in use, at the end | | 151% | 108% |
+| Draws per settled frame, average and most | | 35 and 42 | 18 and 30 |
+| CPU, median and most | 0.63 and 0.94 ms | 0.53 and 5.78 ms | 0.49 and 5.66 ms |
+| GPU, median and most | 1.57 and 2.31 ms | 1.79 and 2.38 ms | 1.72 and 2.32 ms |
+| Placing a mesh, each and the worst frame | | 0.012 and 3.47 ms | 0.010 and 1.79 ms |
+| Frames per second at the captures, least | 119 | 120 | 120 |
+
+- **The frame that fails** does so on the river: 926 of the tour's 2,190 changed pixels lie
+  in its box, and outside it the two runs differ from the game by 1,264 and 1,240 pixels.
+  The two runs differ from each other in no view by more than 0.0352%, 284 of 426 changed
+  pixels on the river; five views are identical byte for byte.
+- **Memory follows the most in use, not what is in use.** Between views everything is
+  unloaded and use falls as low as 15 MiB; pages are not given back. With joining the
+  free memory lies in few ranges: 1 to 20 through the tour and 96 at its end, the largest
+  40 MiB.
+- **Fewer pages are fewer draws**, since a layer is drawn with one call per page.
+- **Making a page** takes 0.05 ms on average and 0.12 ms at most, and with pages made
+  ahead none was made in the way of a mesh. It is not what the worst frames hold.
+- **The worst frame held one mesh**, 37.4 KiB, in both runs, and that one write took 3.47
+  and 1.79 ms; the cap stopped meshing in one frame of each run. A cap between meshes
+  cannot bound a single write. Why the driver takes that long over it is not established.
+- **The first game-drawn reference was retaken**: its view `04-cold_rainforest-near` was
+  captured facing elsewhere, which `frames.py check` names.
+
 The driver also warns, on every frame of every run, that texture object 0 is bound to
 texture units 0 to 3 without a base level. The warning is raised outside the terrain draw.
 
@@ -324,6 +358,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.probePoints=x,y;x,y` | With `probeRect`: logs the color and depth the frame holds at those pixels after each opaque layer |
 | `quadrature.terrain.draw=direct` | Each layer of each cube is drawn with a call of its own, its matrix in a uniform, from the same pages |
 | `quadrature.terrain.pages=mapped` | Pages stay mapped for writing and meshes are copied into them |
+| `quadrature.terrain.blocks=classes` | A freed block serves only a mesh of its own size and is neither split nor joined |
 | `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 

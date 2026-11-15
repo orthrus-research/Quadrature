@@ -258,8 +258,16 @@ streams of 6.1 exist.
   memory ([VERIFICATION.md](VERIFICATION.md)). Writing through the driver costs the client
   thread what copying into a mapped page did.
 - **Blocks.** Sizes step by a granule of 146 vertices, 4,088 bytes, so every block starts
-  on a whole vertex of its page. A freed block is reused only by a mesh of the same number
-  of granules; otherwise a mesh takes fresh space from the end of a page.
+  on a whole vertex of its page. A mesh takes the smallest free range that holds it and
+  leaves the rest free; a block given back joins the free ranges beside it in its page.
+  Space never handed out is a free range like any other. Nothing is moved.
+- **Pages ahead of need.** When the largest free range falls below 8 MiB a page is made
+  after the frame's terrain is drawn, so that making one is never in the way of placing a
+  mesh. Making a page takes 0.06 ms.
+- **Placing within a frame.** Meshing stops for a frame once placing has taken 1 ms; the
+  cubes left keep the meshes they have and come first in the next frame. That bounds the
+  sum of a frame's placements and not one of them: a single write through the driver has
+  taken 1.8 and 3.5 ms, once a tour, and why is not established.
 - **Reuse waits for the driver.** A freed block is not reused until a fence placed after
   the frame's last terrain draw has signalled, one fence per frame. Mapped pages need
   that, since a write to mapped memory is not ordered against draws already issued; pages
@@ -269,10 +277,12 @@ streams of 6.1 exist.
   its model-view matrix and room for the previous frame's, is written to one shader
   storage buffer; a draw names its record by base instance.
 
-Not built: joining and splitting freed blocks, and compaction that moves a bounded amount
-per frame. Without them memory taken exceeds memory in use: 14 pages, 896 MiB, held
-592 MiB of meshes at the end of the forest tour, with 292 MiB freed and not reused. The
-slot table and the budget cover terrain only.
+Memory taken follows the most that was in use: over the forest tour 10 pages, 640 MiB,
+for 592 MiB at the end and 594.5 MiB at most, where reuse by exact size took 14 pages.
+
+Not built: compaction that moves a bounded amount per frame, and giving a page back when
+use falls; between the tour's views use falls to a few tens of mebibytes and the pages
+stay. The slot table and the budget cover terrain only.
 
 ### 6.4 Visibility and submission
 
@@ -468,7 +478,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | A view as the input to visibility and drawing | Decided; built | |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
-| Terrain memory: an arena of pages written through the driver, never mapped; draws by indirect multi-draw per layer and page | Built | Joining of freed blocks and compaction; commands written on the GPU |
+| Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |
 | Compact faces with indirect multi-draw, first | Default | Phase 2 measurements |
 | Meshlets as a second technique | Candidate | The mesh shader measurement, on distant terrain |

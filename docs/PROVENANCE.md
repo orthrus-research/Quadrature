@@ -167,9 +167,18 @@ authors can dedicate: their own expression of ideas, never copied code.
   commands that each name a range and, by base instance, a record.
 - Not taken: any allocator or renderer source. Buffers that stay mapped, which the talk
   recommends, are built and not the default: measured here, the driver keeps them in
-  system memory and draws from them several times slower, by its own messages. Size
-  classes with exact-class reuse and no splitting are the simplest scheme that could be
-  measured first.
+  system memory and draws from them several times slower, by its own messages.
+- Added: 2026-11-15
+
+### Free blocks split and joined
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/terrain/ArenaAllocator.java`
+- Source: Knuth, "The Art of Computer Programming", volume 1, section 2.5, on dynamic
+  storage allocation; Wilson, Johnstone, Neely and Boles, "Dynamic Storage Allocation: A
+  Survey and Critical Review", 1995.
+- Taken: the ideas. The smallest free range that holds a request is taken and the
+  remainder stays free; a range given back is joined to the free ranges that touch it.
+- Not taken: any allocator's source. Ranges are kept in two ordered sets, by start within
+  a page and by length, which is the plainest structure that does both.
 - Added: 2026-11-15
 
 ### Driver messages
