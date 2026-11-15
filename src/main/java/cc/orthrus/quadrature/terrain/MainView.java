@@ -45,4 +45,20 @@ final class MainView {
             z, x, eyeY, z, MODEL_VIEW, PROJECTION, minecraft.gameSettings.renderDistanceChunks,
             CubicChunksConfig.verticalCubeLoadDistance, occlusion);
     }
+
+    /**
+     * Fills {@code view} as a view along the direction of the sun, or of the moon while the sun is
+     * down, that holds what {@code main} sees.
+     */
+    static View alongLight(View view, View main, double partialTicks) {
+        // The sun circles the north-south axis: overhead at angle 0, in the east at three quarters.
+        double angle = Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks) * 2 * Math.PI;
+        double towardX = -Math.sin(angle);
+        double towardY = Math.cos(angle);
+        if (towardY < 0) {
+            towardX = -towardX;
+            towardY = -towardY;
+        }
+        return View.alongLight(view, main, towardX, towardY, 0);
+    }
 }

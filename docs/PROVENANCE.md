@@ -137,6 +137,20 @@ authors can dedicate: their own expression of ideas, never copied code.
   and for the sun's path.
 - Added: 2026-11-15
 
+### Visibility from face connectivity
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/terrain/CubeConnectivity.java`,
+  `Visibility.java`, and their use in `src/main/java/cc/orthrus/quadrature/terrain/`
+- Source: Tommaso Checchi, "The Advanced Cave Culling Algorithm", parts 1 and 2, 2014
+  (https://tomcc.github.io/2014/08/31/visibility-1.html), and the running game's behavior
+  as the selection comparison reports it.
+- Taken: the idea. Each section records which pairs of its faces are joined by a flood
+  fill through blocks that are not opaque; a breadth-first search from the camera's
+  section passes from face to face only where they are joined and never doubles back.
+- Not taken: the game's code, and its rule that the first way into a section decides
+  where the search may go from it. Here a cube entered by several faces is left through
+  all that any of them allows, and doubling back is judged by position relative to the
+  eye's cube, not by the path taken. No other renderer's source was read.
+- Added: 2026-11-15
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`

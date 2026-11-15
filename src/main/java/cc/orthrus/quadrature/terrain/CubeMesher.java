@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
+import cc.orthrus.quadrature.core.terrain.CubeConnectivity;
 
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
 
@@ -27,12 +28,20 @@ final class CubeMesher {
 
     private final BufferBuilder[] builders = new BufferBuilder[LAYERS.length];
     private final boolean[] started = new boolean[LAYERS.length];
+    private final long[] opaque = new long[64];
+    private final CubeConnectivity connectivity = new CubeConnectivity();
+    private short links;
     private int failures;
 
     CubeMesher() {
         for (int i = 0; i < builders.length; i++) {
             builders[i] = new BufferBuilder(i == 0 ? 1 << 18 : 1 << 16);
         }
+    }
+
+    /** Which faces of the cube last built see each other through it, as {@link CubeConnectivity} gives them. */
+    short links() {
+        return links;
     }
 
     /** @return the mesh, or null when the cube draws nothing in the opaque layers */
@@ -42,6 +51,7 @@ final class CubeMesher {
         int minY = cubeY << 4;
         int minZ = cubeZ << 4;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        java.util.Arrays.fill(opaque, 0);
         try {
             for (int y = 0; y < 16; y++) {
                 for (int z = 0; z < 16; z++) {
@@ -49,6 +59,10 @@ final class CubeMesher {
                         pos.setPos(minX + x, minY + y, minZ + z);
                         IBlockState state = snapshot.getBlockState(pos);
                         Block block = state.getBlock();
+                        if (state.isOpaqueCube()) {
+                            int cell = CubeConnectivity.cell(x, y, z);
+                            opaque[cell >> 6] |= 1L << cell;
+                        }
                         if (state.getRenderType() == EnumBlockRenderType.INVISIBLE) {
                             continue;
                         }
@@ -76,6 +90,7 @@ final class CubeMesher {
         } finally {
             ForgeHooksClient.setRenderLayer(null);
         }
+        links = connectivity.of(opaque);
         CubeMesh mesh = new CubeMesh(cubeX, cubeY, cubeZ);
         for (int layer = 0; layer < LAYERS.length; layer++) {
             if (!started[layer]) {

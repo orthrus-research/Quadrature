@@ -1,7 +1,10 @@
 package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
+import cc.orthrus.quadrature.core.terrain.CubeConnectivity;
 import cc.orthrus.quadrature.core.terrain.CubeKey;
+import cc.orthrus.quadrature.core.terrain.CubeVisitor;
+import cc.orthrus.quadrature.core.terrain.Visibility;
 import cc.orthrus.quadrature.core.view.View;
 
 import io.github.opencubicchunks.cubicchunks.api.client.CubeSource;
@@ -10,6 +13,7 @@ import io.github.opencubicchunks.cubicchunks.api.client.ICubeSource;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSourceListener;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ShortOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -23,20 +27,39 @@ import net.minecraft.util.BlockRenderLayer;
  * opaque layers are drawn from those meshes in place of the game's draw. Translucent terrain and
  * block entities are still the game's.
  *
+ * <p>What is drawn is what a view sees. Each frame the player's view is taken from the game and the
+ * cubes it sees are found once, by a search outward from the eye through the faces of cubes that see
+ * each other; the three layers draw from that list.
+ *
  * <p>Off unless {@code -Dquadrature.terrain=own}. Everything here runs on the client thread.
  */
-public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
+public final class Terrain
+    implements ICubeSourceListener, TerrainHook.Drawer, Visibility.Cubes, Visibility.CubeSet {
 
     private static final long BUILD_BUDGET_NANOS = 4_000_000L;
     private static final int CANDIDATES = 24;
     private static final double NEAR_BLOCKS_SQUARED = 576.0;
+    /**
+     * A diagnostic, off unless {@code -Dquadrature.terrain.visibility=all}: every meshed cube in the
+     * view's volume and reach is drawn, with no search, to set beside the search's frame and cost.
+     */
+    private static final boolean DRAW_ALL = "all".equals(System.getProperty("quadrature.terrain.visibility"));
 
     private final ICubeSource source;
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
     private final CubeMesher mesher = new CubeMesher();
     private final TerrainProgram program = new TerrainProgram();
+    /** Every loaded cube, with the faces of it that see each other: all of them until it is meshed. */
+    private final Long2ShortOpenHashMap links = new Long2ShortOpenHashMap();
     private final View mainView = new View();
+    private final View searchedView = new View();
+    private final View lightView = new View();
+    private final Visibility visible = new Visibility();
+    private final Visibility lit = new Visibility();
+    /** Counts changes to {@link #links}; a search holds while it and the view stand still. */
+    private long tableVersion;
+    private long searchedVersion = -1;
     private final long[] nearest = new long[CANDIDATES];
     private final double[] nearestDistance = new double[CANDIDATES];
     private boolean attached;
@@ -56,9 +79,17 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
     private long bytes;
     private long drawsThisFrame;
     private long drawnVerticesThisFrame;
+    private long frames;
+    private long searches;
+    private long searchNanos;
+    private long reused;
+    private long fellBack;
+    private long lastSearchNanos;
+    private long lastLightNanos;
 
     private Terrain(ICubeSource source) {
         this.source = source;
+        links.defaultReturnValue((short) -1);
     }
 
     /** Starts reading the cube source, if it exists and own terrain was asked for. */
@@ -88,7 +119,11 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
     public void worldAttached(long worldIdentity) {
         clear();
         attached = true;
-        source.forEachLoaded((x, y, z) -> dirty.add(CubeKey.of(x, y, z)));
+        source.forEachLoaded((x, y, z) -> {
+            dirty.add(CubeKey.of(x, y, z));
+            links.put(CubeKey.of(x, y, z), CubeConnectivity.ALL);
+        });
+        tableVersion++;
     }
 
     @Override
@@ -99,7 +134,13 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
 
     @Override
     public void cubeLoaded(int x, int y, int z) {
-        dirty.add(CubeKey.of(x, y, z));
+        long key = CubeKey.of(x, y, z);
+        dirty.add(key);
+        // Until it is meshed nothing is known of it, so it hides nothing.
+        if (!links.containsKey(key)) {
+            links.put(key, CubeConnectivity.ALL);
+            tableVersion++;
+        }
     }
 
     @Override
@@ -107,6 +148,8 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         long key = CubeKey.of(x, y, z);
         dirty.remove(key);
         release(meshes.remove(key));
+        links.remove(key);
+        tableVersion++;
     }
 
     @Override
@@ -121,6 +164,8 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         }
         meshes.clear();
         dirty.clear();
+        links.clear();
+        tableVersion++;
     }
 
     private void release(CubeMesh mesh) {
@@ -179,6 +224,8 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         int z = CubeKey.z(key);
         if (!source.isLoaded(x, y, z)) {
             release(meshes.remove(key));
+            links.remove(key);
+            tableVersion++;
             return;
         }
         if (!surrounded(x, y, z)) {
@@ -190,11 +237,13 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         if (snapshot.centerEmpty()) {
             emptied++;
             snapshot.release();
+            setLinks(key, CubeConnectivity.ALL);
             return;
         }
         long start = System.nanoTime();
         CubeMesh mesh = mesher.build(snapshot, x, y, z);
         snapshot.release();
+        setLinks(key, mesher.links());
         buildNanos += System.nanoTime() - start;
         built++;
         if (mesh != null) {
@@ -230,15 +279,63 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         return all;
     }
 
-    // Drawing.
+    // Seeing.
 
-    /** Takes the frame's view from the game and meshes what the budget allows. */
+    @Override
+    public int links(int cubeX, int cubeY, int cubeZ) {
+        return links.get(CubeKey.of(cubeX, cubeY, cubeZ));
+    }
+
+    /** The cubes that hold a mesh: what a view with no eye inside the world chooses among. */
+    @Override
+    public void each(CubeVisitor visitor) {
+        for (CubeMesh mesh : meshes.values()) {
+            visitor.cube(mesh.x, mesh.y, mesh.z);
+        }
+    }
+
+    private void setLinks(long key, short joined) {
+        if (links.put(key, joined) != joined) {
+            tableVersion++;
+        }
+    }
+
+    /**
+     * Takes the frame's view from the game, meshes what the budget allows, and finds what the view
+     * sees. A search is kept while neither the view nor any cube's links change, as when standing.
+     */
     @Override
     public View mainView(double partialTicks, Entity viewer) {
         MainView.fill(mainView, partialTicks, viewer);
         build(mainView.originX(), mainView.originY(), mainView.originZ());
+        frames++;
+        long start = System.nanoTime();
+        if (DRAW_ALL) {
+            visible.sweep(this, mainView);
+        } else if (searchedVersion == tableVersion && mainView.sameVolume(searchedView)) {
+            reused++;
+        } else if (visible.search(this, mainView) < 0) {
+            // The eye's cube is not held: nothing is known, so nothing is left out.
+            visible.sweep(this, mainView);
+            searchedVersion = -1;
+            fellBack++;
+        } else {
+            searchedVersion = tableVersion;
+            searchedView.copy(mainView);
+            searches++;
+            searchNanos += System.nanoTime() - start;
+        }
+        lastSearchNanos = System.nanoTime() - start;
+
+        // A second view, found and not yet drawn: what a shadow of the sun or moon would be drawn from.
+        start = System.nanoTime();
+        MainView.alongLight(lightView, mainView, partialTicks);
+        lit.sweep(this, lightView);
+        lastLightNanos = System.nanoTime() - start;
         return mainView;
     }
+
+    // Drawing.
 
     /**
      * Draws one opaque layer of what a view sees. For the player's view the block texture filtering,
@@ -268,26 +365,22 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         if (record) {
             drawnCubes.clear();
         }
-        for (CubeMesh mesh : meshes.values()) {
+        for (int i = 0, seen = visible.count(); i < seen; i++) {
+            long key = visible.key(i);
+            CubeMesh mesh = meshes.get(key);
+            if (mesh == null) {
+                continue;
+            }
             int count = mesh.count(index);
             if (count == 0 && !record) {
                 continue;
             }
-            // The view's reach is the game's own bound: the render distance from the origin's cube,
-            // counted in cubes on each axis. The client holds no cube beyond it, so it excludes nothing
-            // today.
-            if (!view.cubeWithinReach(mesh.x, mesh.y, mesh.z)) {
-                continue;
-            }
-            if (SelectionComparison.GAME_SELECTION != 0 && selectedCubes.contains(CubeKey.of(mesh.x, mesh.y, mesh.z))
+            if (SelectionComparison.GAME_SELECTION != 0 && selectedCubes.contains(key)
                 != (SelectionComparison.GAME_SELECTION == SelectionComparison.ONLY_SELECTED)) {
                 continue;
             }
-            if (!view.cubeVisible(mesh.x, mesh.y, mesh.z)) {
-                continue;
-            }
             if (record) {
-                drawnCubes.add(CubeKey.of(mesh.x, mesh.y, mesh.z));
+                drawnCubes.add(key);
             }
             if (count == 0) {
                 continue;
@@ -312,9 +405,13 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
     @Override
     public String summary() {
         return String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, "
-                + "%d left for a neighbor, %.1f MiB, %d M vertices held; last frame %d draws, %d k vertices",
+                + "%d left for a neighbor, %.1f MiB, %d M vertices held; last frame %d draws, %d k vertices; "
+                + "main view %d cubes seen, %.3f ms last frame, %.3f ms a search over %d searches, "
+                + "%d of %d frames kept the last search, %d swept instead; light view %d cubes, %.3f ms",
             meshes.size(), dirty.size(), built,
             built == 0 ? 0.0 : buildNanos / 1e6 / built, emptied, waiting, bytes / 1048576.0, vertices / 1_000_000,
-            drawsThisFrame, drawnVerticesThisFrame / 1000);
+            drawsThisFrame, drawnVerticesThisFrame / 1000, visible.count(), lastSearchNanos / 1e6,
+            searches == 0 ? 0.0 : searchNanos / 1e6 / searches, searches, reused, frames, fellBack, lit.count(),
+            lastLightNanos / 1e6);
     }
 }
