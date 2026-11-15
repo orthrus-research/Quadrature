@@ -11,6 +11,7 @@ import io.github.opencubicchunks.cubicchunks.api.client.ICubeSourceListener;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.entity.Entity;
@@ -39,6 +40,12 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
     private final long[] nearest = new long[CANDIDATES];
     private final double[] nearestDistance = new double[CANDIDATES];
     private boolean attached;
+
+    // Diagnostics, each absent unless its property is set.
+    private final SelectionComparison comparison = SelectionComparison.ENABLED ? new SelectionComparison() : null;
+    private final LongOpenHashSet drawnCubes = comparison != null ? new LongOpenHashSet() : null;
+    private final LongOpenHashSet selectedCubes = SelectionComparison.GAME_SELECTION != 0
+        || ScreenProbe.INSTANCE != null ? new LongOpenHashSet() : null;
 
     // Counters for the timing log.
     private long built;
@@ -238,6 +245,10 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
             build(cameraX, cameraY, cameraZ);
             drawsThisFrame = 0;
             drawnVerticesThisFrame = 0;
+            if (selectedCubes != null) {
+                // Once a frame: the game has finished its search by the time it draws the first layer.
+                SelectionComparison.selected(selectedCubes);
+            }
         }
         frustum.setPosition(cameraX, cameraY, cameraZ);
         // The game uploads its light map every tick, which resets that texture to unfiltered sampling,
@@ -253,9 +264,13 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         int cameraCubeZ = (int) Math.floor(cameraZ) >> 4;
         int across = net.minecraft.client.Minecraft.getMinecraft().gameSettings.renderDistanceChunks;
         int upward = verticalRenderDistance();
+        boolean record = comparison != null && layer == BlockRenderLayer.SOLID;
+        if (record) {
+            drawnCubes.clear();
+        }
         for (CubeMesh mesh : meshes.values()) {
             int count = mesh.count(index);
-            if (count == 0) {
+            if (count == 0 && !record) {
                 continue;
             }
             int minX = mesh.x << 4;
@@ -265,15 +280,34 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
                 || Math.abs(mesh.z - cameraCubeZ) > across) {
                 continue;
             }
+            if (SelectionComparison.GAME_SELECTION != 0 && selectedCubes.contains(CubeKey.of(mesh.x, mesh.y, mesh.z))
+                != (SelectionComparison.GAME_SELECTION == SelectionComparison.ONLY_SELECTED)) {
+                continue;
+            }
             if (!frustum.isBoxInFrustum(minX, minY, minZ, minX + 16, minY + 16, minZ + 16)) {
+                continue;
+            }
+            if (record) {
+                drawnCubes.add(CubeKey.of(mesh.x, mesh.y, mesh.z));
+            }
+            if (count == 0) {
                 continue;
             }
             program.draw(mesh, index, (float) (minX - cameraX), (float) (minY - cameraY), (float) (minZ - cameraZ));
             drawsThisFrame++;
             drawnVerticesThisFrame += count;
         }
+        if (ScreenProbe.INSTANCE != null && layer == BlockRenderLayer.SOLID && dirty.isEmpty()) {
+            ScreenProbe.INSTANCE.probe(meshes, selectedCubes, source, mesher, cameraX, cameraY, cameraZ);
+        }
+        if (ScreenProbe.INSTANCE != null) {
+            ScreenProbe.INSTANCE.sample(layer.toString(), layer == BlockRenderLayer.CUTOUT);
+        }
         program.end();
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
+        if (record && dirty.isEmpty()) {
+            comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, across, upward);
+        }
     }
 
     /** Cubature's vertical render distance in cubes, which the game's video settings show beside its own. */

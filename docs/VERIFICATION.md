@@ -190,7 +190,21 @@ two captures, so that view says nothing. The cubes cost draws: over the tour's s
 frames Quadrature issued 2,272 draws a frame on average and 3,628 at most, against 930 and
 1,366 for the selected cubes alone. At the last view opaque terrain took 1.92 ms of CPU
 time with every cube drawn and 0.69 ms with the selected cubes, against 0.77 ms for the
-game's own draw; these three were timed with the comparison above running.## Limits
+game's own draw; these three were timed with the comparison above running.### Diagnostics
+
+Own terrain carries four switches for finding where a frame differs. Each is a system
+property, read once, and costs nothing when unset.
+
+| Property | Effect |
+|---|---|
+| `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected, and for each cube only Quadrature draws, which of the game's conditions left it out |
+| `quadrature.terrain.gameSelection=true` | Quadrature draws only the cubes the game selected |
+| `quadrature.terrain.gameSelection=inverse` | Quadrature draws only the cubes the game did not select |
+| `quadrature.terrain.probeRect=x0,y0,x1,y1` | On one settled frame in 240, logs the nearest cubes holding faces in that rectangle of a captured frame, with each face's position, facing and light, and whether the held mesh is identical to one made afresh from the cube source. Add `,width,height` when the capture's size is not the viewport's |
+| `quadrature.terrain.probePoints=x,y;x,y` | With `probeRect`: logs the color and depth the frame holds at those pixels after each opaque layer |
+
+A settled frame is one with no cube waiting to be meshed.
+## Limits
 
 - The harness cannot wait for a settled state; it relies on discarding the first run.
 - The first-run lighting difference, the light that differs between instances and the

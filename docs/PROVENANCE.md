@@ -125,6 +125,16 @@ authors can dedicate: their own expression of ideas, never copied code.
   not used.
 - Added: 2026-11-14
 
+### Terrain diagnostics
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
+  `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`
+  and `ViewFrustumAccess.java`
+- Source: original. Facts used: the game's public interfaces for what it selected to draw
+  in a frame and for a render chunk's visibility between faces; the OpenGL 4.6
+  compatibility specification (buffer and pixel reads, the matrix queries).
+- Taken: nothing from another renderer. The comparison evaluates the game's own conditions
+  on the game's own data.
+- Added: 2026-11-14
 ### State envelope and probe stage
 - Code: `src/main/java/cc/orthrus/quadrature/frame/StateEnvelope.java`, `Probe.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (direct state
