@@ -224,10 +224,83 @@ with the comparison running.
   adds nothing measurable to meshing: 1.15 ms a cube.
 - **A second view.** A view along the sun's direction holding what the player's view sees
   is found every frame and not drawn: 1,914 cubes on average, 2,315 at most, in 0.15 ms.
+### Terrain memory and submission
+
+Meshes lie in an arena of pages and each layer is drawn with one indirect multi-draw per
+page ([ARCHITECTURE.md](ARCHITECTURE.md), sections 6.3 and 6.4). Measured 2026-11-15 on
+three fresh instances prepared like the near-terrain reference; every own-terrain run is
+compared under `near.json` with a game-drawn run of its own instance, and all were timed
+with the selection comparison running. Times are for the opaque terrain stage: the median
+and the most over the reports of a tour, one every five seconds.
+
+Pages mapped for writing for as long as they exist were built first.
+
+| One instance | Game | Mapped pages, indirect | Mapped pages, one call per cube and layer | A buffer per cube and layer |
+|---|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 17 of 17 | 17 of 17 |
+| Worst changed fraction | | 0.0224% | 0.0581% | 0.0571% |
+| Draws per settled frame, average and most | | 34 and 42 | 928 and 1,370 | 904 and 1,370 |
+| CPU, median and most | 0.64 and 1.22 ms | 0.96 and 6.50 ms | 0.66 and 6.09 ms | 0.65 and 5.86 ms |
+| GPU, median and most | 1.54 and 2.36 ms | 7.40 and 28.11 ms | 6.58 and 16.77 ms | 1.73 and 2.32 ms |
+| Frames per second at the captures, least | 120 | 43 | 57 | 119 |
+
+The image is the same in all three; the GPU time is not. With mapped pages it follows the
+vertices drawn, 2.4 to 3 ms per million whatever the number of pages, where a buffer per
+cube and layer draws the last view's 7.1 million in 2.3 ms. The driver's own messages name
+the cause. For a mapped page: "has been mapped WRITE_ONLY in SYSTEM HEAP memory" and "will
+use SYSTEM HEAP memory as the source for buffer object operations". For a page created
+with dynamic storage only, never mapped and written through the driver: "will use VIDEO
+memory as the source for buffer object operations". On a second instance, with nothing
+else changed between two runs:
+
+| Second instance | Mapped pages | Pages written through the driver |
+|---|---|---|
+| GPU, median and most | 5.36 and 21.52 ms | 1.76 and 2.32 ms |
+| CPU, median | 0.77 ms | 0.41 ms |
+| Placing a mesh, each and the worst frame | 0.007 and 3.19 ms | 0.009 and 1.57 ms |
+| Frames per second at the captures, least | 47 | 120 |
+
+Pages are therefore written through the driver. Scored on a third instance:
+
+| Third instance | Game | Indirect | One call per cube and layer |
+|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 17 of 17 |
+| Worst changed fraction | | 0.0507% (`07-boreal_forest`) | 0.0214% (`15-temperate_rainforest`) |
+| Changed pixels, all 17 views, and outside the river | | 1,593 and 1,255 | 1,263 and 1,239 |
+| Cubes drawn, median per frame | 365 | 383 | 383 |
+| Draws per settled frame, average and most | | 35 and 42 | 938 and 1,370 |
+| CPU, median and most | 0.63 and 1.34 ms | 0.58 and 6.05 ms | 0.59 and 6.01 ms |
+| GPU, median and most | 1.62 and 2.40 ms | 1.43 and 2.33 ms | 1.57 and 2.45 ms |
+| CPU and GPU at the last view | 0.71 and 2.40 ms | 0.40 and 2.15 ms | 0.56 and 1.97 ms |
+| Frames per second at the captures, least | 120 | 120 | 119 |
+
+- **The two ways of drawing agree.** They differ in no view by more than 0.0868%, 770 of
+  904 changed pixels on the river; five views are identical byte for byte. In 122
+  comparisons the game drew no cube that Quadrature did not.
+- **Commands.** 968 a settled frame on average and 1,370 at most, for 396 cubes, written
+  in 0.11 ms. The light view's list, written and not drawn, is 3,888 commands on average
+  and 4,872 at most, in 0.12 ms.
+- **Memory.** 14 pages, 896 MiB, for 592 MiB in use at the end of the tour, 584 MiB of
+  meshes and 8 MiB lost to rounding sizes up to a granule. Up to 714 MiB was freed and
+  free for reuse during the tour and 292 MiB at its end: a freed block is reused only by
+  a mesh of the same size. No mesh was refused.
+- **Reuse.** At most two fences were open at once, and no more than 0.4 MiB was waiting on
+  one.
+- **Placing.** 0.012 ms a mesh. The worst frame spent 8.7 ms placing in one run and 2.5 ms
+  in the other, against the budget of 1 ms; a buffer per cube and layer spent 19.4 ms in
+  its worst. What the worst frames hold is not established.
+- **The first game-drawn reference of the third instance was retaken.** Its view
+  `09-boreal_highlands` showed another place, 76% of pixels apart from every other run of
+  that view, while the own-terrain runs matched the settling run's there within 0.006%.
+  The cause in the capture is not established.
+
+The driver also warns, on every frame of every run, that texture object 0 is bound to
+texture units 0 to 3 without a base level. The warning is raised outside the terrain draw.
+
 ### Diagnostics
 
-Own terrain carries five switches for finding where a frame differs. Each is a system
-property, read once, and costs nothing when unset.
+Own terrain carries switches for finding where a frame differs and what a choice costs.
+Each is a system property, read once, and costs nothing when unset.
 
 | Property | Effect |
 |---|---|
@@ -237,6 +310,10 @@ property, read once, and costs nothing when unset.
 | `quadrature.terrain.gameSelection=inverse` | Quadrature draws only the cubes the game did not select |
 | `quadrature.terrain.probeRect=x0,y0,x1,y1` | On one settled frame in 240, logs the nearest cubes holding faces in that rectangle of a captured frame, with each face's position, facing and light, and whether the held mesh is identical to one made afresh from the cube source. Add `,width,height` when the capture's size is not the viewport's |
 | `quadrature.terrain.probePoints=x,y;x,y` | With `probeRect`: logs the color and depth the frame holds at those pixels after each opaque layer |
+| `quadrature.terrain.draw=direct` | Each layer of each cube is drawn with a call of its own, its matrix in a uniform, from the same pages |
+| `quadrature.terrain.pages=mapped` | Pages stay mapped for writing and meshes are copied into them |
+| `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
+| `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 
 A settled frame is one with no cube waiting to be meshed.
 ## Limits

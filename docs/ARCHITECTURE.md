@@ -53,6 +53,9 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
   the graph is compiled, never per draw. **Decided.**
 - Mesh shaders are one capability, satisfied by the NVIDIA extension or the cross-vendor
   one added to the registry in October 2025. **Decided.**
+- What terrain memory and submission use is named: persistently mapped buffers, sync
+  objects, indirect multi-draw, shader storage buffers, and draw parameters in shaders.
+  All are present on the supported platform.
 
 ## 4. The frame
 
@@ -241,9 +244,35 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
 
 ### 6.3 GPU memory
 
-One persistently mapped arena per stream, sub-allocated per cube, with a free list and
-compaction that moves at most a bounded amount per frame. Per-cube records (bounds,
-arena offsets, counts, state) live in one shader storage buffer. **Default.**
+**Built** for the game's vertex format, which is what cubes are meshed in until the two
+streams of 6.1 exist.
+
+- **Pages.** Terrain meshes lie in an arena of pages, each an immutable buffer of 64 MiB
+  shared by the three opaque layers; a page is added when no block is free, up to 24, the
+  near-terrain budget. A mesh takes one block, its layers one after another, so a cube is
+  one allocation and a layer is a range of it.
+- **Pages are not mapped.** A mesh is written into its page through the driver. The driver
+  keeps storage that stays mapped for writing in system memory and draws from it there:
+  drawing from mapped pages cost 2.4 to 3 ms of GPU time per million vertices, against
+  0.3 ms from pages that are never mapped, which the driver reports it keeps in video
+  memory ([VERIFICATION.md](VERIFICATION.md)). Writing through the driver costs the client
+  thread what copying into a mapped page did.
+- **Blocks.** Sizes step by a granule of 146 vertices, 4,088 bytes, so every block starts
+  on a whole vertex of its page. A freed block is reused only by a mesh of the same number
+  of granules; otherwise a mesh takes fresh space from the end of a page.
+- **Reuse waits for the driver.** A freed block is not reused until a fence placed after
+  the frame's last terrain draw has signalled, one fence per frame. Mapped pages need
+  that, since a write to mapped memory is not ordered against draws already issued; pages
+  written through the driver may not, which is not yet measured.
+- **Slots and records.** Every loaded cube holds a slot that stays the same while it is
+  loaded, naming its block and each layer's range. Each frame a record per visible cube,
+  its model-view matrix and room for the previous frame's, is written to one shader
+  storage buffer; a draw names its record by base instance.
+
+Not built: joining and splitting freed blocks, and compaction that moves a bounded amount
+per frame. Without them memory taken exceeds memory in use: 14 pages, 896 MiB, held
+592 MiB of meshes at the end of the forest tour, with 292 MiB freed and not reused. The
+slot table and the budget cover terrain only.
 
 ### 6.4 Visibility and submission
 
@@ -276,15 +305,20 @@ for it.
    from them; cubes rejected in the first phase are retested against it and the survivors
    drawn. This removes the one-frame lag of testing against last frame's depth.
 4. **Draw.** One indirect multi-draw per stream and layer, with the count read on the GPU.
+   **Built in part:** the commands are written on the client thread from the list step 1
+   gives, grouped by layer and page, and each layer is drawn with one indirect multi-draw
+   per page: 35 draws a settled frame on average where one call per cube and layer made
+   938.
 
 The table serves visibility only. Light that reaches past what is seen needs more of each
 cube than fifteen bits: opacity per block, which the mesher finds on its way to those bits
 and does not keep, material and emission, a generation per cube, and the regions that
 changed. None of that is kept yet.
 
-Steps 2 to 4 are not built: drawing is still one call per cube and layer, from the list
-step 1 gives. Once they are, the client thread's cost no longer grows with how many cubes
-are visible.
+Steps 2 and 3 are not built, and the commands of step 4 are still written on the client
+thread, in 0.11 ms a frame. Once a compute stage writes them, the client thread's cost no
+longer grows with how many cubes are visible.
+
 **Technique choice.** Two techniques implement the draw: compact faces expanded in the
 vertex shader with indirect multi-draw, and meshlets with task and mesh shaders, where the
 task shader does the per-cluster culling. Both sit behind the same stage contract.
@@ -434,6 +468,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | A view as the input to visibility and drawing | Decided; built | |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
+| Terrain memory: an arena of pages written through the driver, never mapped; draws by indirect multi-draw per layer and page | Built | Joining of freed blocks and compaction; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |
 | Compact faces with indirect multi-draw, first | Default | Phase 2 measurements |
 | Meshlets as a second technique | Candidate | The mesh shader measurement, on distant terrain |
