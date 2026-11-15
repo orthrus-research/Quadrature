@@ -3,6 +3,8 @@ package cc.orthrus.quadrature.terrain;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.terrain.ArenaAllocator;
 
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL44;
@@ -49,7 +51,29 @@ import java.util.ArrayDeque;
      */
     static final boolean JOINING = !"classes".equals(System.getProperty("quadrature.terrain.blocks"));
 
+    /**
+     * A diagnostic, off unless {@code quadrature.terrain.write=copy}: a frame's meshes are staged in one
+     * buffer and copied into their pages on the GPU, to set beside writing each into its page.
+     */
+    static final boolean COPY = "copy".equals(System.getProperty("quadrature.terrain.write"));
+
+    /** A diagnostic, off unless {@code quadrature.terrain.touch=true}: a page is written once when it is made. */
+    static final boolean TOUCH = Boolean.getBoolean("quadrature.terrain.touch");
+
+    private static final long SLOW_WRITE_NANOS = 500_000L;
+    private static final int SLOW_WRITE_LINES = 400;
+
     private final ArenaAllocator allocator = new ArenaAllocator(PAGE_BYTES, GRANULE_BYTES, MAX_PAGES, JOINING);
+    private final boolean[] written = new boolean[MAX_PAGES];
+    private final long[] drawnFrame = new long[MAX_PAGES];
+    private int slowWrites;
+    private int staging;
+    private ByteBuffer staged = ByteBuffer.allocateDirect(1 << 20);
+    private int copies;
+    private int[] copyPage = new int[64];
+    private int[] copyFrom = new int[64];
+    private int[] copyTo = new int[64];
+    private int[] copyBytes = new int[64];
     private final int[] buffers = new int[MAX_PAGES];
     private final ByteBuffer[] memory = new ByteBuffer[MAX_PAGES];
     private int pages;
@@ -68,7 +92,7 @@ import java.util.ArrayDeque;
      *
      * @return the mesh, or null when the arena has no room for it
      */
-    CubeMesh place(int x, int y, int z, CubeMesher mesher) {
+    CubeMesh place(int x, int y, int z, CubeMesher mesher, long frame) {
         int bytes = 0;
         for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
             bytes += mesher.count(layer) * CubeMesh.STRIDE;
@@ -93,10 +117,15 @@ import java.util.ArrayDeque;
                 continue;
             }
             ByteBuffer data = mesher.data(layer);
-            if (UPLOAD) {
+            if (UPLOAD && COPY) {
+                stage(page, at, data, count * CubeMesh.STRIDE);
+            } else if (UPLOAD) {
                 ByteBuffer part = data.duplicate();
                 part.limit(data.position() + count * CubeMesh.STRIDE);
+                long start = System.nanoTime();
                 GL45.glNamedBufferSubData(buffers[page], at, part);
+                slow(System.nanoTime() - start, page, at, count * CubeMesh.STRIDE, frame);
+                written[page] = true;
             } else {
                 memory[page].put(at, data, data.position(), count * CubeMesh.STRIDE);
             }
@@ -104,6 +133,68 @@ import java.util.ArrayDeque;
             at += count * CubeMesh.STRIDE;
         }
         return mesh;
+    }
+
+    /** Logs a write the driver took long over, with what is known of the page it went to. */
+    private void slow(long nanos, int page, int at, int bytes, long frame) {
+        if (nanos >= SLOW_WRITE_NANOS && slowWrites++ < SLOW_WRITE_LINES) {
+            Quadrature.LOGGER.info("Terrain arena: slow write, {} ms: page {}, offset {}, {} bytes, {}, {}, frame {}",
+                String.format("%.3f", nanos / 1e6), page, at, bytes,
+                written[page] ? "page written before" : "first write into the page",
+                drawnFrame[page] == frame - 1 ? "page drawn from in the frame before"
+                    : drawnFrame[page] == 0 ? "page never drawn from" : "page not drawn from in the frame before",
+                frame);
+        }
+    }
+
+    /** Notes that a page is drawn from in a frame, for the account of slow writes. */
+    void drawn(int page, long frame) {
+        drawnFrame[page] = frame;
+    }
+
+    /** Keeps a layer's bytes to be copied into its page when the frame's meshes are all built. */
+    private void stage(int page, int at, ByteBuffer data, int bytes) {
+        if (staged.remaining() < bytes) {
+            ByteBuffer larger = ByteBuffer.allocateDirect(Math.max(staged.capacity() * 2, staged.position() + bytes));
+            staged.flip();
+            larger.put(staged);
+            staged = larger;
+        }
+        int from = staged.position();
+        staged.put(from, data, data.position(), bytes);
+        staged.position(from + bytes);
+        if (copies == copyPage.length) {
+            copyPage = java.util.Arrays.copyOf(copyPage, copies * 2);
+            copyFrom = java.util.Arrays.copyOf(copyFrom, copies * 2);
+            copyTo = java.util.Arrays.copyOf(copyTo, copies * 2);
+            copyBytes = java.util.Arrays.copyOf(copyBytes, copies * 2);
+        }
+        copyPage[copies] = page;
+        copyFrom[copies] = from;
+        copyTo[copies] = at;
+        copyBytes[copies++] = bytes;
+    }
+
+    /**
+     * Sends what was staged this frame: the bytes to a buffer whose storage is replaced each frame, so the
+     * driver need not wait for anything that reads the last frame's, then one copy for each layer from
+     * that buffer into its page. A copy runs in order with the draws, on the GPU. Call after the frame's
+     * meshes are built and before anything is drawn.
+     */
+    void flush() {
+        if (copies == 0) {
+            return;
+        }
+        if (staging == 0) {
+            staging = GL45.glCreateBuffers();
+        }
+        staged.flip();
+        GL45.glNamedBufferData(staging, staged, GL15.GL_STREAM_DRAW);
+        for (int i = 0; i < copies; i++) {
+            GL45.glCopyNamedBufferSubData(staging, buffers[copyPage[i]], copyFrom[i], copyTo[i], copyBytes[i]);
+        }
+        staged.clear();
+        copies = 0;
     }
 
     /** Makes the next page's buffer. The driver's time for it is kept apart from placing meshes. */
@@ -115,6 +206,13 @@ import java.util.ArrayDeque;
         } else {
             GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, ACCESS);
             memory[pages] = GL45.glMapNamedBufferRange(buffers[pages], 0, PAGE_BYTES, ACCESS);
+        }
+        if (TOUCH && UPLOAD) {
+            // Writes the whole page once, so that whatever the driver puts off until a page is first
+            // written happens here and not when a mesh is placed.
+            GL45.glClearNamedBufferData(buffers[pages], GL30.GL_R8, GL11.GL_RED, GL11.GL_UNSIGNED_BYTE,
+                (ByteBuffer) null);
+            written[pages] = true;
         }
         long nanos = System.nanoTime() - start;
         createNanos += nanos;

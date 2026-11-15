@@ -266,8 +266,14 @@ streams of 6.1 exist.
   mesh. Making a page takes 0.06 ms.
 - **Placing within a frame.** Meshing stops for a frame once placing has taken 1 ms; the
   cubes left keep the meshes they have and come first in the next frame. That bounds the
-  sum of a frame's placements and not one of them: a single write through the driver has
-  taken 1.8 and 3.5 ms, once a tour, and why is not established.
+  sum of a frame's placements and not one of them: once or twice a run placing one mesh
+  has taken 1.8 to 3.5 ms, most often in the first seconds after a world starts. The
+  driver's write, 0.8 ms at most, is not where that time goes, and where it does go is not
+  established.
+- **A mesh is written straight into its page.** Staging a frame's meshes in one buffer and
+  copying them into their pages on the GPU was measured and is not used: it took longer,
+  and the driver moved the pages from video memory to host memory
+  ([VERIFICATION.md](VERIFICATION.md)).
 - **Reuse waits for the driver.** A freed block is not reused until a fence placed after
   the frame's last terrain draw has signalled, one fence per frame. Mapped pages need
   that, since a write to mapped memory is not ordered against draws already issued; pages

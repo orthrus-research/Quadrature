@@ -167,7 +167,9 @@ authors can dedicate: their own expression of ideas, never copied code.
   commands that each name a range and, by base instance, a record.
 - Not taken: any allocator or renderer source. Buffers that stay mapped, which the talk
   recommends, are built and not the default: measured here, the driver keeps them in
-  system memory and draws from them several times slower, by its own messages.
+  system memory and draws from them several times slower, by its own messages. Staging
+  writes in one buffer and copying on the GPU, a use of the specification's buffer copy,
+  is likewise built and not the default.
 - Added: 2026-11-15
 
 ### Free blocks split and joined

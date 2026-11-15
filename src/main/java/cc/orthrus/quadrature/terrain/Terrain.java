@@ -317,7 +317,7 @@ public final class Terrain
         CubeMesh mesh = null;
         if (any) {
             long placing = System.nanoTime();
-            mesh = arena == null ? null : arena.place(x, y, z, mesher);
+            mesh = arena == null ? null : arena.place(x, y, z, mesher, frames);
             if (mesh == null) {
                 // No arena, or no room in it: the mesh keeps buffers of its own and is drawn by itself.
                 mesh = CubeMesh.owned(x, y, z, mesher);
@@ -422,6 +422,13 @@ public final class Terrain
         largestPlaceNanosThisFrame = 0;
         madeInTheWayNanosThisFrame = 0;
         build(mainView.originX(), mainView.originY(), mainView.originZ());
+        if (arena != null) {
+            long flushing = System.nanoTime();
+            arena.flush();
+            flushing = System.nanoTime() - flushing;
+            placeNanosThisFrame += flushing;
+            placeNanos += flushing;
+        }
         lastPlaceNanos = placeNanosThisFrame;
         if (placeNanosThisFrame > mostPlaceNanos) {
             mostPlaceNanos = placeNanosThisFrame;
@@ -463,6 +470,11 @@ public final class Terrain
             command(mainList, visible, mainView, true);
             program.upload(mainList);
             lastCommandNanos = System.nanoTime() - start;
+            for (int page = 0; page < mainList.pages(); page++) {
+                if (mainList.runCount(0, page) + mainList.runCount(1, page) + mainList.runCount(2, page) > 0) {
+                    arena.drawn(page, frames);
+                }
+            }
             // The second view's commands are written as the first's are, and not handed to the driver.
             start = System.nanoTime();
             command(lightList, lit, lightView, false);
@@ -661,6 +673,8 @@ public final class Terrain
         line += String.format("; %d pages handed out from, largest free range %.1f MiB, %d free ranges, %s",
             arena.pagesInUse(), arena.largestRoomBytes() / 1048576.0, arena.freeRanges(),
             TerrainArena.JOINING ? "blocks joined" : "blocks by size class");
+        line += TerrainArena.COPY ? ", meshes staged and copied" : ", meshes written into their pages";
+        line += TerrainArena.TOUCH ? ", pages written once when made" : "";
         if (DIRECT) {
             return line + "; direct draws";
         }

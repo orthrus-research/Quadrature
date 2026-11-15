@@ -334,11 +334,39 @@ Free blocks were then split and joined, pages made ahead of need, and placing ca
 - **Fewer pages are fewer draws**, since a layer is drawn with one call per page.
 - **Making a page** takes 0.05 ms on average and 0.12 ms at most, and with pages made
   ahead none was made in the way of a mesh. It is not what the worst frames hold.
-- **The worst frame held one mesh**, 37.4 KiB, in both runs, and that one write took 3.47
-  and 1.79 ms; the cap stopped meshing in one frame of each run. A cap between meshes
-  cannot bound a single write. Why the driver takes that long over it is not established.
+- **The worst frame held one mesh**, 37.4 KiB, in both runs, and placing it took 3.47 and
+  1.79 ms; the cap stopped meshing in one frame of each run. A cap between meshes cannot
+  bound one placement.
 - **The first game-drawn reference was retaken**: its view `04-cold_rainforest-near` was
   captured facing elsewhere, which `frames.py check` names.
+
+Where that one placement's time goes was looked for on a fifth instance, with every write
+through the driver timed and those over 0.5 ms logged, and beside it a second way of
+writing: a frame's meshes staged in one buffer whose storage is replaced each frame, then
+copied into their pages on the GPU.
+
+| Fifth instance | Written into the page | Staged and copied |
+|---|---|---|
+| Placing a mesh, each | 0.011 ms | 0.039 ms |
+| The worst frame | 1.91 ms, one mesh of 37.4 KiB | 5.38 ms, one mesh of 859 KiB |
+| GPU, median and most | 1.13 and 2.25 ms | 1.27 and 2.29 ms |
+| Frames per second at the captures, least | 115 | 120 |
+
+- **The driver's write is not the stall.** One write in the tour took over 0.5 ms: 0.56 ms,
+  the first into the first page. The worst frame's 1.91 ms is therefore spent in placing
+  outside the driver. In four runs it was the same event: one mesh of 37.4 KiB within the
+  first seconds after the world starts, about the thousandth placed, and no later frame
+  exceeded it. What it is has not been established.
+- **A further run of the same build, scored:** 17 of 17 against a game-drawn run of the
+  instance, the worst `07-boreal_forest` at 0.0648%, 1,701 changed pixels and 1,246 outside
+  the river; CPU 0.44 ms and GPU 1.57 ms at the median against the game's 0.63 and
+  1.71 ms. Its worst frame placed one mesh of 250 KiB in 2.81 ms and two frames were
+  stopped by the cap. Five writes took over 0.5 ms and none over 0.81 ms: two were the
+  first into a page, three went to a page drawn from in the frame before.
+- **Copying loses.** It takes longer per mesh and in its worst frame, and for each of the
+  10 pages the driver reported "is being copied/moved from VIDEO memory to HOST memory".
+- **Writing a page once when it is made** was built and not measured: the first write into
+  a page is not what takes long.
 
 The driver also warns, on every frame of every run, that texture object 0 is bound to
 texture units 0 to 3 without a base level. The warning is raised outside the terrain draw.
@@ -359,6 +387,8 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.draw=direct` | Each layer of each cube is drawn with a call of its own, its matrix in a uniform, from the same pages |
 | `quadrature.terrain.pages=mapped` | Pages stay mapped for writing and meshes are copied into them |
 | `quadrature.terrain.blocks=classes` | A freed block serves only a mesh of its own size and is neither split nor joined |
+| `quadrature.terrain.write=copy` | A frame's meshes are staged in one buffer and copied into their pages on the GPU |
+| `quadrature.terrain.touch=true` | A page is written once, whole, when it is made |
 | `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 
