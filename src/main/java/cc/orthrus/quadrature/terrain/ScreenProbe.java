@@ -221,7 +221,13 @@ final class ScreenProbe {
                 }
             }
         }
-        CubeMesh fresh = snapshot.centerEmpty() ? null : mesher.build(snapshot, held.x, held.y, held.z);
+        CubeMesh fresh = null;
+        if (!snapshot.centerEmpty()) {
+            if (mesher.build(snapshot, held.x, held.y, held.z)) {
+                fresh = CubeMesh.owned(held.x, held.y, held.z, mesher);
+            }
+            mesher.done();
+        }
         snapshot.release();
         out.append(String.format("%n      %d of 27 cubes of its neighborhood loaded%s", present,
             missing.length() == 0 ? "" : "; missing at offsets" + missing));
@@ -408,7 +414,7 @@ final class ScreenProbe {
 
     private static ByteBuffer read(CubeMesh mesh, int layer) {
         ByteBuffer data = BufferUtils.createByteBuffer(mesh.count(layer) * CubeMesh.STRIDE);
-        GL45.glGetNamedBufferSubData(mesh.buffer(layer), 0, data);
+        GL45.glGetNamedBufferSubData(mesh.buffer(layer), (long) mesh.first(layer) * CubeMesh.STRIDE, data);
         return data;
     }
 }

@@ -172,6 +172,12 @@ authors can dedicate: their own expression of ideas, never copied code.
   measured first.
 - Added: 2026-11-15
 
+### Driver messages
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/DriverMessages.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification (debug output,
+  its callback, message control and debug groups).
+- Added: 2026-11-15
+
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`

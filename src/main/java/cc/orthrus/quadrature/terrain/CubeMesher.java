@@ -28,6 +28,7 @@ final class CubeMesher {
 
     private final BufferBuilder[] builders = new BufferBuilder[LAYERS.length];
     private final boolean[] started = new boolean[LAYERS.length];
+    private final int[] counts = new int[LAYERS.length];
     private final long[] opaque = new long[64];
     private final CubeConnectivity connectivity = new CubeConnectivity();
     private short links;
@@ -44,8 +45,12 @@ final class CubeMesher {
         return links;
     }
 
-    /** @return the mesh, or null when the cube draws nothing in the opaque layers */
-    CubeMesh build(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ) {
+    /**
+     * Meshes a cube into this mesher's buffers, where the result stays until {@link #done}.
+     *
+     * @return whether the cube draws anything in the opaque layers
+     */
+    boolean build(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ) {
         BlockRendererDispatcher dispatcher = Minecraft.getMinecraft().getBlockRendererDispatcher();
         int minX = cubeX << 4;
         int minY = cubeY << 4;
@@ -91,20 +96,38 @@ final class CubeMesher {
             ForgeHooksClient.setRenderLayer(null);
         }
         links = connectivity.of(opaque);
-        CubeMesh mesh = new CubeMesh(cubeX, cubeY, cubeZ);
+        boolean any = false;
         for (int layer = 0; layer < LAYERS.length; layer++) {
+            counts[layer] = 0;
             if (!started[layer]) {
                 continue;
             }
-            started[layer] = false;
-            BufferBuilder builder = builders[layer];
-            builder.finishDrawing();
-            if (builder.getVertexCount() > 0) {
-                mesh.set(layer, builder.getByteBuffer(), builder.getVertexCount());
-            }
-            builder.setTranslation(0, 0, 0);
-            builder.reset();
+            builders[layer].finishDrawing();
+            counts[layer] = builders[layer].getVertexCount();
+            any |= counts[layer] > 0;
         }
-        return mesh.isEmpty() ? null : mesh;
+        return any;
+    }
+
+    /** The vertices of a layer of the cube last built: its position and the count bound them. */
+    java.nio.ByteBuffer data(int layer) {
+        return builders[layer].getByteBuffer();
+    }
+
+    /** How many vertices a layer of the cube last built has. */
+    int count(int layer) {
+        return counts[layer];
+    }
+
+    /** Makes the buffers ready for the next cube. Call once what {@link #build} left has been stored. */
+    void done() {
+        for (int layer = 0; layer < LAYERS.length; layer++) {
+            if (started[layer]) {
+                started[layer] = false;
+                builders[layer].setTranslation(0, 0, 0);
+                builders[layer].reset();
+            }
+            counts[layer] = 0;
+        }
     }
 }

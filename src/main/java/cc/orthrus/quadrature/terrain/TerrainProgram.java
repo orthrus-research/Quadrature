@@ -1,11 +1,16 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.terrain.CubeMatrix;
+import cc.orthrus.quadrature.core.terrain.DrawCommands;
 import cc.orthrus.quadrature.core.view.View;
 import cc.orthrus.quadrature.frame.StateEnvelopeAccess;
 
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL40;
+import org.lwjgl.opengl.GL43;
 import org.lwjgl.opengl.GL45;
 
 /**
@@ -67,82 +72,122 @@ final class TerrainProgram {
         "}");
 
     /**
-     * The matrix the game gives each of its render chunks and applies after moving to the chunk: an
-     * enlargement by one part in a million about the point eight blocks before the chunk's lowest
-     * corner on each axis. Composed in single precision as a move by eight blocks, the enlargement and
-     * the move back, which gives a scale of 1.00000095 and an offset of 7.62939453e-06: the values read
-     * from the running game.
+     * The same vertex stage for indirect draws: the cube's matrix comes from a record the draw names
+     * by its base instance, not from a uniform. A record holds the matrix and room for the one the
+     * cube had the frame before.
      */
-    private static final float CHUNK_SCALE = 1.000001F;
-    private static final float CHUNK_OFFSET = 8.0F * CHUNK_SCALE - 8.0F;
+    private static final String VERTEX_INDIRECT = VERTEX
+        .replace("uniform mat4 cubeModelView;", "struct CubeRecord { mat4 modelView; mat4 previous; };\n"
+            + "layout(std430, binding = 0) readonly buffer CubeRecords { CubeRecord cubes[]; };")
+        .replace("cubeModelView * vec4(position, 1.0)", "cubes[gl_BaseInstance].modelView * vec4(position, 1.0)");
+
+    private static final int RECORDS_BINDING = 0;
 
     private int program;
     private int cubeModelViewLocation;
     private int fogModeLocation;
+    private int indirectProgram;
+    private int indirectFogModeLocation;
     private int vertexArray;
+    private int commandBuffer;
+    private int recordBuffer;
+    /** Which program is in use since {@link #begin}: 0 neither, 1 the direct one, 2 the indirect one. */
+    private int inUse;
+    private int boundBuffer;
+    private int fogMode;
     private final float[] modelView = new float[16];
     private final float[] cubeModelView = new float[16];
 
-    /** Binds the program and vertex layout. The state the layer depends on beyond that is the game's. */
+    /** Binds the vertex layout and reads the fog. The state the layer depends on beyond that is the game's. */
     void begin(View view) {
         if (program == 0) {
             create();
         }
         // Fog is fixed-function state a shader cannot read as on or off, or by mode. Asked of the
         // driver here; to be taken from where the game sets it instead.
-        int fogMode = 0;
+        fogMode = 0;
         if (GL11.glIsEnabled(GL11.GL_FOG)) {
             int mode = GL11.glGetInteger(GL11.GL_FOG_MODE);
             fogMode = mode == FOG_LINEAR ? 1 : mode == FOG_EXP ? 2 : 3;
         }
         // The game moves to each chunk by translating its model-view matrix, then multiplies by the
         // chunk's own matrix, both in single precision, and transforms chunk-local vertices by the
-        // result. The same is done here per cube, in that order, so both place a vertex the same way;
+        // result. The same is done per cube, in that order, so both place a vertex the same way;
         // adding the offset to the vertex in the shader does not, and leaving the chunk matrix out
         // moves the rows of a near texture by a pixel where a boundary falls on a pixel center.
         System.arraycopy(view.modelView(), 0, modelView, 0, 16);
-        GL20.glUseProgram(program);
-        GL20.glUniform1i(fogModeLocation, fogMode);
         GL30.glBindVertexArray(vertexArray);
+        inUse = 0;
+        boundBuffer = 0;
     }
 
+    /** Draws one layer of one cube, its matrix in a uniform. */
     void draw(CubeMesh mesh, int layer, float x, float y, float z) {
-        for (int row = 0; row < 4; row++) {
-            float c0 = modelView[row];
-            float c1 = modelView[4 + row];
-            float c2 = modelView[8 + row];
-            float moved = c0 * x + c1 * y + c2 * z + modelView[12 + row];
-            cubeModelView[row] = c0 * CHUNK_SCALE;
-            cubeModelView[4 + row] = c1 * CHUNK_SCALE;
-            cubeModelView[8 + row] = c2 * CHUNK_SCALE;
-            cubeModelView[12 + row] = c0 * CHUNK_OFFSET + c1 * CHUNK_OFFSET + c2 * CHUNK_OFFSET + moved;
+        if (inUse != 1) {
+            GL20.glUseProgram(program);
+            GL20.glUniform1i(fogModeLocation, fogMode);
+            inUse = 1;
         }
+        if (boundBuffer != mesh.buffer(layer)) {
+            boundBuffer = mesh.buffer(layer);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, CubeMesh.STRIDE);
+        }
+        CubeMatrix.compose(modelView, x, y, z, cubeModelView, 0);
         GL20.glUniformMatrix4fv(cubeModelViewLocation, false, cubeModelView);
-        GL45.glVertexArrayVertexBuffer(vertexArray, 0, mesh.buffer(layer), 0, CubeMesh.STRIDE);
-        GL11.glDrawArrays(QUADS, 0, mesh.count(layer));
+        GL11.glDrawArrays(QUADS, mesh.first(layer), mesh.count(layer));
+    }
+
+    /** Hands the driver a frame's commands and records, once, before its layers are drawn. */
+    void upload(DrawCommands list) {
+        if (program == 0) {
+            create();
+        }
+        // Each frame's data replaces the last's whole, so the driver need not wait for draws that
+        // still read the old.
+        GL45.glNamedBufferData(commandBuffer, list.commands(), GL15.GL_STREAM_DRAW);
+        GL45.glNamedBufferData(recordBuffer, list.records(), GL15.GL_STREAM_DRAW);
+    }
+
+    /**
+     * Draws one layer of everything a list holds: one indirect draw for each page of the arena that
+     * has commands in that layer.
+     *
+     * @return how many draws were issued
+     */
+    int drawIndirect(DrawCommands list, int layer, TerrainArena arena) {
+        GL20.glUseProgram(indirectProgram);
+        GL20.glUniform1i(indirectFogModeLocation, fogMode);
+        inUse = 2;
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, recordBuffer);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, commandBuffer);
+        int draws = 0;
+        for (int page = 0; page < list.pages(); page++) {
+            int count = list.runCount(layer, page);
+            if (count == 0) {
+                continue;
+            }
+            boundBuffer = arena.buffer(page);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, CubeMesh.STRIDE);
+            GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
+            draws++;
+        }
+        return draws;
     }
 
     void end() {
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, 0);
         StateEnvelopeAccess.leave();
     }
 
     private void create() {
-        program = GL20.glCreateProgram();
-        int vertex = compile(GL20.GL_VERTEX_SHADER, VERTEX);
-        int fragment = compile(GL20.GL_FRAGMENT_SHADER, FRAGMENT);
-        GL20.glAttachShader(program, vertex);
-        GL20.glAttachShader(program, fragment);
-        GL20.glLinkProgram(program);
-        if (GL20.glGetProgrami(program, GL20.GL_LINK_STATUS) == 0) {
-            throw new IllegalStateException("Terrain program: " + GL20.glGetProgramInfoLog(program));
-        }
-        GL20.glDeleteShader(vertex);
-        GL20.glDeleteShader(fragment);
+        program = link(VERTEX);
         cubeModelViewLocation = GL20.glGetUniformLocation(program, "cubeModelView");
         fogModeLocation = GL20.glGetUniformLocation(program, "fogMode");
-        // The game keeps the block texture on unit 0 and the light map on unit 1.
-        GL45.glProgramUniform1i(program, GL20.glGetUniformLocation(program, "blocks"), 0);
-        GL45.glProgramUniform1i(program, GL20.glGetUniformLocation(program, "lightMap"), 1);
+        indirectProgram = link(VERTEX_INDIRECT);
+        indirectFogModeLocation = GL20.glGetUniformLocation(indirectProgram, "fogMode");
+        commandBuffer = GL45.glCreateBuffers();
+        recordBuffer = GL45.glCreateBuffers();
 
         vertexArray = GL45.glCreateVertexArrays();
         attribute(0, 3, GL11.GL_FLOAT, false, 0);
@@ -151,6 +196,23 @@ final class TerrainProgram {
         attribute(3, 2, GL11.GL_SHORT, false, 24);
     }
 
+    private static int link(String vertexSource) {
+        int linked = GL20.glCreateProgram();
+        int vertex = compile(GL20.GL_VERTEX_SHADER, vertexSource);
+        int fragment = compile(GL20.GL_FRAGMENT_SHADER, FRAGMENT);
+        GL20.glAttachShader(linked, vertex);
+        GL20.glAttachShader(linked, fragment);
+        GL20.glLinkProgram(linked);
+        if (GL20.glGetProgrami(linked, GL20.GL_LINK_STATUS) == 0) {
+            throw new IllegalStateException("Terrain program: " + GL20.glGetProgramInfoLog(linked));
+        }
+        GL20.glDeleteShader(vertex);
+        GL20.glDeleteShader(fragment);
+        // The game keeps the block texture on unit 0 and the light map on unit 1.
+        GL45.glProgramUniform1i(linked, GL20.glGetUniformLocation(linked, "blocks"), 0);
+        GL45.glProgramUniform1i(linked, GL20.glGetUniformLocation(linked, "lightMap"), 1);
+        return linked;
+    }
     private void attribute(int index, int size, int type, boolean normalized, int offset) {
         GL45.glEnableVertexArrayAttrib(vertexArray, index);
         GL45.glVertexArrayAttribFormat(vertexArray, index, size, type, normalized, offset);
