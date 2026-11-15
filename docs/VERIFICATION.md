@@ -371,6 +371,42 @@ copied into their pages on the GPU.
 The driver also warns, on every frame of every run, that texture object 0 is bound to
 texture units 0 to 3 without a base level. The warning is raised outside the terrain draw.
 
+### The light's view
+
+The view along the light is drawn for depth alone ([ARCHITECTURE.md](ARCHITECTURE.md),
+section 4.7). Measured 2026-11-15 on a fresh instance: the game's terrain twice, own
+terrain, and own terrain with `-Dquadrature.shadow=true`. Times are for the opaque terrain
+stage, in which the light's view is drawn.
+
+| | Game | Own terrain | Own terrain, the light's view drawn |
+|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 17 of 17 |
+| Worst changed fraction | | 0.0214% (`15-temperate_rainforest`) | 0.0495% (`07-boreal_forest`) |
+| Changed pixels, all 17 views, and outside the river | | 1,233 and 1,230 | 1,561 and 1,241 |
+| CPU, median and at the last view | 0.80 and 0.93 ms | 0.72 and 0.67 ms | 1.05 and 0.70 ms |
+| GPU, median and most | 1.58 and 2.23 ms | 1.61 and 2.22 ms | 2.64 and 4.51 ms |
+| Frames per second at the captures, least | 119 | 119 | 119 |
+
+- **The player's image is unchanged.** With and without the light's view, 13 of 17 views
+  are identical byte for byte; 384 pixels differ over the tour, 362 of them on the river
+  and 22 elsewhere.
+- **What it costs.** Between its own two timestamps the draw takes 2.08 ms of GPU time on
+  average and 3.81 ms at most. On the client thread the draw takes 0.18 ms and writing
+  its commands 0.24 ms. The first frame, which makes the target and compiles the program,
+  took 22.6 ms.
+- **What it draws.** Every meshed cube the client holds: at the last view 4,090 cubes and
+  8,749 commands in 30 draws, where the player's view drew 497 cubes.
+- **The game's threshold** for a cutout layer, read where the game sets it, was 0.5.
+- **The depth as an image.** With `-Dquadrature.shadow.image=true` the depth is written as
+  a gray image, nearer the light brighter, once for each place the player stands still at:
+  10 over the tour. About half of each holds depth, the square of cubes the client holds
+  inside the larger box, with the terrain's relief and tree crowns in it.
+- **The generation** changed on every frame, since the sun moves. A second generation,
+  added after this run, changes only when a mesh changes or the box moves to another
+  texel.
+- **The driver** reported no error. While the light's view is drawn it repeats its warning
+  that texture object 0 is bound to texture units 1 to 3; the depth program reads unit 0.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.

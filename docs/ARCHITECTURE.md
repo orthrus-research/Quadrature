@@ -185,15 +185,49 @@ drawing take a view; nothing in them reads the player's camera. **Decided.** Bui
   the world, at the point where the game is about to draw its first terrain layer. Its
   projection, fog, alpha test and textures are still the game's state at draw time; a
   view of Quadrature's own has to set them itself.
-- A view along the light is derived from the player's view each frame: an orthographic
-  box around what the player's view sees out to its reach, extended toward the light.
-  What it sees is found every frame and nothing is drawn from it yet: it exists so that
-  visibility is exercised for more than one view before a shadow stage is built.
+- A view along the light is derived from the player's view each frame, toward the sun or,
+  while the sun is down, the moon. What it sees is found every frame.
 - Hosted drawing is not yet drawn for any view but the player's.
 
-Not covered yet, and asked for by the shading work this is built toward: drawing the
-second view; entities and block entities in a light's view, which reaches into hosted
-drawing; a previous frame's view and jitter in the frame's contract.
+**The light's depth.** Built behind `-Dquadrature.shadow=true`, off otherwise. The view
+along the light is drawn for depth alone into a target of Quadrature's own, before the
+player's first terrain layer. Nothing samples it yet, so the player's image is the same
+with it on.
+
+- **The box** is a plain orthographic cube of a fixed side centered on the player, never
+  warped: at a reach of twelve chunks 544 blocks, the diagonal of the square the client
+  holds cubes in, so every cube held is inside it at any hour and whichever way the player
+  faces. It is moved to a whole texel along the light's own axes, measured from the
+  world's origin, so that the map does not shift by part of a texel as the player moves.
+- **The target** is an array texture of 24-bit depth, 4,096 texels a side, one layer,
+  64 MiB, counted in the shading pool. A texel is 0.13 of a block. Further layers with
+  boxes of other sizes can be added; none is built. It can be sampled through either of
+  two sampler objects: compared with a reference and filtered, or as the depth itself.
+- **What is drawn:** the three opaque layers of every meshed cube in the box, from the
+  same pages and by the same indirect draws as the player's view, each cube under the
+  same composition of matrices. A fragment of a cutout layer is dropped where the block
+  texture's alpha fails the game's own threshold, read where the game sets it. Faces are
+  not culled by facing. Translucent terrain is left out.
+- **Which meshes are resident** does not follow the player's frustum: a mesh is held for
+  every loaded cube that has its six neighbors, so what the light sees and the player
+  does not is there to draw. Terrain beyond what the client holds, and the outermost row
+  of cubes it holds, which is never meshed, cast nothing.
+- **No bias** is applied but a polygon offset, none unless
+  `quadrature.shadow.polygonOffset=factor,units` is set. A sampler biases as it sees fit.
+- **Published each frame** (`ShadowMaps` in `core`, from `TerrainHook.shadowMaps()`): the
+  texture and the two samplers, each layer's matrix from a position relative to the
+  frame's origin to the layer's clip space, the frame before's matrix and origin, the
+  box's side, the direction toward the light, and two generations. One changes whenever
+  what the texture holds may have, which while the sun moves is every frame. The other
+  changes only when the content can differ apart from the light's own motion: a mesh was
+  placed, replaced or released, or the box moved to another texel. How far the light may
+  turn before that matters is for the sampler to judge from the matrices.
+- **The map is drawn again every frame**, all the cubes held, at about 2.1 ms of GPU time.
+  Drawing it only when its content changed or the light has turned a set angle, and
+  publishing the matrix it was drawn through, would save most of that; it is not built.
+
+Not covered yet: entities and block entities in a light's view, which reaches into hosted
+drawing; jitter in the frame's contract.
 ## 5. Scene sources
 
 | Source | Owner | Gives Quadrature |
@@ -454,7 +488,7 @@ measurement; each line is revised when the phase that fills it measures its real
 | Reserve: framebuffers, geometry buffer, depth pyramid, texture arrays, the game's own textures | 1.5 GiB | Phase 1 |
 | Near terrain arenas | 1.5 GiB | Phase 2 |
 | Distant terrain arenas | 2.0 GiB | Phase 4 |
-| Shading: shadow maps, light volumes | 1.0 GiB | Phase 5 |
+| Shading: shadow maps, light volumes. The light's depth takes 64 MiB of it | 1.0 GiB | Phase 5 |
 
 The first line is not arbitrary: the test machine had 2.2 GiB in use before the game
 started. The budget is computed at startup from the memory the driver reports as free, so
@@ -483,6 +517,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | A view as the input to visibility and drawing | Decided; built | |
+| The light's depth: one fixed, texel-snapped orthographic box drawn into a layer of an array texture | Built, behind a switch | Entities in it; further layers; what samples it |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |

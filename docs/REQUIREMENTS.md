@@ -157,6 +157,9 @@ measurement) and its date.
   by the camera's frustum alone.
 - In a light view, draw cutout geometry with its texture's alpha, and draw entities, so
   foliage and creatures cast shadows.
+- Near terrain owns a coverage map: for each chunk column, whether its surface band is
+  loaded and meshed. It reports whether a view's search reaches the edge of the loaded
+  box.
 - Sort or otherwise resolve translucent geometry correctly.
 - Manage GPU memory for geometry: allocation, reuse, defragmentation, budget.
 
