@@ -43,7 +43,13 @@ import java.util.ArrayDeque;
     /** Whether pages are written through the driver and never mapped: so unless mapped pages are asked for. */
     static final boolean UPLOAD = !"mapped".equals(System.getProperty("quadrature.terrain.pages"));
 
-    private final ArenaAllocator allocator = new ArenaAllocator(PAGE_BYTES, GRANULE_BYTES, MAX_PAGES);
+    /**
+     * A diagnostic, off unless {@code quadrature.terrain.blocks=classes}: a freed block serves only a
+     * mesh of its own size and is neither split nor joined, to set beside joining.
+     */
+    static final boolean JOINING = !"classes".equals(System.getProperty("quadrature.terrain.blocks"));
+
+    private final ArenaAllocator allocator = new ArenaAllocator(PAGE_BYTES, GRANULE_BYTES, MAX_PAGES, JOINING);
     private final int[] buffers = new int[MAX_PAGES];
     private final ByteBuffer[] memory = new ByteBuffer[MAX_PAGES];
     private int pages;
@@ -206,6 +212,20 @@ import java.util.ArrayDeque;
 
     long reusableBytes() {
         return allocator.reusableBytes();
+    }
+
+    /** The largest mesh that fits without a new page. */
+    long largestRoomBytes() {
+        return allocator.largestRoomBytes();
+    }
+
+    int freeRanges() {
+        return allocator.freeRanges();
+    }
+
+    /** The pages the allocator has handed out from; one more may have been made ahead. */
+    int pagesInUse() {
+        return allocator.pages();
     }
 
     int openFences() {

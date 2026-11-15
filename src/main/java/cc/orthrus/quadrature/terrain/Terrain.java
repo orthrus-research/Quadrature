@@ -658,6 +658,9 @@ public final class Terrain
             worstPlaced, worstPlacedBytes / 1024.0, worstLargestPlaceNanos / 1e6, stoppedByPlacing,
             arena.pagesAhead(), arena.pagesInTheWay(), arena.createMillisEach(), arena.createMillisMost(),
             mostMadeInTheWayNanos / 1e6);
+        line += String.format("; %d pages handed out from, largest free range %.1f MiB, %d free ranges, %s",
+            arena.pagesInUse(), arena.largestRoomBytes() / 1048576.0, arena.freeRanges(),
+            TerrainArena.JOINING ? "blocks joined" : "blocks by size class");
         if (DIRECT) {
             return line + "; direct draws";
         }

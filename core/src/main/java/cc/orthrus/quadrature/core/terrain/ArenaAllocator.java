@@ -1,16 +1,24 @@
 package cc.orthrus.quadrature.core.terrain;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * Hands out ranges of a set of equal pages of memory, and takes them back. It holds no memory of its
  * own: whoever owns the pages asks where a mesh may go.
  *
- * <p>A range is a whole number of granules, so sizes fall into classes one granule apart. A request is
- * met from a freed range of exactly its class, else from the untouched end of a page, else from a new
- * page until the limit of pages is reached. Freed ranges are neither split nor joined: nothing is
- * moved, and a range serves only its own class again.
+ * <p>A range is a whole number of granules. A request is met from the smallest free range that holds
+ * it, the rest of that range staying free, else from a new page until the limit of pages is reached.
+ * A range given back joins the free ranges beside it in its page, so that what was freed in pieces can
+ * serve a larger request. Nothing is moved.
+ *
+ * <p>For measuring, an allocator can instead be made that neither splits nor joins: a request is then
+ * met from a freed range of exactly its size, else from the end of a page never handed out, and a
+ * freed range serves only its own size again.
  *
  * <p>A freed range is not reusable at once. Draws issued before it was freed may not have run, and
  * writing over what they read would show in the frame. Each free names the frame it happened in, and
@@ -21,6 +29,7 @@ public final class ArenaAllocator {
     private static final int PAGE_SHIFT = 48;
     private static final int OFFSET_SHIFT = 24;
     private static final long FIELD = (1L << 24) - 1;
+    private static final int SIZE_SHIFT = 40;
 
     private final int granuleBytes;
     private final int pageGranules;
@@ -37,13 +46,29 @@ public final class ArenaAllocator {
     private long requestedBytes;
     private long pendingBytes;
     private long reusableBytes;
+    /** Whether free ranges are split and joined. */
+    private final boolean joining;
+    /** With joining: for each page, its free ranges by where they start, each with its length in granules. */
+    private final ArrayList<TreeMap<Integer, Integer>> freeByStart = new ArrayList<>();
+    /** With joining: every free range, ordered by length, then page, then start. */
+    private final TreeSet<Long> freeBySize = new TreeSet<>();
 
     /**
+     * An allocator that splits and joins free ranges.
+     *
      * @param pageBytes    the size of every page; a whole number of granules
-     * @param granuleBytes the step between size classes
+     * @param granuleBytes the step between sizes
      * @param maxPages     how many pages may exist
      */
     public ArenaAllocator(long pageBytes, int granuleBytes, int maxPages) {
+        this(pageBytes, granuleBytes, maxPages, true);
+    }
+
+    /**
+     * @param joining whether free ranges are split to fit a request and joined when given back
+     */
+    public ArenaAllocator(long pageBytes, int granuleBytes, int maxPages, boolean joining) {
+        this.joining = joining;
         if (granuleBytes <= 0 || pageBytes <= 0 || pageBytes % granuleBytes != 0) {
             throw new IllegalArgumentException("A page is a whole number of granules");
         }
@@ -68,7 +93,19 @@ public final class ArenaAllocator {
             return -1;
         }
         long block = -1;
-        if (granules < free.length && freeCount[granules] > 0) {
+        if (joining) {
+            block = take(granules);
+            if (block < 0) {
+                if (pages == maxPages) {
+                    return -1;
+                }
+                freeByStart.add(new TreeMap<>());
+                insert(pages++, 0, pageGranules);
+                reusableBytes += pageBytes();
+                block = take(granules);
+            }
+            reusableBytes -= (long) granules * granuleBytes;
+        } else if (granules < free.length && freeCount[granules] > 0) {
             block = free[granules][--freeCount[granules]];
             reusableBytes -= (long) granules * granuleBytes;
         } else {
@@ -113,6 +150,13 @@ public final class ArenaAllocator {
         while (!pending.isEmpty() && pending.peek()[0] <= finishedFrame) {
             long block = pending.poll()[1];
             int granules = granules(block);
+            if (joining) {
+                join(page(block), (int) (block >>> OFFSET_SHIFT & FIELD), granules);
+                long size = (long) granules * granuleBytes;
+                pendingBytes -= size;
+                reusableBytes += size;
+                continue;
+            }
             if (granules >= free.length) {
                 int size = Math.max(granules + 1, free.length * 2);
                 free = Arrays.copyOf(free, size);
@@ -128,6 +172,50 @@ public final class ArenaAllocator {
             pendingBytes -= size;
             reusableBytes += size;
         }
+    }
+
+    /** Takes the smallest free range that holds a request, and leaves what is over free. */
+    private long take(int granules) {
+        Long found = freeBySize.ceiling((long) granules << SIZE_SHIFT);
+        if (found == null) {
+            return -1;
+        }
+        int length = (int) (found >>> SIZE_SHIFT);
+        int page = (int) (found >>> OFFSET_SHIFT & 0xFFFF);
+        int start = (int) (found & FIELD);
+        freeBySize.remove(found);
+        freeByStart.get(page).remove(start);
+        if (length > granules) {
+            insert(page, start + granules, length - granules);
+        }
+        return block(page, start, granules);
+    }
+
+    /** Makes a range free, joined to the free ranges that touch it. */
+    private void join(int page, int start, int length) {
+        TreeMap<Integer, Integer> ranges = freeByStart.get(page);
+        Map.Entry<Integer, Integer> before = ranges.lowerEntry(start);
+        if (before != null && before.getKey() + before.getValue() == start) {
+            remove(page, before.getKey(), before.getValue());
+            start = before.getKey();
+            length += before.getValue();
+        }
+        Integer after = ranges.get(start + length);
+        if (after != null) {
+            remove(page, start + length, after);
+            length += after;
+        }
+        insert(page, start, length);
+    }
+
+    private void insert(int page, int start, int length) {
+        freeByStart.get(page).put(start, length);
+        freeBySize.add((long) length << SIZE_SHIFT | (long) page << OFFSET_SHIFT | start);
+    }
+
+    private void remove(int page, int start, int length) {
+        freeByStart.get(page).remove(start);
+        freeBySize.remove((long) length << SIZE_SHIFT | (long) page << OFFSET_SHIFT | start);
     }
 
     private static long block(int page, int offsetGranules, int granules) {
@@ -154,15 +242,24 @@ public final class ArenaAllocator {
     }
 
     /**
-     * The largest request that can be met without a new page from space never handed out. A caller
-     * that makes its pages ready ahead of need adds one when this runs low.
+     * The largest request that can be met without a new page: the largest free range, or without
+     * joining the most space never handed out in a page. A caller that makes its pages ready ahead of
+     * need adds one when this runs low.
      */
     public long largestRoomBytes() {
+        if (joining) {
+            return freeBySize.isEmpty() ? 0 : (freeBySize.last() >>> SIZE_SHIFT) * granuleBytes;
+        }
         int most = 0;
         for (int page = 0; page < pages; page++) {
             most = Math.max(most, pageGranules - touched[page]);
         }
         return (long) most * granuleBytes;
+    }
+
+    /** With joining, how many free ranges there are: the fewer for the same free memory, the less it is scattered. */
+    public int freeRanges() {
+        return freeBySize.size();
     }
 
     /** Whether another page may be added. */
@@ -199,7 +296,10 @@ public final class ArenaAllocator {
         return pendingBytes;
     }
 
-    /** Freed memory that may be used again, each range by its own class only. */
+    /**
+     * Memory that may be handed out: every free range, space never handed out included. Without joining,
+     * only freed ranges, each of which serves its own size alone.
+     */
     public long reusableBytes() {
         return reusableBytes;
     }

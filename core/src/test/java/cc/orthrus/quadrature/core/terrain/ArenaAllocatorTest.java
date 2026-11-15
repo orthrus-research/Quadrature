@@ -15,8 +15,13 @@ class ArenaAllocatorTest {
 
     private static final int GRANULE = 4088;
 
-    /** Pages of ten granules, three at most. */
+    /** Pages of ten granules, three at most, free ranges neither split nor joined. */
     private static ArenaAllocator small() {
+        return new ArenaAllocator(10L * GRANULE, GRANULE, 3, false);
+    }
+
+    /** The same pages, free ranges split and joined. */
+    private static ArenaAllocator joining() {
         return new ArenaAllocator(10L * GRANULE, GRANULE, 3);
     }
 
@@ -130,7 +135,7 @@ class ArenaAllocatorTest {
 
     @Test
     void accountingReturnsToNothingWhenEverythingIsFreed() {
-        ArenaAllocator arena = new ArenaAllocator(64L * GRANULE, GRANULE, 4);
+        ArenaAllocator arena = new ArenaAllocator(64L * GRANULE, GRANULE, 4, false);
         long[] blocks = new long[40];
         int[] sizes = new int[40];
         for (int i = 0; i < blocks.length; i++) {
@@ -157,7 +162,7 @@ class ArenaAllocatorTest {
 
     @Test
     void theLargestRoomFallsAsPagesFillAndRisesWithANewPage() {
-        ArenaAllocator arena = new ArenaAllocator(10L * GRANULE, GRANULE, 2);
+        ArenaAllocator arena = new ArenaAllocator(10L * GRANULE, GRANULE, 2, false);
         assertEquals(0, arena.largestRoomBytes());
         assertTrue(arena.mayGrow());
         arena.allocate(7 * GRANULE);
@@ -165,5 +170,121 @@ class ArenaAllocatorTest {
         arena.allocate(4 * GRANULE);
         assertEquals(6L * GRANULE, arena.largestRoomBytes());
         assertFalse(arena.mayGrow());
+    }
+
+    @Test
+    void aFreedRangeIsSplitForASmallerRequest() {
+        ArenaAllocator arena = joining();
+        long three = arena.allocate(3 * GRANULE);
+        arena.allocate(7 * GRANULE);
+        arena.free(three, 3 * GRANULE, 1);
+        arena.release(1);
+        long two = arena.allocate(2 * GRANULE);
+        assertEquals(0, ArenaAllocator.page(two));
+        assertEquals(0, arena.offset(two));
+        assertEquals((long) GRANULE, arena.reusableBytes());
+        long one = arena.allocate(GRANULE);
+        assertEquals(2L * GRANULE, arena.offset(one));
+        assertEquals(1, arena.pages());
+        assertEquals(0, arena.reusableBytes());
+    }
+
+    @Test
+    void freedRangesJoinTheirNeighborsOnBothSides() {
+        ArenaAllocator arena = joining();
+        long a = arena.allocate(2 * GRANULE);
+        long b = arena.allocate(3 * GRANULE);
+        long c = arena.allocate(2 * GRANULE);
+        arena.allocate(3 * GRANULE);
+        arena.free(a, 2 * GRANULE, 1);
+        arena.free(c, 2 * GRANULE, 1);
+        arena.release(1);
+        assertEquals(2, arena.freeRanges());
+        assertEquals(2L * GRANULE, arena.largestRoomBytes());
+        // Seven granules are free only once the range between the two is.
+        arena.free(b, 3 * GRANULE, 2);
+        arena.release(2);
+        assertEquals(1, arena.freeRanges());
+        assertEquals(7L * GRANULE, arena.largestRoomBytes());
+        long seven = arena.allocate(7 * GRANULE);
+        assertEquals(0, ArenaAllocator.page(seven));
+        assertEquals(0, arena.offset(seven));
+        assertEquals(1, arena.pages());
+    }
+
+    @Test
+    void theSmallestRangeThatHoldsARequestIsTaken() {
+        ArenaAllocator arena = joining();
+        long four = arena.allocate(4 * GRANULE);
+        arena.allocate(GRANULE);
+        long two = arena.allocate(2 * GRANULE);
+        arena.allocate(3 * GRANULE);
+        arena.free(four, 4 * GRANULE, 1);
+        arena.free(two, 2 * GRANULE, 1);
+        arena.release(1);
+        long fits = arena.allocate(2 * GRANULE);
+        assertEquals(5L * GRANULE, arena.offset(fits));
+        assertEquals(4L * GRANULE, arena.largestRoomBytes());
+    }
+
+    @Test
+    void aRangeStillPendingIsNotJoined() {
+        ArenaAllocator arena = joining();
+        long a = arena.allocate(5 * GRANULE);
+        long b = arena.allocate(5 * GRANULE);
+        arena.free(a, 5 * GRANULE, 1);
+        arena.free(b, 5 * GRANULE, 2);
+        arena.release(1);
+        assertEquals(5L * GRANULE, arena.largestRoomBytes());
+        assertEquals(1, ArenaAllocator.page(arena.allocate(6 * GRANULE)));
+        arena.release(2);
+        assertEquals(10L * GRANULE, arena.largestRoomBytes());
+    }
+
+    @Test
+    void manyAllocationsAndFreesNeverOverlapAndAccountForEveryGranule() {
+        ArenaAllocator arena = new ArenaAllocator(64L * GRANULE, GRANULE, 6);
+        java.util.Random random = new java.util.Random(2485331);
+        java.util.ArrayList<long[]> held = new java.util.ArrayList<>();
+        boolean[][] taken = new boolean[6][64];
+        long used = 0;
+        for (int step = 0; step < 20_000; step++) {
+            if (held.isEmpty() || random.nextInt(5) < 3) {
+                int granules = 1 + random.nextInt(12);
+                long block = arena.allocate(granules * GRANULE - random.nextInt(GRANULE));
+                if (block < 0) {
+                    continue;
+                }
+                int page = ArenaAllocator.page(block);
+                int start = (int) (arena.offset(block) / GRANULE);
+                assertEquals((long) granules * GRANULE, arena.size(block));
+                for (int g = start; g < start + granules; g++) {
+                    assertFalse(taken[page][g]);
+                    taken[page][g] = true;
+                }
+                used += granules;
+                held.add(new long[] {block, granules});
+            } else {
+                long[] gone = held.remove(random.nextInt(held.size()));
+                int page = ArenaAllocator.page(gone[0]);
+                int start = (int) (arena.offset(gone[0]) / GRANULE);
+                for (int g = start; g < start + gone[1]; g++) {
+                    taken[page][g] = false;
+                }
+                used -= gone[1];
+                arena.free(gone[0], (int) gone[1] * GRANULE, step);
+                arena.release(step);
+            }
+            assertEquals(used * GRANULE, arena.usedBytes());
+            assertEquals(arena.capacityBytes(), arena.usedBytes() + arena.reusableBytes());
+        }
+        for (long[] block : held) {
+            arena.free(block[0], (int) block[1] * GRANULE, 30_000);
+        }
+        arena.release(30_000);
+        assertEquals(0, arena.usedBytes());
+        // Everything given back has joined into one range a page.
+        assertEquals(arena.pages(), arena.freeRanges());
+        assertEquals(64L * GRANULE, arena.largestRoomBytes());
     }
 }
