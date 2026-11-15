@@ -183,6 +183,19 @@ authors can dedicate: their own expression of ideas, never copied code.
   a page and by length, which is the plainest structure that does both.
 - Added: 2026-11-15
 
+### The light's depth
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/ShadowTarget.java`, the depth program
+  in `TerrainProgram.java`, `core/src/main/java/cc/orthrus/quadrature/core/view/View.java`
+  (`alongLight` with a side and texels) and `ShadowMaps.java`
+- Source: Williams, "Casting Curved Shadows on Curved Surfaces", SIGGRAPH 1978, for depth
+  drawn from the light; Valient, "Stable Rendering of Cascaded Shadow Maps", ShaderX6,
+  2008, for a box of fixed size moved by whole texels; the OpenGL 4.6 compatibility
+  specification (framebuffers without color, array textures, sampler objects and depth
+  comparison, depth clamp, timestamps). Facts used: the game's alpha threshold for its
+  cutout layers, read from the running game.
+- Taken: the ideas. No renderer's source was read.
+- Added: 2026-11-15
+
 ### Driver messages
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/DriverMessages.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (debug output,

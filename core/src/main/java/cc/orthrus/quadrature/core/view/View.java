@@ -172,6 +172,84 @@ public final class View {
         return out;
     }
 
+    /**
+     * Fills {@code out} as a view along a light's direction whose volume is a cube of a fixed side
+     * centered on {@code main}'s origin: a plain orthographic box, the same size whichever way the
+     * main view faces. The box is moved to the nearest whole texel of a map {@code texels} across, in
+     * the light's own axes measured from the world's origin, so that a map drawn through it does not
+     * shift by part of a texel as the main view moves.
+     *
+     * @param towardLightX a vector from the scene toward the light; it need not be of unit length
+     * @param side         the side of the box, in blocks
+     * @param texels       how many texels the map it is drawn into has along a side
+     */
+    public static View alongLight(View out, View main, double towardLightX, double towardLightY,
+        double towardLightZ, double side, int texels) {
+        double length = Math.sqrt(towardLightX * towardLightX + towardLightY * towardLightY
+            + towardLightZ * towardLightZ);
+        double lx = towardLightX / length;
+        double ly = towardLightY / length;
+        double lz = towardLightZ / length;
+        double ux = Math.abs(ly) < 0.99 ? 0 : 1;
+        double uy = Math.abs(ly) < 0.99 ? 1 : 0;
+        double ax = uy * lz;
+        double ay = -ux * lz;
+        double az = ux * ly - uy * lx;
+        double an = Math.sqrt(ax * ax + ay * ay + az * az);
+        ax /= an;
+        ay /= an;
+        az /= an;
+        double bx = ly * az - lz * ay;
+        double by = lz * ax - lx * az;
+        double bz = lx * ay - ly * ax;
+
+        // Where the origin lies along each of the light's axes, and how far the nearest texel is.
+        double texel = side / texels;
+        double a = ax * main.originX + ay * main.originY + az * main.originZ;
+        double b = bx * main.originX + by * main.originY + bz * main.originZ;
+        double l = lx * main.originX + ly * main.originY + lz * main.originZ;
+        double centerA = Math.rint(a / texel) * texel - a;
+        double centerB = Math.rint(b / texel) * texel - b;
+        double centerL = Math.rint(l / texel) * texel - l;
+        double half = side / 2;
+
+        float[] view = out.modelView;
+        java.util.Arrays.fill(view, 0);
+        view[0] = (float) ax;
+        view[4] = (float) ay;
+        view[8] = (float) az;
+        view[1] = (float) bx;
+        view[5] = (float) by;
+        view[9] = (float) bz;
+        view[2] = (float) lx;
+        view[6] = (float) ly;
+        view[10] = (float) lz;
+        view[15] = 1;
+        float[] box = out.projection;
+        java.util.Arrays.fill(box, 0);
+        box[0] = (float) (1 / half);
+        box[5] = (float) (1 / half);
+        // Eye space looks down its negative third axis: the nearest point is the one most toward the light.
+        box[10] = (float) (-1 / half);
+        box[12] = (float) (-centerA / half);
+        box[13] = (float) (-centerB / half);
+        box[14] = (float) (centerL / half);
+        box[15] = 1;
+        out.purpose = Purpose.DEPTH_ONLY;
+        out.depth = Depth.CONVENTIONAL;
+        out.originX = main.originX;
+        out.originY = main.originY;
+        out.originZ = main.originZ;
+        out.eyeX = main.originX;
+        out.eyeY = main.originY;
+        out.eyeZ = main.originZ;
+        out.across = main.across;
+        out.upward = main.upward;
+        out.occlusion = false;
+        out.derivePlanes();
+        return out;
+    }
+
     /** The planes of the clip volume, from the rows of projection times model-view. */
     private void derivePlanes() {
         double[] clip = new double[16];

@@ -81,6 +81,39 @@ final class TerrainProgram {
             + "layout(std430, binding = 0) readonly buffer CubeRecords { CubeRecord cubes[]; };")
         .replace("cubeModelView * vec4(position, 1.0)", "cubes[gl_BaseInstance].modelView * vec4(position, 1.0)");
 
+    /**
+     * Depth alone, for a view of Quadrature's own: the cube's matrix from its record, the projection
+     * from the view, nothing from the game's fixed-function state. A fragment of a cutout layer is
+     * dropped where the block texture's alpha fails the game's alpha test, so that what casts a shadow
+     * is the shape that is seen.
+     */
+    private static final String VERTEX_DEPTH = String.join("\n",
+        "#version 460 compatibility",
+        "layout(location = 0) in vec3 position;",
+        "layout(location = 1) in vec4 color;",
+        "layout(location = 2) in vec2 texture;",
+        "struct CubeRecord { mat4 modelView; mat4 previous; };",
+        "layout(std430, binding = 0) readonly buffer CubeRecords { CubeRecord cubes[]; };",
+        "uniform mat4 viewProjection;",
+        "out vec2 textureCoordinate;",
+        "out float vertexAlpha;",
+        "void main() {",
+        "    gl_Position = viewProjection * (cubes[gl_BaseInstance].modelView * vec4(position, 1.0));",
+        "    textureCoordinate = texture;",
+        "    vertexAlpha = color.a;",
+        "}");
+    private static final String FRAGMENT_DEPTH = String.join("\n",
+        "#version 460 compatibility",
+        "uniform sampler2D blocks;",
+        "uniform float alphaReference;",
+        "in vec2 textureCoordinate;",
+        "in float vertexAlpha;",
+        "void main() {",
+        "    if (alphaReference >= 0.0 && texture(blocks, textureCoordinate).a * vertexAlpha <= alphaReference) {",
+        "        discard;",
+        "    }",
+        "}");
+
     private static final int RECORDS_BINDING = 0;
 
     private int program;
@@ -91,6 +124,11 @@ final class TerrainProgram {
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
+    private int depthProgram;
+    private int depthProjectionLocation;
+    private int depthAlphaLocation;
+    private int depthCommandBuffer;
+    private int depthRecordBuffer;
     /** Which program is in use since {@link #begin}: 0 neither, 1 the direct one, 2 the indirect one. */
     private int inUse;
     private int boundBuffer;
@@ -174,6 +212,42 @@ final class TerrainProgram {
         return draws;
     }
 
+    /** Hands the driver the commands and records of a view drawn for depth alone. */
+    void uploadDepth(DrawCommands list) {
+        if (program == 0) {
+            create();
+        }
+        GL45.glNamedBufferData(depthCommandBuffer, list.commands(), GL15.GL_STREAM_DRAW);
+        GL45.glNamedBufferData(depthRecordBuffer, list.records(), GL15.GL_STREAM_DRAW);
+    }
+
+    /**
+     * Draws one layer of a list for depth alone, under a projection of the view's own. The block
+     * texture is read from unit 0, where the game keeps it while terrain is drawn.
+     *
+     * @param alphaReference the alpha at or below which a fragment is dropped, or negative to keep all
+     * @return how many draws were issued
+     */
+    int drawDepth(DrawCommands list, int layer, TerrainArena arena, float[] projection, float alphaReference) {
+        GL30.glBindVertexArray(vertexArray);
+        GL20.glUseProgram(depthProgram);
+        GL20.glUniformMatrix4fv(depthProjectionLocation, false, projection);
+        GL20.glUniform1f(depthAlphaLocation, alphaReference);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, depthRecordBuffer);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, depthCommandBuffer);
+        int draws = 0;
+        for (int page = 0; page < list.pages(); page++) {
+            int count = list.runCount(layer, page);
+            if (count == 0) {
+                continue;
+            }
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, arena.buffer(page), 0, CubeMesh.STRIDE);
+            GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
+            draws++;
+        }
+        return draws;
+    }
+
     void end() {
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, 0);
@@ -188,6 +262,11 @@ final class TerrainProgram {
         indirectFogModeLocation = GL20.glGetUniformLocation(indirectProgram, "fogMode");
         commandBuffer = GL45.glCreateBuffers();
         recordBuffer = GL45.glCreateBuffers();
+        depthProgram = link(VERTEX_DEPTH, FRAGMENT_DEPTH);
+        depthProjectionLocation = GL20.glGetUniformLocation(depthProgram, "viewProjection");
+        depthAlphaLocation = GL20.glGetUniformLocation(depthProgram, "alphaReference");
+        depthCommandBuffer = GL45.glCreateBuffers();
+        depthRecordBuffer = GL45.glCreateBuffers();
 
         vertexArray = GL45.glCreateVertexArrays();
         attribute(0, 3, GL11.GL_FLOAT, false, 0);
@@ -197,9 +276,13 @@ final class TerrainProgram {
     }
 
     private static int link(String vertexSource) {
+        return link(vertexSource, FRAGMENT);
+    }
+
+    private static int link(String vertexSource, String fragmentSource) {
         int linked = GL20.glCreateProgram();
         int vertex = compile(GL20.GL_VERTEX_SHADER, vertexSource);
-        int fragment = compile(GL20.GL_FRAGMENT_SHADER, FRAGMENT);
+        int fragment = compile(GL20.GL_FRAGMENT_SHADER, fragmentSource);
         GL20.glAttachShader(linked, vertex);
         GL20.glAttachShader(linked, fragment);
         GL20.glLinkProgram(linked);
@@ -210,7 +293,10 @@ final class TerrainProgram {
         GL20.glDeleteShader(fragment);
         // The game keeps the block texture on unit 0 and the light map on unit 1.
         GL45.glProgramUniform1i(linked, GL20.glGetUniformLocation(linked, "blocks"), 0);
-        GL45.glProgramUniform1i(linked, GL20.glGetUniformLocation(linked, "lightMap"), 1);
+        int lightMap = GL20.glGetUniformLocation(linked, "lightMap");
+        if (lightMap >= 0) {
+            GL45.glProgramUniform1i(linked, lightMap, 1);
+        }
         return linked;
     }
     private void attribute(int index, int size, int type, boolean normalized, int offset) {

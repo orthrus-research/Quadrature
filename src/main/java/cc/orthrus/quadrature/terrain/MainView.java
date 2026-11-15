@@ -61,4 +61,28 @@ final class MainView {
         }
         return View.alongLight(view, main, towardX, towardY, 0);
     }
+
+    /**
+     * Fills {@code view} as a view along the same light whose box is a cube of a fixed side centered on
+     * the player and moved to a whole texel: every cube the client holds lies inside it whatever the
+     * hour, since they lie within the view's reach to every side.
+     *
+     * @param toward filled with the direction toward the light
+     * @return the side of the box, in blocks
+     */
+    static double alongLight(View view, View main, double partialTicks, int texels, double[] toward) {
+        double angle = Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks) * 2 * Math.PI;
+        toward[0] = -Math.sin(angle);
+        toward[1] = Math.cos(angle);
+        toward[2] = 0;
+        if (toward[1] < 0) {
+            toward[0] = -toward[0];
+            toward[1] = -toward[1];
+        }
+        // The cubes held lie in a square of twice the reach about the player; its diagonal is the most
+        // any axis across the light can span.
+        double side = Math.ceil(2 * Math.sqrt(2) * Math.max(main.across(), main.upward()) * 16);
+        View.alongLight(view, main, toward[0], toward[1], toward[2], side, texels);
+        return side;
+    }
 }

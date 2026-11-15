@@ -9,6 +9,7 @@ import cc.orthrus.quadrature.core.terrain.CubeSlots;
 import cc.orthrus.quadrature.core.terrain.CubeVisitor;
 import cc.orthrus.quadrature.core.terrain.DrawCommands;
 import cc.orthrus.quadrature.core.terrain.Visibility;
+import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
 import io.github.opencubicchunks.cubicchunks.api.client.CubeSource;
@@ -64,6 +65,18 @@ public final class Terrain
      * can be drawn no other way.
      */
     private static final boolean DIRECT = OWN_BUFFERS || "direct".equals(System.getProperty("quadrature.terrain.draw"));
+    /**
+     * Off unless {@code -Dquadrature.shadow=true}: the view along the light is drawn, for depth alone,
+     * into a target of Quadrature's own. Nothing samples it yet, so the player's image is the same with
+     * it on. It needs indirect draws.
+     */
+    private static final boolean SHADOW = Boolean.getBoolean("quadrature.shadow") && !DIRECT;
+    /**
+     * A diagnostic, off unless {@code -Dquadrature.shadow.image=true}: once for each place the player
+     * stands still at, with nothing waiting to be meshed, the shadow depth is written as an image.
+     */
+    private static final boolean SHADOW_IMAGE = SHADOW && Boolean.getBoolean("quadrature.shadow.image");
+    private static final int STILL_FRAMES = 960;
 
     private final ICubeSource source;
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
@@ -75,6 +88,28 @@ public final class Terrain
     private final CubeSlots slots = new CubeSlots();
     private final DrawCommands mainList = new DrawCommands();
     private final DrawCommands lightList = new DrawCommands();
+    private final ShadowTarget shadow = SHADOW ? new ShadowTarget() : null;
+    /** What is published of the depth drawn along the light, or null when it is not drawn. */
+    private final ShadowMaps shadowMaps = SHADOW
+        ? new ShadowMaps(ShadowTarget.LAYERS, ShadowTarget.SIDE, ShadowTarget.BYTES) : null;
+    private final double[] towardLight = new double[3];
+    private double lightSide;
+    /** Counts meshes placed and released: what a view draws may differ once it has moved on. */
+    private long meshVersion;
+    private long shadowMeshVersion = -1;
+    private double shadowOriginX;
+    private double shadowOriginY;
+    private double shadowOriginZ;
+    /** The alpha at or below which the game drops a fragment of a cutout layer, as last seen set. */
+    private float cutoutReference = 0.1f;
+    private long shadowNanos;
+    private long lastShadowNanos;
+    private long mostShadowNanos;
+    private long shadowFrames;
+    private int shadowDraws;
+    private long stillFrames;
+    private long stillAt = Long.MIN_VALUE;
+    private long imagedAt = Long.MIN_VALUE;
     /** Meshes the main view sees that are not in the arena, drawn one by one after the indirect draws. */
     private final java.util.ArrayList<CubeMesh> loose = new java.util.ArrayList<>();
     private final float[] matrix = new float[CubeMatrix.LENGTH];
@@ -223,6 +258,7 @@ public final class Terrain
 
     private void release(CubeMesh mesh) {
         if (mesh != null) {
+            meshVersion++;
             vertices -= mesh.vertices();
             bytes -= mesh.bytes();
             if (mesh.inArena()) {
@@ -347,6 +383,7 @@ public final class Terrain
         buildNanos += System.nanoTime() - start;
         built++;
         if (mesh != null) {
+            meshVersion++;
             meshes.put(key, mesh);
             vertices += mesh.vertices();
             bytes += mesh.bytes();
@@ -457,7 +494,11 @@ public final class Terrain
 
         // A second view, found and not yet drawn: what a shadow of the sun or moon would be drawn from.
         start = System.nanoTime();
-        MainView.alongLight(lightView, mainView, partialTicks);
+        if (SHADOW) {
+            lightSide = MainView.alongLight(lightView, mainView, partialTicks, ShadowTarget.SIDE, towardLight);
+        } else {
+            MainView.alongLight(lightView, mainView, partialTicks);
+        }
         lit.sweep(this, lightView);
         lastLightNanos = System.nanoTime() - start;
 
@@ -479,8 +520,68 @@ public final class Terrain
             start = System.nanoTime();
             command(lightList, lit, lightView, false);
             lastLightCommandNanos = System.nanoTime() - start;
+            if (SHADOW) {
+                drawShadow();
+            }
         }
         return mainView;
+    }
+
+    /**
+     * Draws the view along the light for depth alone: the opaque layers of every meshed cube in its
+     * volume, from the same pages and by the same indirect draws as the player's view, each cube under
+     * the same matrix composition. The cutout layers are tested against the block texture's alpha.
+     * Entities are not drawn into it.
+     */
+    private void drawShadow() {
+        long start = System.nanoTime();
+        DriverMessages.enter("shadow");
+        program.uploadDepth(lightList);
+        shadow.begin();
+        shadowMaps.objects(shadow.texture(), shadow.compareSampler(), shadow.depthSampler());
+        shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
+        shadowMaps.beginFrame(mainView.originX(), mainView.originY(), mainView.originZ(), towardLight[0],
+            towardLight[1], towardLight[2]);
+        // The box moved to another texel if the player's old and new positions fall in different
+        // texels along the light's axes as they stand now.
+        float[] axes = lightView.modelView();
+        double texel = lightSide / ShadowTarget.SIDE;
+        boolean resnapped = false;
+        for (int axis = 0; axis < 3 && !resnapped; axis++) {
+            double now = axes[axis] * mainView.originX() + axes[4 + axis] * mainView.originY()
+                + axes[8 + axis] * mainView.originZ();
+            double before = axes[axis] * shadowOriginX + axes[4 + axis] * shadowOriginY + axes[8 + axis] * shadowOriginZ;
+            resnapped = Math.rint(now / texel) != Math.rint(before / texel);
+        }
+        shadowOriginX = mainView.originX();
+        shadowOriginY = mainView.originY();
+        shadowOriginZ = mainView.originZ();
+        shadowMaps.layer(0, lightView, lightSide, shadowMeshVersion != meshVersion || resnapped);
+        shadowMeshVersion = meshVersion;
+        shadowDraws = program.drawDepth(lightList, BlockRenderLayer.SOLID.ordinal(), arena, lightView.projection(), -1f);
+        shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), arena,
+            lightView.projection(), cutoutReference);
+        shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT.ordinal(), arena, lightView.projection(),
+            cutoutReference);
+        shadow.end();
+        program.end();
+        DriverMessages.leave();
+        lastShadowNanos = System.nanoTime() - start;
+        shadowNanos += lastShadowNanos;
+        mostShadowNanos = Math.max(mostShadowNanos, lastShadowNanos);
+        shadowFrames++;
+        if (SHADOW_IMAGE) {
+            long place = CubeKey.of((int) Math.floor(mainView.originX()), (int) Math.floor(mainView.originY()),
+                (int) Math.floor(mainView.originZ()));
+            if (place != stillAt || !dirty.isEmpty()) {
+                stillAt = place;
+                stillFrames = 0;
+            } else if (++stillFrames == STILL_FRAMES && imagedAt != place) {
+                imagedAt = place;
+                shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
+                    + (int) Math.floor(mainView.originZ()));
+            }
+        }
     }
 
     /**
@@ -576,6 +677,10 @@ public final class Terrain
         // and puts the filter back only here, inside the draw this stage replaces. Without it a face
         // whose light coordinate lies on a texel boundary flickers between two light levels.
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
+        if (SHADOW && layer == BlockRenderLayer.CUTOUT && org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_ALPHA_TEST)) {
+            // The game's own threshold for a cutout layer, read where the game has set it.
+            cutoutReference = org.lwjgl.opengl.GL11.glGetFloat(org.lwjgl.opengl.GL11.GL_ALPHA_TEST_REF);
+        }
         DriverMessages.enter("terrain " + layer);
         program.begin(view);
         int index = layer.ordinal();
@@ -643,6 +748,11 @@ public final class Terrain
         }
     }
     @Override
+    public ShadowMaps shadowMaps() {
+        return shadowMaps;
+    }
+
+    @Override
     public String summary() {
         String line = String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, "
                 + "%d left for a neighbor, %.1f MiB, %d M vertices held; last frame %d draws, %d k vertices; "
@@ -674,6 +784,18 @@ public final class Terrain
             arena.pagesInUse(), arena.largestRoomBytes() / 1048576.0, arena.freeRanges(),
             TerrainArena.JOINING ? "blocks joined" : "blocks by size class");
         line += TerrainArena.COPY ? ", meshes staged and copied" : ", meshes written into their pages";
+        if (SHADOW) {
+            float[] box = lightView.projection();
+            line += String.format("; shadow %d texels a side, %d MiB, %.3f blocks a texel, %d cubes, %d commands, "
+                    + "%d draws, CPU %.3f ms last frame, %.3f ms mean, %.3f ms most, GPU %.3f ms last, %.3f ms mean, "
+                    + "%.3f ms most, cutout alpha %.2f",
+                ShadowTarget.SIDE, ShadowTarget.BYTES >> 20, box[0] == 0 ? 0.0 : 2.0 / box[0] / ShadowTarget.SIDE,
+                lit.count(), lightList.commandCount(), shadowDraws, lastShadowNanos / 1e6,
+                shadowFrames == 0 ? 0.0 : shadowNanos / 1e6 / shadowFrames, mostShadowNanos / 1e6,
+                shadow.gpuMillisLast(), shadow.gpuMillisMean(), shadow.gpuMillisMost(), cutoutReference);
+            line += String.format(", box %.0f blocks, generation %d and content generation %d of %d frames", lightSide,
+                shadowMaps.generation(), shadowMaps.contentGeneration(), shadowFrames);
+        }
         line += TerrainArena.TOUCH ? ", pages written once when made" : "";
         if (DIRECT) {
             return line + "; direct draws";

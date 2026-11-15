@@ -110,4 +110,48 @@ class ViewTest {
             identity(), perspective(0.05f, 200), 12, 12, true);
         assertFalse(a.sameVolume(b));
     }
+
+    @Test
+    void aFixedLightBoxKeepsItsSizeAndMovesByWholeTexels() {
+        double side = 544;
+        int texels = 4096;
+        double texel = side / texels;
+        double[] light = {-0.6, 0.8, 0};
+        View main = lookingNorth(View.Depth.CONVENTIONAL);
+        View a = View.alongLight(new View(), main, light[0], light[1], light[2], side, texels);
+        // The box is as wide as asked whatever the main view sees.
+        assertEquals(2 / side, a.projection()[0], 1e-9);
+        assertEquals(2 / side, a.projection()[5], 1e-9);
+        // The player's own position is inside it, and a point more than half the side away is not.
+        assertTrue(a.boxVisible(999.5, 63, -3001.5, 1001.5, 65, -2999.5));
+        assertFalse(a.boxVisible(1000, 64, -2600, 1001, 65, -2599));
+
+        // A world point lands on the same place in the map, to within rounding, when the player has
+        // moved by less than the box: the box moved by whole texels.
+        View moved = new View().set(View.Purpose.MAIN, View.Depth.CONVENTIONAL, 1003.87, 64.2, -3002.41, 1003.87,
+            65.8, -3002.41, identity(), perspective(0.05f, 512f), 12, 12, true);
+        View b = View.alongLight(new View(), moved, light[0], light[1], light[2], side, texels);
+        double[] world = {1010.25, 70.5, -3020.75};
+        double[] inA = clip(a, world[0] - 1000.5, world[1] - 64, world[2] + 3000.5);
+        double[] inB = clip(b, world[0] - 1003.87, world[1] - 64.2, world[2] + 3002.41);
+        for (int axis = 0; axis < 2; axis++) {
+            double texelsApart = (inA[axis] - inB[axis]) * texels / 2;
+            assertEquals(Math.rint(texelsApart), texelsApart, 1e-3);
+        }
+        assertEquals(texel, side / texels);
+    }
+
+    private static double[] clip(View view, double x, double y, double z) {
+        float[] m = view.modelView();
+        float[] p = view.projection();
+        double[] eye = new double[4];
+        for (int row = 0; row < 4; row++) {
+            eye[row] = m[row] * x + m[4 + row] * y + m[8 + row] * z + m[12 + row];
+        }
+        double[] out = new double[4];
+        for (int row = 0; row < 4; row++) {
+            out[row] = p[row] * eye[0] + p[4 + row] * eye[1] + p[8 + row] * eye[2] + p[12 + row] * eye[3];
+        }
+        return out;
+    }
 }

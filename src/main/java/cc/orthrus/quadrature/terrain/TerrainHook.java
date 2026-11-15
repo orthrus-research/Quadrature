@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
 import net.minecraft.entity.Entity;
@@ -22,6 +23,9 @@ public final class TerrainHook {
 
         /** Draws one opaque layer for a view. */
         void draw(BlockRenderLayer layer, View view);
+
+        /** What is published of the depth drawn along the light, or null when it is not drawn. */
+        ShadowMaps shadowMaps();
 
         /** One line for the timing log. */
         String summary();
@@ -47,6 +51,14 @@ public final class TerrainHook {
             mainView = drawer.mainView(partialTicks, viewer);
         }
         drawer.draw(layer, mainView);
+    }
+
+    /**
+     * What is published each frame of the depth drawn along the light: the texture, its samplers, and
+     * each layer's matrix. Null when own terrain is off or the light's view is not drawn.
+     */
+    public static ShadowMaps shadowMaps() {
+        return drawer == null ? null : drawer.shadowMaps();
     }
 
     /** The timing log's line, or null when own terrain is off. */
