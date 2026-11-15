@@ -47,6 +47,13 @@ import java.util.ArrayDeque;
     private final int[] buffers = new int[MAX_PAGES];
     private final ByteBuffer[] memory = new ByteBuffer[MAX_PAGES];
     private int pages;
+    /** A page is made ahead when less than this is left of space never handed out: a few frames' meshes. */
+    private static final long AHEAD_BYTES = 8L << 20;
+    private int pagesAhead;
+    private int pagesInTheWay;
+    private long createNanos;
+    private long createNanosThisFrame;
+    private long mostCreateNanos;
     /** Fences not yet signalled, oldest first: the sync object and the frame it closed. */
     private final ArrayDeque<long[]> fences = new ArrayDeque<>();
 
@@ -65,16 +72,9 @@ import java.util.ArrayDeque;
             return null;
         }
         while (pages < allocator.pages()) {
-            buffers[pages] = GL45.glCreateBuffers();
-            if (UPLOAD) {
-                GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, GL44.GL_DYNAMIC_STORAGE_BIT);
-            } else {
-                GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, ACCESS);
-                memory[pages] = GL45.glMapNamedBufferRange(buffers[pages], 0, PAGE_BYTES, ACCESS);
-            }
-            Quadrature.LOGGER.info("Terrain arena: page {} is buffer {}, {}", pages, buffers[pages],
-                UPLOAD ? "written through the driver" : "mapped");
-            pages++;
+            // The allocator opened a page that was not made ahead: it is made here, in the way of a mesh.
+            create();
+            pagesInTheWay++;
         }
         int page = ArenaAllocator.page(block);
         int at = (int) allocator.offset(block);
@@ -98,6 +98,60 @@ import java.util.ArrayDeque;
             at += count * CubeMesh.STRIDE;
         }
         return mesh;
+    }
+
+    /** Makes the next page's buffer. The driver's time for it is kept apart from placing meshes. */
+    private void create() {
+        long start = System.nanoTime();
+        buffers[pages] = GL45.glCreateBuffers();
+        if (UPLOAD) {
+            GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, GL44.GL_DYNAMIC_STORAGE_BIT);
+        } else {
+            GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, ACCESS);
+            memory[pages] = GL45.glMapNamedBufferRange(buffers[pages], 0, PAGE_BYTES, ACCESS);
+        }
+        long nanos = System.nanoTime() - start;
+        createNanos += nanos;
+        createNanosThisFrame += nanos;
+        mostCreateNanos = Math.max(mostCreateNanos, nanos);
+        Quadrature.LOGGER.info("Terrain arena: page {} is buffer {}, {}, made in {} ms", pages, buffers[pages],
+            UPLOAD ? "written through the driver" : "mapped", String.format("%.3f", nanos / 1e6));
+        pages++;
+    }
+
+    /**
+     * Makes a page ahead of need, when the space never handed out has run low and none is waiting. Called
+     * once a frame after the terrain is drawn, so that making a page is not in the way of placing a mesh.
+     */
+    void prepare() {
+        if (pages == allocator.pages() && pages < MAX_PAGES && allocator.mayGrow()
+            && allocator.largestRoomBytes() < AHEAD_BYTES) {
+            create();
+            pagesAhead++;
+        }
+    }
+
+    /** The time spent making pages since this was last called. */
+    long takeCreateNanos() {
+        long nanos = createNanosThisFrame;
+        createNanosThisFrame = 0;
+        return nanos;
+    }
+
+    int pagesAhead() {
+        return pagesAhead;
+    }
+
+    int pagesInTheWay() {
+        return pagesInTheWay;
+    }
+
+    double createMillisEach() {
+        return pages == 0 ? 0.0 : createNanos / 1e6 / pages;
+    }
+
+    double createMillisMost() {
+        return mostCreateNanos / 1e6;
     }
 
     /** Gives a mesh's block back; it is reused once the frame it was freed in has been drawn. */

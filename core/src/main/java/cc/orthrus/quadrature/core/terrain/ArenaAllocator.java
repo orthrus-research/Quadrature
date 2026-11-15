@@ -153,6 +153,23 @@ public final class ArenaAllocator {
         return (long) granules(block) * granuleBytes;
     }
 
+    /**
+     * The largest request that can be met without a new page from space never handed out. A caller
+     * that makes its pages ready ahead of need adds one when this runs low.
+     */
+    public long largestRoomBytes() {
+        int most = 0;
+        for (int page = 0; page < pages; page++) {
+            most = Math.max(most, pageGranules - touched[page]);
+        }
+        return (long) most * granuleBytes;
+    }
+
+    /** Whether another page may be added. */
+    public boolean mayGrow() {
+        return pages < maxPages;
+    }
+
     /** How many pages have been handed out from; a caller creates a page when this grows. */
     public int pages() {
         return pages;

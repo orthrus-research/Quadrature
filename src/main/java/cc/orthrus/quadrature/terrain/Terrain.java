@@ -44,6 +44,8 @@ public final class Terrain
     implements ICubeSourceListener, TerrainHook.Drawer, Visibility.Cubes, Visibility.CubeSet {
 
     private static final long BUILD_BUDGET_NANOS = 4_000_000L;
+    /** The client thread's time for placing meshes in a frame; meshing stops for the frame once it is spent. */
+    private static final long PLACE_BUDGET_NANOS = 1_000_000L;
     private static final int CANDIDATES = 24;
     private static final double NEAR_BLOCKS_SQUARED = 576.0;
     /**
@@ -118,6 +120,16 @@ public final class Terrain
     private long placeNanosThisFrame;
     private long lastPlaceNanos;
     private long mostPlaceNanos;
+    private int placedThisFrame;
+    private long placedBytesThisFrame;
+    private long largestPlaceNanosThisFrame;
+    private long madeInTheWayNanosThisFrame;
+    private long mostMadeInTheWayNanos;
+    /** What the frame that spent the most time placing held. */
+    private int worstPlaced;
+    private long worstPlacedBytes;
+    private long worstLargestPlaceNanos;
+    private long stoppedByPlacing;
     private long refused;
     private long lastCommandNanos;
     private long lastLightCommandNanos;
@@ -242,6 +254,11 @@ public final class Terrain
                 long key = nearest[i];
                 dirty.remove(key);
                 rebuild(key);
+                if (placeNanosThisFrame >= PLACE_BUDGET_NANOS) {
+                    // The cubes left stay as they are, old mesh and all, and come first next frame.
+                    stoppedByPlacing++;
+                    return;
+                }
                 if (System.nanoTime() > deadline) {
                     return;
                 }
@@ -313,9 +330,18 @@ public final class Terrain
                     mesh.first(1), mesh.count(1), mesh.first(2), mesh.count(2));
             }
             placing = System.nanoTime() - placing;
+            if (arena != null) {
+                // A page made because none was ready is the driver's time, counted apart.
+                long made = arena.takeCreateNanos();
+                placing -= made;
+                madeInTheWayNanosThisFrame += made;
+            }
             placeNanosThisFrame += placing;
             placeNanos += placing;
             placed++;
+            placedThisFrame++;
+            placedBytesThisFrame += mesh.bytes();
+            largestPlaceNanosThisFrame = Math.max(largestPlaceNanosThisFrame, placing);
         }
         mesher.done();
         buildNanos += System.nanoTime() - start;
@@ -386,10 +412,24 @@ public final class Terrain
         if (arena != null) {
             arena.beginFrame();
         }
+        if (arena != null && arena.pages() == 0) {
+            arena.prepare();
+            arena.takeCreateNanos();
+        }
         placeNanosThisFrame = 0;
+        placedThisFrame = 0;
+        placedBytesThisFrame = 0;
+        largestPlaceNanosThisFrame = 0;
+        madeInTheWayNanosThisFrame = 0;
         build(mainView.originX(), mainView.originY(), mainView.originZ());
         lastPlaceNanos = placeNanosThisFrame;
-        mostPlaceNanos = Math.max(mostPlaceNanos, placeNanosThisFrame);
+        if (placeNanosThisFrame > mostPlaceNanos) {
+            mostPlaceNanos = placeNanosThisFrame;
+            worstPlaced = placedThisFrame;
+            worstPlacedBytes = placedBytesThisFrame;
+            worstLargestPlaceNanos = largestPlaceNanosThisFrame;
+        }
+        mostMadeInTheWayNanos = Math.max(mostMadeInTheWayNanos, madeInTheWayNanosThisFrame);
         long start = System.nanoTime();
         if (DRAW_ALL) {
             visible.sweep(this, mainView);
@@ -582,6 +622,9 @@ public final class Terrain
         if (arena != null && layer == BlockRenderLayer.CUTOUT) {
             // The frame's last terrain draw: what was freed up to now may be reused once this has run.
             arena.endFrame(frames);
+            // After the draws, so that making a page is never in the way of placing a mesh.
+            arena.prepare();
+            arena.takeCreateNanos();
         }
         if (record && dirty.isEmpty()) {
             comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, view.across(), view.upward(), this::explain);
@@ -609,6 +652,12 @@ public final class Terrain
             arena.wastedBytes() / 1048576.0, arena.pendingBytes() / 1048576.0, arena.reusableBytes() / 1048576.0,
             arena.openFences(), refused, placed == 0 ? 0.0 : placeNanos / 1e6 / placed, lastPlaceNanos / 1e6,
             mostPlaceNanos / 1e6);
+        line += String.format("; the frame that placed longest held %d meshes, %.1f KiB, the slowest %.3f ms; "
+                + "%d frames stopped by the placing budget; pages made ahead %d, in the way %d, %.3f ms each, "
+                + "%.3f ms most, %.3f ms most in the way in a frame",
+            worstPlaced, worstPlacedBytes / 1024.0, worstLargestPlaceNanos / 1e6, stoppedByPlacing,
+            arena.pagesAhead(), arena.pagesInTheWay(), arena.createMillisEach(), arena.createMillisMost(),
+            mostMadeInTheWayNanos / 1e6);
         if (DIRECT) {
             return line + "; direct draws";
         }

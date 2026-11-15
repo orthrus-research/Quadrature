@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.core.terrain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -152,5 +153,17 @@ class ArenaAllocatorTest {
     @Test
     void aPageMustBeAWholeNumberOfGranules() {
         assertThrows(IllegalArgumentException.class, () -> new ArenaAllocator(10L * GRANULE + 1, GRANULE, 1));
+    }
+
+    @Test
+    void theLargestRoomFallsAsPagesFillAndRisesWithANewPage() {
+        ArenaAllocator arena = new ArenaAllocator(10L * GRANULE, GRANULE, 2);
+        assertEquals(0, arena.largestRoomBytes());
+        assertTrue(arena.mayGrow());
+        arena.allocate(7 * GRANULE);
+        assertEquals(3L * GRANULE, arena.largestRoomBytes());
+        arena.allocate(4 * GRANULE);
+        assertEquals(6L * GRANULE, arena.largestRoomBytes());
+        assertFalse(arena.mayGrow());
     }
 }
