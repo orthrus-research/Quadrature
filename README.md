@@ -43,13 +43,17 @@ the projection translations against the driver. `-Pprobe=offscreen` or `-Pprobe=
 development stage of Quadrature's own inside the world pass.
 
 Own terrain needs a cubic world, so it runs in an instance with Cubature, not in the development
-client: start the game with `-Dquadrature.terrain=own`. The build takes Cubature's API from the
-sibling checkout's development JAR (`../Cubature`), or from the JAR named with `-PcubatureDevJar`. Adding `-PtestMemoryFloorMiB=<n>`
+client: start the game with `-Dquadrature.terrain=own`. The build takes Cubature's API from one
+JAR, pinned in `platform.json` by commit and hash and kept in `pins/`, which is not in the
+repository; the build stops if the file is missing or is not the one pinned. `./gradlew
+refreshCubature` copies the JAR built in the sibling checkout (`../Cubature`, which must be
+clean) into `pins/` and prints the commit and hash to record. Instances are prepared with the
+same file. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 
 `platform.json` is the one place platform versions are pinned: Java, Cleanroom,
-CleanroomGradle and the graphics floor. The root module is the Minecraft host; `core` has
+CleanroomGradle, Cubature and the graphics floor. The root module is the Minecraft host; `core` has
 no Minecraft dependency.
 
 ## Documents

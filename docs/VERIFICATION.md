@@ -17,6 +17,11 @@ instead of duplicating:
 
 Each run's frames land in a timestamped directory named by view.
 
+An instance that runs Quadrature is prepared with `--client-mod` naming Quadrature's built
+JAR and, for own terrain, `--cubic-artifact` naming the Cubature JAR in Quadrature's `pins/`:
+the one `platform.json` pins by commit and hash and the build compiles against. The game
+then runs the JAR the build read, and the instance records its hash.
+
 ## Comparing
 
 `tools/frames.py` needs the packages in `tools/requirements.txt`.
