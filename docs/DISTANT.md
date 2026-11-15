@@ -146,6 +146,11 @@ five warm passes with the write into a native buffer, while seven other threads 
 Records for [PROVENANCE.md](PROVENANCE.md), kept here until this branch joins the one that
 owns that file. No renderer's or level-of-detail mod's source was read for any of it.
 
+**Open before this branch joins:** the published sources named below (Lysenko's two
+articles, Losasso and Hoppe's paper) were cited from memory of them and were not read again
+while this code was written. Each must be read and its record checked against it, or
+corrected, before the records move into PROVENANCE.md; until then they are unverified.
+
 ### Run tiles
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunTile.java`
 - Source: original. Facts used: Cubature's terrain preview interface, which gives a column
