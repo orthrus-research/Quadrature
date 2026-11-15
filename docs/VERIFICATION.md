@@ -29,6 +29,7 @@ then runs the JAR the build read, and the instance records its hash.
 ```sh
 python tools/frames.py compare REFERENCE CANDIDATE --profile tools/comparison/repeat.json --out OUT
 python tools/frames.py measure RUN_A RUN_B [RUN_C ...]
+python tools/frames.py check RUN OTHER_RUN_OF_THE_INSTANCE
 ```
 
 `compare` matches frames by file name and exits 0 only if every frame passes. A pixel
@@ -40,6 +41,17 @@ changed pixels in red.
 
 `measure` reports the differences between repeated captures without judging them. It is
 how a profile's limits are set: a limit below the noise of two identical runs cannot pass.
+
+`check` names the frames of a run that differ from another capture of the same instance in
+a fifth of their pixels or more, and exits 0 only if there are none. Such a frame was
+captured facing elsewhere. Twice on 2026-11-15 a game-drawn reference held one: 76% and 87%
+of pixels apart from every other run of the view, in a different view each time. The
+client's log shows the same teleports at the same times as the good runs, no step retried
+and every cube loaded; only the game's count of chunks drawn differs, 403 for 411 and 315
+for 319. The camera stood in the right place and faced another way; the cause is not
+established. A reference is checked against the settling run before anything is scored
+against it, and retaken when a frame is named. `compare` marks such a frame as not the
+same view.
 
 | Profile | Use |
 |---|---|

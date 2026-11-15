@@ -131,6 +131,27 @@ def compare(reference_dir: Path, candidate_dir: Path, profile: Profile, out_dir:
     return report
 
 
+# A view of terrain that has settled differs between two captures of one instance by a fraction of a
+# percent. A view tens of percent apart was captured facing elsewhere, whatever was drawn.
+SUSPECT_FRACTION = 0.2
+
+
+def suspects(run_dir: Path, other_dir: Path, channel_threshold: int = 8,
+             fraction: float = SUSPECT_FRACTION) -> list[dict]:
+    """The frames of a run that are too far from another capture of the same instance to be the same view."""
+    run, other = frames(run_dir), frames(other_dir)
+    found = []
+    for name in sorted(set(run) & set(other)):
+        try:
+            measurement = measure_pair(load_rgb(other[name]), load_rgb(run[name]), channel_threshold)
+        except ValueError as error:
+            found.append({"frame": name, "reason": str(error)})
+            continue
+        if measurement.changedFraction >= fraction:
+            found.append({"frame": name, **asdict(measurement)})
+    return found
+
+
 def measure_runs(runs: list[Path], channel_threshold: int) -> dict:
     """Differences of every later run against the first, per frame, and the worst of each measure."""
     first = frames(runs[0])
@@ -170,7 +191,28 @@ def main(argv: list[str]) -> int:
     m.add_argument("--channel-threshold", type=int, default=8)
     m.add_argument("--json", action="store_true", help="print the full report as JSON")
 
+    k = commands.add_parser("check", help="name the frames of a run that another capture of the same "
+                                          "instance shows were captured facing elsewhere")
+    k.add_argument("run", type=Path)
+    k.add_argument("other", type=Path, help="another capture of the same instance, such as the settling run")
+    k.add_argument("--channel-threshold", type=int, default=8)
+    k.add_argument("--fraction", type=float, default=SUSPECT_FRACTION,
+                   help="changed fraction from which a frame is not the same view")
+
     args = parser.parse_args(argv)
+    if args.command == "check":
+        for directory in (args.run, args.other):
+            if not directory.is_dir():
+                print(f"Not a directory: {directory}", file=sys.stderr)
+                return 2
+        found = suspects(args.run, args.other, args.channel_threshold, args.fraction)
+        for frame in found:
+            if "reason" in frame:
+                print(f"SUSPECT  {frame['frame']}: {frame['reason']}")
+            else:
+                print(f"SUSPECT  {frame['frame']}: {frame['changedFraction']:.4%} changed against the other capture")
+        print("SUSPECT" if found else "CLEAR")
+        return 1 if found else 0
     if args.command == "compare":
         for directory in (args.reference, args.candidate):
             if not directory.is_dir():
@@ -181,9 +223,11 @@ def main(argv: list[str]) -> int:
             if "reason" in frame:
                 print(f"FAIL  {frame['frame']}: {frame['reason']}")
             else:
+                apart = "" if frame["changedFraction"] < SUSPECT_FRACTION else \
+                    "; not the same view: check both captures against a third"
                 print(f"{'pass' if frame['passed'] else 'FAIL'}  {frame['frame']}: "
                       f"{frame['changedFraction']:.4%} changed, mean {frame['meanAbsolute']:.3f}, "
-                      f"max {frame['maxAbsolute']}")
+                      f"max {frame['maxAbsolute']}{apart}")
         if not report["frames"]:
             print("No frames to compare.")
         print("PASSED" if report["passed"] else "FAILED")
