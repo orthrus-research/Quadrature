@@ -102,6 +102,29 @@ authors can dedicate: their own expression of ideas, never copied code.
   its block vertex format, and Cubature's cube source interfaces and render distance bound.
 - Added: 2026-11-14
 
+### Meshing a cube only among loaded neighbors
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`surrounded`, `rebuild`)
+- Source: original. Facts used: the running game's behavior in a cubic world, observed in
+  what it draws: beyond 24 blocks from the player it meshes a cube only once the six cubes
+  sharing a face with it are loaded, and a cube that cannot be meshed keeps the mesh it
+  has.
+- Not taken: no source code, the game's or another renderer's, was used for it.
+- Added: 2026-11-14
+
+### Placing a cube's vertices as the game places a chunk's
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/TerrainProgram.java`
+- Source: original. Facts used: the running game's behavior and values. It moves to a
+  chunk by translating its model-view matrix in single precision, then multiplies by a
+  matrix each render chunk carries; that matrix was read from the running game through
+  the render chunk's public method: a scale of 1.00000095 and an offset of 7.62939453e-06
+  on each axis. Frames were compared with and without it.
+- Taken: the order of the two steps and the matrix's values, composed anew in single
+  precision.
+- Not taken: no source code, the game's or another renderer's, was used for it. The
+  fixed-function transform, which reproduced the game's image more closely in a test, is
+  not used.
+- Added: 2026-11-14
+
 ### State envelope and probe stage
 - Code: `src/main/java/cc/orthrus/quadrature/frame/StateEnvelope.java`, `Probe.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (direct state

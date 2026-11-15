@@ -25,13 +25,13 @@ final class TerrainProgram {
         "layout(location = 1) in vec4 color;",
         "layout(location = 2) in vec2 texture;",
         "layout(location = 3) in vec2 light;",
-        "uniform vec3 offset;",
+        "uniform mat4 cubeModelView;",
         "out vec4 vertexColor;",
         "out vec2 textureCoordinate;",
         "out vec2 lightCoordinate;",
         "out float fogDistance;",
         "void main() {",
-        "    vec4 eye = gl_ModelViewMatrix * vec4(position + offset, 1.0);",
+        "    vec4 eye = cubeModelView * vec4(position, 1.0);",
         "    gl_Position = gl_ProjectionMatrix * eye;",
         "    vertexColor = color;",
         "    textureCoordinate = texture;",
@@ -64,10 +64,22 @@ final class TerrainProgram {
         "    result = color;",
         "}");
 
+    /**
+     * The matrix the game gives each of its render chunks and applies after moving to the chunk: an
+     * enlargement by one part in a million about the point eight blocks before the chunk's lowest
+     * corner on each axis. Composed in single precision as a move by eight blocks, the enlargement and
+     * the move back, which gives a scale of 1.00000095 and an offset of 7.62939453e-06: the values read
+     * from the running game.
+     */
+    private static final float CHUNK_SCALE = 1.000001F;
+    private static final float CHUNK_OFFSET = 8.0F * CHUNK_SCALE - 8.0F;
+
     private int program;
-    private int offsetLocation;
+    private int cubeModelViewLocation;
     private int fogModeLocation;
     private int vertexArray;
+    private final float[] modelView = new float[16];
+    private final float[] cubeModelView = new float[16];
 
     /** Binds the program and vertex layout. The state the layer depends on beyond that is the game's. */
     void begin() {
@@ -81,13 +93,29 @@ final class TerrainProgram {
             int mode = GL11.glGetInteger(GL11.GL_FOG_MODE);
             fogMode = mode == FOG_LINEAR ? 1 : mode == FOG_EXP ? 2 : 3;
         }
+        // The game moves to each chunk by translating its model-view matrix, then multiplies by the
+        // chunk's own matrix, both in single precision, and transforms chunk-local vertices by the
+        // result. The same is done here per cube, in that order, so both place a vertex the same way;
+        // adding the offset to the vertex in the shader does not, and leaving the chunk matrix out
+        // moves the rows of a near texture by a pixel where a boundary falls on a pixel center.
+        GL11.glGetFloatv(GL11.GL_MODELVIEW_MATRIX, modelView);
         GL20.glUseProgram(program);
         GL20.glUniform1i(fogModeLocation, fogMode);
         GL30.glBindVertexArray(vertexArray);
     }
 
     void draw(CubeMesh mesh, int layer, float x, float y, float z) {
-        GL20.glUniform3f(offsetLocation, x, y, z);
+        for (int row = 0; row < 4; row++) {
+            float c0 = modelView[row];
+            float c1 = modelView[4 + row];
+            float c2 = modelView[8 + row];
+            float moved = c0 * x + c1 * y + c2 * z + modelView[12 + row];
+            cubeModelView[row] = c0 * CHUNK_SCALE;
+            cubeModelView[4 + row] = c1 * CHUNK_SCALE;
+            cubeModelView[8 + row] = c2 * CHUNK_SCALE;
+            cubeModelView[12 + row] = c0 * CHUNK_OFFSET + c1 * CHUNK_OFFSET + c2 * CHUNK_OFFSET + moved;
+        }
+        GL20.glUniformMatrix4fv(cubeModelViewLocation, false, cubeModelView);
         GL45.glVertexArrayVertexBuffer(vertexArray, 0, mesh.buffer(layer), 0, CubeMesh.STRIDE);
         GL11.glDrawArrays(QUADS, 0, mesh.count(layer));
     }
@@ -108,7 +136,7 @@ final class TerrainProgram {
         }
         GL20.glDeleteShader(vertex);
         GL20.glDeleteShader(fragment);
-        offsetLocation = GL20.glGetUniformLocation(program, "offset");
+        cubeModelViewLocation = GL20.glGetUniformLocation(program, "cubeModelView");
         fogModeLocation = GL20.glGetUniformLocation(program, "fogMode");
         // The game keeps the block texture on unit 0 and the light map on unit 1.
         GL45.glProgramUniform1i(program, GL20.glGetUniformLocation(program, "blocks"), 0);

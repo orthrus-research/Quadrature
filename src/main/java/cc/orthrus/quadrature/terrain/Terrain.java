@@ -28,6 +28,7 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
 
     private static final long BUILD_BUDGET_NANOS = 4_000_000L;
     private static final int CANDIDATES = 24;
+    private static final double NEAR_BLOCKS_SQUARED = 576.0;
 
     private final ICubeSource source;
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
@@ -43,6 +44,7 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
     private long built;
     private long buildNanos;
     private long emptied;
+    private long waiting;
     private long vertices;
     private long bytes;
     private long drawsThisFrame;
@@ -168,10 +170,15 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         int x = CubeKey.x(key);
         int y = CubeKey.y(key);
         int z = CubeKey.z(key);
-        release(meshes.remove(key));
         if (!source.isLoaded(x, y, z)) {
+            release(meshes.remove(key));
             return;
         }
+        if (!surrounded(x, y, z)) {
+            // As in the game, a cube that cannot be meshed now keeps the mesh it has.
+            return;
+        }
+        release(meshes.remove(key));
         ICubeSnapshot snapshot = source.snapshot(x, y, z);
         if (snapshot.centerEmpty()) {
             emptied++;
@@ -188,6 +195,32 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
             vertices += mesh.vertices();
             bytes += mesh.bytes();
         }
+    }
+
+    /**
+     * The game's own rule for when a cube is meshed, kept so both draw the same cubes: beyond 24
+     * blocks from the player, only once the six cubes sharing a face with it are loaded. A cube that
+     * waits is meshed when the missing neighbor arrives, since that arrival reaches it as a change.
+     * The outermost row of what the client holds always lacks a neighbor and is never meshed. The test
+     * is made when the cube comes up for meshing, not afterwards: a mesh made while the neighbors were
+     * there, or while the player was near, stays when that stops being true.
+     */
+    private boolean surrounded(int x, int y, int z) {
+        net.minecraft.entity.Entity player = net.minecraft.client.Minecraft.getMinecraft().player;
+        if (player != null) {
+            double dx = (x << 4) + 8 - Math.floor(player.posX);
+            double dy = (y << 4) + 8 - Math.floor(player.posY);
+            double dz = (z << 4) + 8 - Math.floor(player.posZ);
+            if (dx * dx + dy * dy + dz * dz <= NEAR_BLOCKS_SQUARED) {
+                return true;
+            }
+        }
+        boolean all = source.isLoaded(x - 1, y, z) && source.isLoaded(x + 1, y, z) && source.isLoaded(x, y - 1, z)
+            && source.isLoaded(x, y + 1, z) && source.isLoaded(x, y, z - 1) && source.isLoaded(x, y, z + 1);
+        if (!all) {
+            waiting++;
+        }
+        return all;
     }
 
     // Drawing.
@@ -213,15 +246,13 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
         program.begin();
         int index = layer.ordinal();
-        // The game's own bound, kept so the two draw the same cubes: from the eye's block to the cube's
-        // lowest corner, at most the render distance in blocks on each axis. It reaches one cube
-        // farther toward positive coordinates than toward negative ones.
-        int eyeX = (int) Math.floor(cameraX);
-        int eyeY = (int) Math.floor(cameraY + viewer.getEyeHeight());
-        int eyeZ = (int) Math.floor(cameraZ);
-        net.minecraft.client.settings.GameSettings settings = net.minecraft.client.Minecraft.getMinecraft().gameSettings;
-        int across = settings.renderDistanceChunks * 16;
-        int upward = verticalRenderDistance() * 16;
+        // The game's own bound: the cube is within the render distance of the camera's cube, counted in
+        // cubes on each axis. The client holds no cube beyond it, so this excludes nothing today.
+        int cameraCubeX = (int) Math.floor(cameraX) >> 4;
+        int cameraCubeY = (int) Math.floor(cameraY) >> 4;
+        int cameraCubeZ = (int) Math.floor(cameraZ) >> 4;
+        int across = net.minecraft.client.Minecraft.getMinecraft().gameSettings.renderDistanceChunks;
+        int upward = verticalRenderDistance();
         for (CubeMesh mesh : meshes.values()) {
             int count = mesh.count(index);
             if (count == 0) {
@@ -230,7 +261,8 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
             int minX = mesh.x << 4;
             int minY = mesh.y << 4;
             int minZ = mesh.z << 4;
-            if (Math.abs(eyeX - minX) > across || Math.abs(eyeY - minY) > upward || Math.abs(eyeZ - minZ) > across) {
+            if (Math.abs(mesh.x - cameraCubeX) > across || Math.abs(mesh.y - cameraCubeY) > upward
+                || Math.abs(mesh.z - cameraCubeZ) > across) {
                 continue;
             }
             if (!frustum.isBoxInFrustum(minX, minY, minZ, minX + 16, minY + 16, minZ + 16)) {
@@ -251,9 +283,10 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
 
     @Override
     public String summary() {
-        return String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, %.1f MiB, "
-                + "%d M vertices held; last frame %d draws, %d k vertices", meshes.size(), dirty.size(), built,
-            built == 0 ? 0.0 : buildNanos / 1e6 / built, emptied, bytes / 1048576.0, vertices / 1_000_000,
+        return String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, "
+                + "%d left for a neighbor, %.1f MiB, %d M vertices held; last frame %d draws, %d k vertices",
+            meshes.size(), dirty.size(), built,
+            built == 0 ? 0.0 : buildNanos / 1e6 / built, emptied, waiting, bytes / 1048576.0, vertices / 1_000_000,
             drawsThisFrame, drawnVerticesThisFrame / 1000);
     }
 }
