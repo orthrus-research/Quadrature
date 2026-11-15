@@ -151,6 +151,27 @@ authors can dedicate: their own expression of ideas, never copied code.
   all that any of them allows, and doubling back is judged by position relative to the
   eye's cube, not by the path taken. No other renderer's source was read.
 - Added: 2026-11-15
+
+### Terrain arena and indirect drawing
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/terrain/ArenaAllocator.java`,
+  `CubeSlots.java`, `CubeMatrix.java`, `DrawCommands.java`, and
+  `src/main/java/cc/orthrus/quadrature/terrain/TerrainArena.java`, `TerrainProgram.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification (immutable
+  buffer storage and persistent mapping, sync objects, indirect multi-draw of arrays and
+  its command layout, shader storage blocks with std430 layout, the base instance in the
+  vertex stage); Everitt, Sellers, McDonald and Foley, "Approaching Zero Driver Overhead",
+  GDC 2014, for one large mapped buffer drawn from with indirect commands and a fence
+  before reuse; Haar and Aaltonen, "GPU-Driven Rendering Pipelines", SIGGRAPH 2015.
+- Taken: the ideas. Geometry in a few large buffers; a freed range reused only after a
+  fence placed after the draws that read it has signalled; one indirect multi-draw over
+  commands that each name a range and, by base instance, a record.
+- Not taken: any allocator or renderer source. Buffers that stay mapped, which the talk
+  recommends, are built and not the default: measured here, the driver keeps them in
+  system memory and draws from them several times slower, by its own messages. Size
+  classes with exact-class reuse and no splitting are the simplest scheme that could be
+  measured first.
+- Added: 2026-11-15
+
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`
@@ -161,6 +182,7 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Taken: nothing from another renderer. The comparison evaluates the game's own conditions
   on the game's own data.
 - Added: 2026-11-14
+
 ### State envelope and probe stage
 - Code: `src/main/java/cc/orthrus/quadrature/frame/StateEnvelope.java`, `Probe.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (direct state

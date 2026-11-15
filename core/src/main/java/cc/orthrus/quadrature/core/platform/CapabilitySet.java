@@ -16,6 +16,13 @@ public final class CapabilitySet {
         EnumSet<Capability> present = EnumSet.noneOf(Capability.class);
         if (profile.atLeast(4, 6)) {
             present.add(Capability.OPENGL_4_6);
+            // Each of these is in the core specification by 4.6. A platform below it would be asked
+            // for the extension that carries each one instead.
+            present.add(Capability.PERSISTENT_MAPPING);
+            present.add(Capability.SYNC_OBJECTS);
+            present.add(Capability.MULTI_DRAW_INDIRECT);
+            present.add(Capability.SHADER_STORAGE_BUFFERS);
+            present.add(Capability.DRAW_PARAMETERS);
         }
         if (profile.profile() == PlatformProfile.Profile.COMPATIBILITY) {
             present.add(Capability.COMPATIBILITY_PROFILE);
