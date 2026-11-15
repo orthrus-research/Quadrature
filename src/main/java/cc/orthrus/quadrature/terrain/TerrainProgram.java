@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.view.View;
 import cc.orthrus.quadrature.frame.StateEnvelopeAccess;
 
 import org.lwjgl.opengl.GL11;
@@ -9,8 +10,9 @@ import org.lwjgl.opengl.GL45;
 
 /**
  * The shader and vertex layout that draw cube meshes as the game's fixed-function path would: the
- * block texture times the vertex color times the light map, then fog. It reads the matrices, fog
- * parameters and texture units the game has set, through the compatibility built-ins, so with reversed
+ * block texture times the vertex color times the light map, then fog. The model-view matrix is the
+ * view's. The projection, the fog parameters and the texture units are still read from what the game
+ * has set, through the compatibility built-ins, which holds for the player's view only; with reversed
  * depth on it draws in reversed depth with no change here.
  */
 final class TerrainProgram {
@@ -82,7 +84,7 @@ final class TerrainProgram {
     private final float[] cubeModelView = new float[16];
 
     /** Binds the program and vertex layout. The state the layer depends on beyond that is the game's. */
-    void begin() {
+    void begin(View view) {
         if (program == 0) {
             create();
         }
@@ -98,7 +100,7 @@ final class TerrainProgram {
         // result. The same is done here per cube, in that order, so both place a vertex the same way;
         // adding the offset to the vertex in the shader does not, and leaving the chunk matrix out
         // moves the rows of a near texture by a pixel where a boundary falls on a pixel center.
-        GL11.glGetFloatv(GL11.GL_MODELVIEW_MATRIX, modelView);
+        System.arraycopy(view.modelView(), 0, modelView, 0, 16);
         GL20.glUseProgram(program);
         GL20.glUniform1i(fogModeLocation, fogMode);
         GL30.glBindVertexArray(vertexArray);

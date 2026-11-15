@@ -1,5 +1,7 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.view.View;
+
 import net.minecraft.entity.Entity;
 import net.minecraft.util.BlockRenderLayer;
 
@@ -15,13 +17,18 @@ public final class TerrainHook {
         /** Whether the opaque layers of the current world are drawn from own meshes. */
         boolean active();
 
-        void draw(BlockRenderLayer layer, double partialTicks, Entity viewer);
+        /** Fills and returns the player's view for the frame about to be drawn. */
+        View mainView(double partialTicks, Entity viewer);
+
+        /** Draws one opaque layer for a view. */
+        void draw(BlockRenderLayer layer, View view);
 
         /** One line for the timing log. */
         String summary();
     }
 
     private static Drawer drawer;
+    private static View mainView;
 
     private TerrainHook() {
     }
@@ -35,7 +42,11 @@ public final class TerrainHook {
     }
 
     public static void draw(BlockRenderLayer layer, double partialTicks, Entity viewer) {
-        drawer.draw(layer, partialTicks, viewer);
+        // The game draws the solid layer first: that is where a frame's view is taken.
+        if (layer == BlockRenderLayer.SOLID || mainView == null) {
+            mainView = drawer.mainView(partialTicks, viewer);
+        }
+        drawer.draw(layer, mainView);
     }
 
     /** The timing log's line, or null when own terrain is off. */

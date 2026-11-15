@@ -2,6 +2,7 @@ package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.terrain.CubeKey;
+import cc.orthrus.quadrature.core.view.View;
 
 import io.github.opencubicchunks.cubicchunks.api.client.CubeSource;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
@@ -13,7 +14,6 @@ import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
-import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.BlockRenderLayer;
 
@@ -36,7 +36,7 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
     private final CubeMesher mesher = new CubeMesher();
     private final TerrainProgram program = new TerrainProgram();
-    private final Frustum frustum = new Frustum();
+    private final View mainView = new View();
     private final long[] nearest = new long[CANDIDATES];
     private final double[] nearestDistance = new double[CANDIDATES];
     private boolean attached;
@@ -232,17 +232,25 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
 
     // Drawing.
 
+    /** Takes the frame's view from the game and meshes what the budget allows. */
+    @Override
+    public View mainView(double partialTicks, Entity viewer) {
+        MainView.fill(mainView, partialTicks, viewer);
+        build(mainView.originX(), mainView.originY(), mainView.originZ());
+        return mainView;
+    }
+
     /**
-     * Draws one opaque layer, under the block texture filtering, alpha test and fog state the game
-     * has set for that layer. The light map is this stage's own business: see below.
+     * Draws one opaque layer of what a view sees. For the player's view the block texture filtering,
+     * alpha test, fog and projection are the state the game has set for that layer; a view of
+     * Quadrature's own would have to set them. The light map is this stage's own business: see below.
      */
     @Override
-    public void draw(BlockRenderLayer layer, double partialTicks, Entity viewer) {
-        double cameraX = viewer.lastTickPosX + (viewer.posX - viewer.lastTickPosX) * partialTicks;
-        double cameraY = viewer.lastTickPosY + (viewer.posY - viewer.lastTickPosY) * partialTicks;
-        double cameraZ = viewer.lastTickPosZ + (viewer.posZ - viewer.lastTickPosZ) * partialTicks;
+    public void draw(BlockRenderLayer layer, View view) {
+        double cameraX = view.originX();
+        double cameraY = view.originY();
+        double cameraZ = view.originZ();
         if (layer == BlockRenderLayer.SOLID) {
-            build(cameraX, cameraY, cameraZ);
             drawsThisFrame = 0;
             drawnVerticesThisFrame = 0;
             if (selectedCubes != null) {
@@ -250,20 +258,12 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
                 SelectionComparison.selected(selectedCubes);
             }
         }
-        frustum.setPosition(cameraX, cameraY, cameraZ);
         // The game uploads its light map every tick, which resets that texture to unfiltered sampling,
         // and puts the filter back only here, inside the draw this stage replaces. Without it a face
         // whose light coordinate lies on a texel boundary flickers between two light levels.
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
-        program.begin();
+        program.begin(view);
         int index = layer.ordinal();
-        // The game's own bound: the cube is within the render distance of the camera's cube, counted in
-        // cubes on each axis. The client holds no cube beyond it, so this excludes nothing today.
-        int cameraCubeX = (int) Math.floor(cameraX) >> 4;
-        int cameraCubeY = (int) Math.floor(cameraY) >> 4;
-        int cameraCubeZ = (int) Math.floor(cameraZ) >> 4;
-        int across = net.minecraft.client.Minecraft.getMinecraft().gameSettings.renderDistanceChunks;
-        int upward = verticalRenderDistance();
         boolean record = comparison != null && layer == BlockRenderLayer.SOLID;
         if (record) {
             drawnCubes.clear();
@@ -273,18 +273,17 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
             if (count == 0 && !record) {
                 continue;
             }
-            int minX = mesh.x << 4;
-            int minY = mesh.y << 4;
-            int minZ = mesh.z << 4;
-            if (Math.abs(mesh.x - cameraCubeX) > across || Math.abs(mesh.y - cameraCubeY) > upward
-                || Math.abs(mesh.z - cameraCubeZ) > across) {
+            // The view's reach is the game's own bound: the render distance from the origin's cube,
+            // counted in cubes on each axis. The client holds no cube beyond it, so it excludes nothing
+            // today.
+            if (!view.cubeWithinReach(mesh.x, mesh.y, mesh.z)) {
                 continue;
             }
             if (SelectionComparison.GAME_SELECTION != 0 && selectedCubes.contains(CubeKey.of(mesh.x, mesh.y, mesh.z))
                 != (SelectionComparison.GAME_SELECTION == SelectionComparison.ONLY_SELECTED)) {
                 continue;
             }
-            if (!frustum.isBoxInFrustum(minX, minY, minZ, minX + 16, minY + 16, minZ + 16)) {
+            if (!view.cubeVisible(mesh.x, mesh.y, mesh.z)) {
                 continue;
             }
             if (record) {
@@ -293,7 +292,8 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
             if (count == 0) {
                 continue;
             }
-            program.draw(mesh, index, (float) (minX - cameraX), (float) (minY - cameraY), (float) (minZ - cameraZ));
+            program.draw(mesh, index, (float) ((mesh.x << 4) - cameraX), (float) ((mesh.y << 4) - cameraY),
+                (float) ((mesh.z << 4) - cameraZ));
             drawsThisFrame++;
             drawnVerticesThisFrame += count;
         }
@@ -306,15 +306,9 @@ public final class Terrain implements ICubeSourceListener, TerrainHook.Drawer {
         program.end();
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
         if (record && dirty.isEmpty()) {
-            comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, across, upward);
+            comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, view.across(), view.upward());
         }
     }
-
-    /** Cubature's vertical render distance in cubes, which the game's video settings show beside its own. */
-    private static int verticalRenderDistance() {
-        return io.github.opencubicchunks.cubicchunks.core.CubicChunksConfig.verticalCubeLoadDistance;
-    }
-
     @Override
     public String summary() {
         return String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, "

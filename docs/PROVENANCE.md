@@ -125,6 +125,18 @@ authors can dedicate: their own expression of ideas, never copied code.
   not used.
 - Added: 2026-11-14
 
+### Views
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/view/View.java`,
+  `src/main/java/cc/orthrus/quadrature/terrain/MainView.java`
+- Source: original. Facts used: the planes of a clip volume read from the rows of the
+  combined projection and model-view matrix (Gribb and Hartmann, "Fast Extraction of
+  Viewing Frustum Planes from the World-View-Projection Matrix", 2001); the OpenGL 4.6
+  compatibility specification for the two clip depth ranges; fitting an orthographic
+  volume along a light to what a camera sees, as cascaded shadow maps are commonly
+  described; the game's behavior for where its world matrices stand when terrain is drawn
+  and for the sun's path.
+- Added: 2026-11-15
+
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`
