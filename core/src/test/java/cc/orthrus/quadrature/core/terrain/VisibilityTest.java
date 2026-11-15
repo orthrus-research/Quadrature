@@ -90,23 +90,44 @@ class VisibilityTest {
     }
 
     @Test
-    void anUnloadedCubeStopsTheSearch() {
+    void anUnloadedCubeIsPassedThroughAndNotListed() {
+        // Everything is solid but the eye's cube, so the far cube is reached only through the gap.
         Map<Long, Integer> special = new HashMap<>();
+        special.put(CubeKey.of(0, 0, 0), (int) CubeConnectivity.ALL);
         special.put(CubeKey.of(1, 0, 0), -1);
-        visibility.search(world(CubeConnectivity.ALL, special), everywhere(true));
+        visibility.search(world(CubeConnectivity.NONE, special), everywhere(true));
         Set<Long> seen = seen();
         assertFalse(seen.contains(CubeKey.of(1, 0, 0)));
-        // The cube behind it could only be reached by doubling back.
-        assertFalse(seen.contains(CubeKey.of(2, 0, 0)));
-        assertTrue(seen.contains(CubeKey.of(2, 1, 0)));
-        assertEquals(123, seen.size());
+        assertTrue(seen.contains(CubeKey.of(2, 0, 0)));
+        assertTrue(seen.contains(CubeKey.of(1, 1, 0)));
+        assertFalse(seen.contains(CubeKey.of(2, 2, 0)));
     }
 
     @Test
-    void anUnloadedEyeCubeIsReportedAndNothingIsListed() {
+    void aSearchThroughUnloadedCubesIsBoundedByTheReach() {
+        // Nothing is loaded but two cubes: one at the edge of the reach, one just beyond it.
+        Map<Long, Integer> special = new HashMap<>();
+        special.put(CubeKey.of(2, 2, -2), (int) CubeConnectivity.NONE);
+        special.put(CubeKey.of(3, 0, 0), (int) CubeConnectivity.NONE);
+        assertEquals(1, visibility.search(world(-1, special), everywhere(true)));
+        assertEquals(CubeKey.of(2, 2, -2), visibility.key(0));
+    }
+
+    @Test
+    void aSearchStartsFromAnEyeCubeThatIsNotLoaded() {
         Map<Long, Integer> special = new HashMap<>();
         special.put(CubeKey.of(0, 0, 0), -1);
-        assertEquals(-1, visibility.search(world(CubeConnectivity.ALL, special), everywhere(true)));
+        assertEquals(124, visibility.search(world(CubeConnectivity.ALL, special), everywhere(true)));
+        assertFalse(seen().contains(CubeKey.of(0, 0, 0)));
+    }
+
+    @Test
+    void anEyeOutsideTheReachIsReportedAndNothingIsListed() {
+        float[] identity = new float[16];
+        identity[0] = identity[5] = identity[10] = identity[15] = 1;
+        View view = new View().set(View.Purpose.MAIN, View.Depth.CONVENTIONAL, 8, 8, 8, 8, 8 + 16 * 5, 8, identity,
+            new float[16], 2, 2, true);
+        assertEquals(-1, visibility.search(world(CubeConnectivity.ALL, Map.of()), view));
         assertEquals(0, visibility.count());
     }
 

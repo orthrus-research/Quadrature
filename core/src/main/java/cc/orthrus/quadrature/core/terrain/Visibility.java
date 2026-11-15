@@ -19,10 +19,12 @@ import java.util.Arrays;
  * moves away from the eye's cube on that axis, or the cube is level with it there; so it never doubles
  * back, whichever way it came. It leaves through a face only if that face is joined, inside the cube,
  * to a face it entered by; a cube entered by several faces is left through all that any of them
- * allows. It enters only a cube that is loaded, within the view's reach and inside its volume. These
- * rules admit every path the game's own search can take, so it never leaves out a cube the game draws:
- * the game additionally lets only the first way into a cube decide where the search may go from it,
- * which leaves out cubes that can be seen.
+ * allows. It enters only a cube within the view's reach and inside its volume. A cube that is not
+ * loaded is passed through as though it held nothing, and is not listed: what lies beyond a gap in
+ * what has arrived may still be seen, and the reach bounds how far that goes. These rules admit every
+ * path the game's own search can take, so it never leaves out a cube the game draws: the game
+ * additionally lets only the first way into a cube decide where the search may go from it, which
+ * leaves out cubes that can be seen.
  *
  * <p>One instance serves one view and allocates only when the view's reach grows.
  */
@@ -56,8 +58,8 @@ public final class Visibility implements CubeVisitor {
     /**
      * Finds the cubes the view can see from its eye, nearest first.
      *
-     * @return how many, or -1 when the eye's cube is not loaded or not within reach, in which case
-     *         nothing is known and the caller should fall back on {@link #sweep}
+     * @return how many, or -1 when the eye's cube is not within the view's reach, in which case nothing
+     *         is known and the caller should fall back on {@link #sweep}
      */
     public int search(Cubes cubes, View view) {
         count = 0;
@@ -82,15 +84,17 @@ public final class Visibility implements CubeVisitor {
         int startX = view.eyeCubeX() - baseX;
         int startY = view.eyeCubeY() - baseY;
         int startZ = view.eyeCubeZ() - baseZ;
-        if (startX < 0 || startX >= sizeX || startY < 0 || startY >= sizeY || startZ < 0 || startZ >= sizeX
-            || cubes.links(view.eyeCubeX(), view.eyeCubeY(), view.eyeCubeZ()) < 0) {
+        if (startX < 0 || startX >= sizeX || startY < 0 || startY >= sizeY || startZ < 0 || startZ >= sizeX) {
             return -1;
         }
         int head = 0;
         int tail = 0;
         int start = index(startX, startY, startZ);
         entered[start] = (byte) (1 << START);
-        add(CubeKey.of(view.eyeCubeX(), view.eyeCubeY(), view.eyeCubeZ()));
+        links[start] = cubes.links(view.eyeCubeX(), view.eyeCubeY(), view.eyeCubeZ());
+        if (links[start] >= 0) {
+            add(CubeKey.of(view.eyeCubeX(), view.eyeCubeY(), view.eyeCubeZ()));
+        }
         queue[tail++] = start << 3 | START;
         boolean occlusion = view.occlusion();
         while (head < tail) {
@@ -100,11 +104,8 @@ public final class Visibility implements CubeVisitor {
             int x = cell % sizeX;
             int z = cell / sizeX % sizeX;
             int y = cell / (sizeX * sizeX);
-            int joined = links[cell];
-            if (joined == UNKNOWN) {
-                joined = cubes.links(x + baseX, y + baseY, z + baseZ);
-                links[cell] = joined;
-            }
+            // A cube that is not loaded hides nothing.
+            int joined = links[cell] < 0 ? CubeConnectivity.ALL : links[cell];
             for (int face = 0; face < CubeConnectivity.FACES; face++) {
                 int dx = CubeConnectivity.stepX(face);
                 int dy = CubeConnectivity.stepY(face);
@@ -130,16 +131,13 @@ public final class Visibility implements CubeVisitor {
                 if (links[next] == UNKNOWN) {
                     links[next] = cubes.links(nx + baseX, ny + baseY, nz + baseZ);
                 }
-                if (links[next] < 0) {
-                    continue;
-                }
                 if (inside[next] == 0) {
                     inside[next] = (byte) (view.cubeVisible(nx + baseX, ny + baseY, nz + baseZ) ? 1 : 2);
                 }
                 if (inside[next] == 2) {
                     continue;
                 }
-                if (entered[next] == 0) {
+                if (entered[next] == 0 && links[next] >= 0) {
                     add(CubeKey.of(nx + baseX, ny + baseY, nz + baseZ));
                 }
                 entered[next] |= (byte) way;

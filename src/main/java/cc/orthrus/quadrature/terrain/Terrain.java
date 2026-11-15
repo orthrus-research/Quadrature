@@ -315,7 +315,7 @@ public final class Terrain
         } else if (searchedVersion == tableVersion && mainView.sameVolume(searchedView)) {
             reused++;
         } else if (visible.search(this, mainView) < 0) {
-            // The eye's cube is not held: nothing is known, so nothing is left out.
+            // The eye is outside the view's own reach: nothing is known, so nothing is left out.
             visible.sweep(this, mainView);
             searchedVersion = -1;
             fellBack++;
@@ -333,6 +333,18 @@ public final class Terrain
         lit.sweep(this, lightView);
         lastLightNanos = System.nanoTime() - start;
         return mainView;
+    }
+
+    /** For the selection comparison: what is known here of a cube the game draws and this did not. */
+    private String explain(long key) {
+        boolean seen = false;
+        for (int i = 0, count = visible.count(); i < count && !seen; i++) {
+            seen = visible.key(i) == key;
+        }
+        return (meshes.containsKey(key) ? "a mesh is held" : "no mesh is held")
+            + (links.get(key) < 0 ? ", the cube is not loaded" : ", the cube is loaded")
+            + (dirty.contains(key) ? ", it waits to be meshed" : "")
+            + (seen ? ", the view sees it" : ", the view does not see it");
     }
 
     // Drawing.
@@ -399,7 +411,7 @@ public final class Terrain
         program.end();
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
         if (record && dirty.isEmpty()) {
-            comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, view.across(), view.upward());
+            comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, view.across(), view.upward(), this::explain);
         }
     }
     @Override

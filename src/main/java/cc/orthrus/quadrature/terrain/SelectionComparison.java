@@ -72,9 +72,10 @@ final class SelectionComparison {
      * @param drawn the cubes Quadrature drew geometry for in this frame, as cube keys
      * @param across the horizontal render distance, in cubes
      * @param upward the vertical render distance, in cubes
+     * @param explain says, for a cube the game draws and Quadrature did not, what Quadrature knows of it
      */
     void compare(LongOpenHashSet drawn, double cameraX, double cameraY, double cameraZ, int across,
-        int upward) {
+        int upward, java.util.function.LongFunction<String> explain) {
         if (++frames % EVERY_FRAMES != 0) {
             return;
         }
@@ -194,10 +195,21 @@ final class SelectionComparison {
             }
         }
         int gameOnly = 0;
+        List<String> missed = new ArrayList<>();
         for (Long2ObjectOpenHashMap.Entry<RenderInfoAccess> entry : selected.long2ObjectEntrySet()) {
             CompiledChunk compiled = entry.getValue().getQuadratureRenderChunk().getCompiledChunk();
             if (compiled != CompiledChunk.DUMMY && !compiled.isEmpty() && !drawn.contains(entry.getLongKey())) {
                 gameOnly++;
+                if (missed.size() < 2 * EXAMPLES) {
+                    long key = entry.getLongKey();
+                    EnumFacing entered = entry.getValue().getQuadratureFacing();
+                    missed.add(CubeKey.x(key) + " " + CubeKey.y(key) + " " + CubeKey.z(key) + " ("
+                        + (CubeKey.x(key) - ((int) Math.floor(cameraX) >> 4)) + " "
+                        + (CubeKey.y(key) - ((int) Math.floor(cameraY) >> 4)) + " "
+                        + (CubeKey.z(key) - ((int) Math.floor(cameraZ) >> 4)) + " from the camera): "
+                        + explain.apply(key) + "; the game entered it from "
+                        + (entered == null ? "the start" : entered.getName()));
+                }
             }
         }
         StringBuilder out = new StringBuilder(String.format("Selection comparison: Quadrature draws %d cubes, the "
@@ -209,6 +221,9 @@ final class SelectionComparison {
                 out.append(String.format("%n            %s", example));
             }
         });
+        for (String cube : missed) {
+            out.append(String.format("%n  game only  %s", cube));
+        }
         Quadrature.LOGGER.info(out.toString());
     }
 }
