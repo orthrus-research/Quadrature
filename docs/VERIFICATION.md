@@ -121,26 +121,26 @@ Quadrature's. A game-drawn run of a bright instance fails that view against the 
 at 0.31% and differs in no other view by more than 0.013%. The cause is not established;
 it lies in the world's light, which is Cubature's.
 
-Measured 2026-11-14 on a fresh instance prepared like the near-terrain reference, with the
-Cubature build that carries the cube source. The forest tour was captured three times: the
-game's terrain to settle the instance, the game's terrain again, then
-`-Dquadrature.terrain=own`. The third run is compared with the second under `near.json`.
+Measured 2026-11-15 on a fresh instance prepared like the near-terrain reference, with the
+Cubature build that carries the cube source. The forest tour was captured four times: the
+game's terrain to settle the instance, the game's terrain again, `-Dquadrature.terrain=own`,
+and own terrain drawing every meshed cube in the view (`-Dquadrature.terrain.visibility=all`).
+The third run is compared with the second under `near.json`.
 
 | Result | |
 |---|---|
 | Frames passing | 17 of 17 |
-| Worst changed fraction | 0.0225% (`15-temperate_rainforest`) |
-| Changed pixels, all 17 views | 1,251, of which 935 have no changed neighbor |
+| Worst changed fraction | 0.0624% (`07-boreal_forest`, 452 of its 575 changed pixels on the river) |
+| Changed pixels, all 17 views | 1,680, of which 1,228 lie outside the river |
 
 | View | Changed | View | Changed | View | Changed |
 |---|---|---|---|---|---|
-| 01 | 0.0081% | 07 | 0.0124% | 13 | 0.0129% |
+| 01 | 0.0077% | 07 | 0.0624% | 13 | 0.0125% |
 | 02 | 0.0022% | 08 | 0.0041% | 14 | 0.0013% |
-| 03 | 0.0080% | 09 | 0.0056% | 15 | 0.0225% |
-| 04 | 0.0058% | 10 | 0.0015% | 16 | 0.0059% |
-| 05 | 0.0160% | 11 | 0.0092% | 17 | 0.0151% |
-| 06 | 0.0042% | 12 | 0.0010% | | |
-
+| 03 | 0.0078% | 09 | 0.0059% | 15 | 0.0214% |
+| 04 | 0.0056% | 10 | 0.0015% | 16 | 0.0059% |
+| 05 | 0.0154% | 11 | 0.0092% | 17 | 0.0144% |
+| 06 | 0.0042% | 12 | 0.0009% | | |
 Three things the game does are reproduced to reach this:
 
 - **The light map's filter.** The game restores the light map's linear filter inside the
@@ -158,46 +158,76 @@ Three things the game does are reproduced to reach this:
   differences were rows one pixel high, up to 433 pixels long, where Quadrature showed the
   game's row above. Quadrature applies the matrix while the vanilla image is the reference.
 
-What remains is single pixels with no direction: as many match the game's image moved one
-pixel up as down, left as right. In a test that let the driver compose the same matrices
-and used the fixed-function transform, 465 pixels differed, 375 of them on the river in
-`07-boreal_forest`. The rest of the 1,251 is therefore attributed to composing the matrices
-in single precision outside the driver and multiplying by them in two steps in the shader.
-That attribution comes from the code, not from a measurement. The river is the game's
-translucent terrain and differs between two game-drawn runs of one instance, by 0.055% of
-that view.
+What remains outside the river is single pixels with no direction: as many match the
+game's image moved one pixel up as down, left as right; on the instance measured when the
+matrix was added, 935 of 1,251 changed pixels had no changed neighbor. In a test that let
+the driver compose the same matrices and used the fixed-function transform, 465 pixels
+differed, 375 of them on the river. The rest is therefore attributed to composing the
+matrices in single precision outside the driver and multiplying by them in two steps in
+the shader. That attribution comes from the code, not from a measurement.
 
-### What Quadrature draws that the game does not
+### The river in view 07
 
-The game finds what to draw by a search outward from the camera's chunk, through chunks
-whose geometry lets a line of sight pass. Quadrature draws every meshed cube in the view
-frustum. Set side by side on settled frames of the run above, 127 times across the tour:
+The river in `07-boreal_forest` is the game's translucent terrain, drawn by the game in
+every run. Inside a box around it (x 1000 to 1279, y 540 to 719, 5.5% of the frame) two
+captures differ by anything from nothing to 1,158 pixels, and the amount does not follow
+what was changed between them:
 
-| | |
-|---|---|
-| Cubes the game draws and Quadrature does not | None |
-| Cubes drawn, median per frame | Quadrature 1,145, the game 400 |
-| Left out by the game: none of the cube's six neighbors was reached | 93.8% |
-| Left out: every reached neighbor's geometry blocks the line of sight | 4.2% |
-| Left out: blocked by line of sight from some neighbors and by direction from the others | 1.4% |
-| Left out: reaching it would mean the search travelling back the way it came | 0.7% |
+| Pair, one instance each | Changed in the box | Changed elsewhere in the view |
+|---|---|---|
+| Game against game, four instances | 46, 202, 398, 497 | 6 to 203 |
+| Game against own terrain, as committed, three instances | 3, 452, 1,158 | 111 to 164 |
+| Own terrain against own terrain, one setting changed, four instances | 0, 10, 127, 228 | 5 to 415 |
 
-The cubes the game leaves out change no pixels. With Quadrature drawing only the cubes the
-game selected, on the same settled instance, 14 views are pixel-identical to Quadrature
-drawing every cube; `03-cold_rainforest` differs in 3 pixels and `07-boreal_forest` by
-0.017%, on the river. In `15-temperate_rainforest` the camera's pitch differed between the
-two captures, so that view says nothing. The cubes cost draws: over the tour's settled
-frames Quadrature issued 2,272 draws a frame on average and 3,628 at most, against 930 and
-1,366 for the selected cubes alone. At the last view opaque terrain took 1.92 ms of CPU
-time with every cube drawn and 0.69 ms with the selected cubes, against 0.77 ms for the
-game's own draw; these three were timed with the comparison above running.### Diagnostics
+At 1,158 the view fails `near.json` at 0.143% while its terrain differs by 0.019%. The
+cause is not established. The view is scored whole; a run in which it fails on the river
+alone is reported as failing, with the count inside and outside the box.
+### What a view sees
 
-Own terrain carries four switches for finding where a frame differs. Each is a system
+What is drawn is found once per view per frame by a search outward from the cube the eye
+is in, through the faces of cubes that see each other ([ARCHITECTURE.md](ARCHITECTURE.md),
+section 6.4). Set beside the chunks the game selected, on settled frames of the run above,
+121 times across the tour:
+
+| | With the search | Every meshed cube in the view |
+|---|---|---|
+| Cubes drawn, median per frame | 383, the game 365 | 1,145, the game 400 |
+| Drawn by Quadrature and not by the game, all comparisons | 446 | 90,583 |
+| Draws per settled frame, average and most | 963 and 1,370 | 2,243 and 3,631 |
+| Opaque terrain at the last view, CPU | 0.74 ms | 1.26 ms |
+| Opaque terrain at the last view, GPU | 2.27 ms | 2.48 ms |
+
+The game's own draw took 0.65 ms on the CPU and 2.36 ms on the GPU at that view. On an
+earlier instance the search's draw took 0.54 ms against the game's 0.69 ms. All were timed
+with the comparison running.
+
+- **The frames agree.** The two own-terrain runs differ in no view by more than 0.0275%,
+  and outside the river by no more than 0.0075%; four views are pixel-identical and two
+  more have no pixel over the threshold. The cubes the search leaves out change no pixels.
+- **What the search still draws beyond the game.** 197 of the 446 because none of the
+  cube's six neighbors was reached by the game, 88 where the game was blocked from some
+  neighbors by line of sight and from the others by direction, 87 where the game would have
+  had to travel back the way it came, 60 where every reached neighbor blocked the line of
+  sight, and 14 whose box lies just outside the game's frustum. The search admits ways on
+  that the game's does not; none of these cubes changes a pixel.
+- **What the game draws and Quadrature does not.** One cube in one comparison of 121, in
+  the second a teleport lands: the cube beside the camera, which the cube source did not
+  report as loaded while the game still held a mesh for it. No search can draw it. Every
+  other comparison has none.
+- **The search costs** 0.25 ms when it runs, and is kept while neither the view nor any
+  cube's links change: 29,498 of 43,621 frames reused the last one. Finding the face links
+  adds nothing measurable to meshing: 1.15 ms a cube.
+- **A second view.** A view along the sun's direction holding what the player's view sees
+  is found every frame and not drawn: 1,914 cubes on average, 2,315 at most, in 0.15 ms.
+### Diagnostics
+
+Own terrain carries five switches for finding where a frame differs. Each is a system
 property, read once, and costs nothing when unset.
 
 | Property | Effect |
 |---|---|
-| `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected, and for each cube only Quadrature draws, which of the game's conditions left it out |
+| `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected; for each cube only Quadrature draws, which of the game's conditions left it out; for each cube only the game draws, whether a mesh is held, whether the cube is loaded and whether the view sees it |
+| `quadrature.terrain.visibility=all` | Quadrature draws every meshed cube in the view's volume and reach, with no search |
 | `quadrature.terrain.gameSelection=true` | Quadrature draws only the cubes the game selected |
 | `quadrature.terrain.gameSelection=inverse` | Quadrature draws only the cubes the game did not select |
 | `quadrature.terrain.probeRect=x0,y0,x1,y1` | On one settled frame in 240, logs the nearest cubes holding faces in that rectangle of a captured frame, with each face's position, facing and light, and whether the held mesh is identical to one made afresh from the cube source. Add `,width,height` when the capture's size is not the viewport's |
@@ -207,7 +237,7 @@ A settled frame is one with no cube waiting to be meshed.
 ## Limits
 
 - The harness cannot wait for a settled state; it relies on discarding the first run.
-- The first-run lighting difference, the light that differs between instances and the
-  settled horizon difference are unexplained.
+- The first-run lighting difference, the light that differs between instances, the river
+  in view 07 and the settled horizon difference are unexplained.
 - One tour, one machine (RTX 3060), one resolution.
 - Captured frames and references are kept out of the repository.

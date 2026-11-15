@@ -169,6 +169,28 @@ only when the driver reports them available, from a ring a few frames deep, so r
 never stalls the frame. **Decided.** The baseline could not time the GPU at all; this
 closes that gap from the first frame Quadrature owns.
 
+### 4.7 Views
+
+A view is what terrain is drawn for: an origin in double precision, a model-view and a
+projection matrix in single precision as the driver holds them, the planes of the volume
+they see, the depth convention, a reach in cubes across and upward, whether terrain may
+hide terrain, and a purpose (the frame the player sees, or depth alone). Visibility and
+drawing take a view; nothing in them reads the player's camera. **Decided.** Built as
+`View` in `core`.
+
+- The player's view is filled once a frame from the matrices the game has just set for
+  the world, at the point where the game is about to draw its first terrain layer. Its
+  projection, fog, alpha test and textures are still the game's state at draw time; a
+  view of Quadrature's own has to set them itself.
+- A view along the light is derived from the player's view each frame: an orthographic
+  box around what the player's view sees out to its reach, extended toward the light.
+  What it sees is found every frame and nothing is drawn from it yet: it exists so that
+  visibility is exercised for more than one view before a shadow stage is built.
+- Hosted drawing is not yet drawn for any view but the player's.
+
+Not covered yet, and asked for by the shading work this is built toward: drawing the
+second view; entities and block entities in a light's view, which reaches into hosted
+drawing; a previous frame's view and jitter in the frame's contract.
 ## 5. Scene sources
 
 | Source | Owner | Gives Quadrature |
@@ -210,7 +232,8 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
 
 - Builds run on Cubature's executor (Quadrature starts no threads), ordered by distance
   and by whether the cube is in view, and cancelled when their snapshot is superseded.
-  **Decided.**
+  **Decided.** Until that executor exists, builds run on the client thread within a time
+  budget, nearest first.
 - A build writes into native memory it owns and hands the result to the context thread.
   It allocates nothing on the Java heap per face. **Decided.**
 - The context thread spends a bounded time per frame placing finished builds into GPU
@@ -224,12 +247,29 @@ arena offsets, counts, state) live in one shader storage buffer. **Default.**
 
 ### 6.4 Visibility and submission
 
-Nothing here is decided per cube on the client thread. **Default**, following Haar and
-Aaltonen's GPU-driven pipeline.
+Visibility is found once per view per frame, and every layer drawn for that view reads
+the same result. Per-cube work on the client thread is confined to the coarse step, whose
+cost is bounded by the cubes within the view's reach; every step after it is on the GPU.
+**Default**, following Haar and Aaltonen's GPU-driven pipeline.
 
-1. **Coarse, on the CPU.** A connectivity walk from the camera over cubes, using
-   precomputed face-to-face visibility per cube, as the game does per section. It is cheap
-   and removes sealed caves. Its output is a bit per cube.
+All views read one table: for each loaded cube, which pairs of its six faces see each
+other through blocks that are not opaque, fifteen bits found when the cube is meshed. A
+cube not yet meshed, or holding nothing, joins every pair. A cube that is not loaded is
+known as such: a search passes through it as though it held nothing and lists nothing
+for it.
+
+1. **Coarse, on the CPU.** **Built.** Two functions over the table.
+   - *A view from a point inside the world* is searched outward from the cube its eye is
+     in, breadth first. The search leaves a cube through a face only if that moves away
+     from the eye's cube on that axis and the face is joined to one the cube was entered
+     by; it enters only cubes within reach and inside the view's volume. A cube entered
+     by several faces is left through all that any of them allows. This admits every
+     path the game's own search takes, so it draws no less than the game; the game lets
+     only the first way into a section decide, which leaves out sections that can be
+     seen. The reach bounds a search through cubes that have not arrived. A search is
+     kept while the view and the table stand still.
+   - *A view with no such point*, as a light's, takes every meshed cube within its volume
+     and reach. Occlusion from a point does not apply to it.
 2. **Fine, on the GPU.** A compute stage tests each surviving cube against the frustum
    and against a depth pyramid, and writes draw commands and their count.
 3. **Two phases.** Cubes visible last frame are drawn first; the depth pyramid is built
@@ -237,8 +277,14 @@ Aaltonen's GPU-driven pipeline.
    drawn. This removes the one-frame lag of testing against last frame's depth.
 4. **Draw.** One indirect multi-draw per stream and layer, with the count read on the GPU.
 
-The client thread's cost is then independent of how many cubes are visible.
+The table serves visibility only. Light that reaches past what is seen needs more of each
+cube than fifteen bits: opacity per block, which the mesher finds on its way to those bits
+and does not keep, material and emission, a generation per cube, and the regions that
+changed. None of that is kept yet.
 
+Steps 2 to 4 are not built: drawing is still one call per cube and layer, from the list
+step 1 gives. Once they are, the client thread's cost no longer grows with how many cubes
+are visible.
 **Technique choice.** Two techniques implement the draw: compact faces expanded in the
 vertex shader with indirect multi-draw, and meshlets with task and mesh shaders, where the
 task shader does the per-cluster culling. Both sit behind the same stage contract.
@@ -386,6 +432,8 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | State envelope: assume nothing on entry, neutral values on leaving; state mirroring | Decided; built and measured with a development stage (research R1, 9a.7) | Mirroring, from Phase 5 |
 | Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
+| A view as the input to visibility and drawing | Decided; built | |
+| Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |
 | Compact faces with indirect multi-draw, first | Default | Phase 2 measurements |
 | Meshlets as a second technique | Candidate | The mesh shader measurement, on distant terrain |

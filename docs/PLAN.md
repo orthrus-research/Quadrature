@@ -82,7 +82,11 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 2 | Face merging against per-face output with smooth lighting on |
 | Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
 | Phase 2 | Light that differs between identically prepared instances: one tree in the forest tour, about two sky-light levels, in 5 of 24 instances, in the game's own draw too (recorded for Cubature) |
-| Phase 2 | The draw-count gap, for the visibility step: Quadrature issues 2,272 draws a frame on average where the cubes the game selects need 930, for the same pixels |
+| Phase 2 | The river in forest tour view 07: between two captures it differs by nothing to 1,158 pixels, enough to fail the view alone, and not in step with what changed. Cause and scoring undecided |
+| Phase 2 | A cube the game still draws in the second a teleport lands, which the cube source does not report as loaded (recorded for Cubature) |
+| Phase 2 | Drawing the second view: its own projection, fog, alpha test and textures, and a depth target |
+| Phase 5 | Entities and block entities in a light's view, which reaches into hosted drawing |
+| Phase 5 | Scene data for light beyond what is seen: opacity per block, which the mesher finds and does not keep, material and emission, a generation per cube, and changed regions |
 | Phase 2 | One multiplication by a composed projection and cube matrix in the terrain shader in place of two, against the 1,251 single pixels that still differ from the game's terrain: untested |
 | Phase 4 | Distant terrain representation, by memory per square kilometer |
 | Phase 4 | Mesh shaders as a second technique, measured on distant terrain |
@@ -119,16 +123,17 @@ logs stage times every five seconds, and quits.
 
 ## Phase 2 status
 
-As of 2026-11-14.
+As of 2026-11-15.
 
 | Step | Status |
 |---|---|
 | Cube source in Cubature | Built for events, versions, queries and snapshots; the work executor and the settled signal are not built (Cubature's `docs/CUBE-SOURCE.md`) |
 | Near terrain, first form | Built behind `-Dquadrature.terrain=own`: every loaded cube is meshed, once the six cubes around it are loaded, from a snapshot with the game's block models, on the client thread within 4 ms a frame, nearest first; the three opaque layers are drawn from those meshes in place of the game's draw. Translucent terrain, layers other mods add and block entities are still the game's, which also still builds its own meshes |
-| Frame against the game's terrain | All 17 forest tour views pass the near-terrain profile against a game-drawn run of the same instance; the worst differs in 0.0225% of pixels, and 1,251 pixels differ over the tour, single pixels with no direction. The game's rule for when a cube is meshed and the matrix it gives each render chunk are reproduced; without the matrix 14 views passed. Scoring is within one instance because light around some terrain differs between instances ([VERIFICATION.md](VERIFICATION.md)) |
-| First numbers | 1.1 ms to mesh a cube; 584 MiB for 4,090 meshes in the game's 28-byte vertex format; 3,628 draws in a frame; opaque terrain 1.92 ms on the CPU and 2.97 ms on the GPU with the selection comparison running, against 0.77 and 2.86 ms for the game's own draw in the same instance |
-| Why the game omits terrain Quadrature draws | Answered. Every cube Quadrature draws and the game does not is one the game's occlusion search leaves out, 93.8% of them because none of the cube's six neighbors was reached. The game draws no cube Quadrature lacks. The cubes left out change no pixels and cost draws: 2,272 a frame on average against 930 for the selected cubes alone ([VERIFICATION.md](VERIFICATION.md)) |
-| Compact face stream, visibility, submission, the work executor | Not started |
+| Frame against the game's terrain | All 17 forest tour views pass the near-terrain profile against a game-drawn run of the same instance; the worst differs in 0.0624% of pixels, most of them on a river the game draws, and 1,228 pixels differ over the tour outside that river, single pixels with no direction. The game's rule for when a cube is meshed and the matrix it gives each render chunk are reproduced; without the matrix 14 views passed. Scoring is within one instance because light around some terrain differs between instances ([VERIFICATION.md](VERIFICATION.md)) |
+| First numbers | 1.15 ms to mesh a cube, face links included; 584 MiB for 4,090 meshes in the game's 28-byte vertex format; 963 draws in a settled frame on average and 1,370 at most; opaque terrain 0.74 ms on the CPU and 2.27 ms on the GPU with the selection comparison running, against 0.65 and 2.36 ms for the game's own draw in the same instance; 0.25 ms for a search, reused on two frames in three |
+| Why the game omits terrain Quadrature draws | Answered. Every cube Quadrature drew and the game did not was one the game's occlusion search leaves out, 93.8% of them because none of the cube's six neighbors was reached; they changed no pixels and cost draws ([VERIFICATION.md](VERIFICATION.md)) |
+| A view, and what it sees | Built. Terrain is drawn for a view: the player's, filled from the game each frame. What a view sees is found once a frame by a search from the eye's cube through the faces of cubes that see each other, on the client thread; a second view, along the sun, is found each frame and not drawn. Quadrature now draws a median of 383 cubes a frame where the game draws 365 and it drew 1,145, for the same pixels ([ARCHITECTURE.md](ARCHITECTURE.md) 4.7 and 6.4) |
+| Compact face stream, culling on the GPU, submission by indirect multi-draw, the work executor | Not started. Drawing is one call per cube and layer |
 
 ## Reading rules
 
