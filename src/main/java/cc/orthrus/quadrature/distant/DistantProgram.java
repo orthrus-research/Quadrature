@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.distant;
 
 import cc.orthrus.quadrature.core.fade.FadePattern;
+import cc.orthrus.quadrature.core.lod.MaterialTable;
 import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.TileDraws;
 import cc.orthrus.quadrature.frame.StateEnvelopeAccess;
@@ -197,8 +198,11 @@ final class DistantProgram {
         "        // Straight away from the eye: the same place on the screen, a little deeper.",
         "        gl_Position = projection * vec4(fromEye * " + (1f + BOX_VIEW_PUSH) + ", 1.0);",
         "    }",
-        "    uint slot = 2u * material + (direction < 2u ? 0u : 1u);",
-        "    uint entry = materials[slot];",
+        "    // Three words a material: its top, its sides, and its state's number, which nothing reads",
+        "    // yet. Its images are two layers a material.",
+        "    uint side = direction < 2u ? 0u : 1u;",
+        "    uint entry = materials[" + MaterialTable.ENTRY_WORDS + "u * material + side];",
+        "    uint slot = 2u * material + side;",
         "    uint tint = (entry >> 24) & 3u;",
         "    faceCover = float(entry >> 26) / 63.0;",
         "    faceTint = vec3(1.0);",

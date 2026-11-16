@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.core.lod;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -223,6 +224,27 @@ public final class MaterialTable<K> {
      */
     public static int entry(int color, int tint, int cover) {
         return color & 0xFFFFFF | (tint & 3) << 24 | Math.max(0, Math.min(FULL_COVER, cover)) << 26;
+    }
+
+    /**
+     * Words a material has in the table the draw reads: {@link #TOP_WORD} and {@link #SIDE_WORD},
+     * each an {@link #entry}, and {@link #STATE_WORD}, the number of the block state it stands for.
+     */
+    public static final int ENTRY_WORDS = 3;
+    public static final int TOP_WORD = 0, SIDE_WORD = 1, STATE_WORD = 2;
+    /** State numbers there are: a state's number is 16 bits, as near terrain numbers states. */
+    public static final int STATE_NUMBERS = 1 << 16;
+
+    /**
+     * Writes a material's words at its place in the table, by absolute position. The state number
+     * is what a table shared with near terrain is indexed by; nothing of how the material is
+     * colored depends on it.
+     */
+    public static void put(ByteBuffer entries, int index, int top, int side, int state) {
+        int at = index * ENTRY_WORDS * 4;
+        entries.putInt(at + TOP_WORD * 4, top);
+        entries.putInt(at + SIDE_WORD * 4, side);
+        entries.putInt(at + STATE_WORD * 4, state & STATE_NUMBERS - 1);
     }
 
     /** An entry's tint. */

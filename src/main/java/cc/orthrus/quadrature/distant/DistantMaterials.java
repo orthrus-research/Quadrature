@@ -4,6 +4,7 @@ import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.MaterialTable;
 import cc.orthrus.quadrature.core.lod.RunTile;
 
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockLeaves;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
@@ -39,7 +40,7 @@ import java.util.List;
 final class DistantMaterials {
 
     private static final int BIOMES = 256;
-    private static final int ENTRY_INTS = 2;
+    private static final int ENTRY_INTS = MaterialTable.ENTRY_WORDS;
 
     private final MaterialTable<IBlockState> table = new MaterialTable<>();
     private int colored = 1;
@@ -84,7 +85,7 @@ final class DistantMaterials {
         return table.size();
     }
 
-    /** The buffer of two colors a material. */
+    /** The buffer of three words a material: its top, its sides, its state's number. */
     int materialBuffer() {
         return materialBuffer;
     }
@@ -123,8 +124,8 @@ final class DistantMaterials {
             image(0, null, 0xFFFFFF);
             image(1, null, 0xFFFFFF);
             // Index 0, no material: a color that shows if it is ever drawn.
-            entries.putInt(0, MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN));
-            entries.putInt(4, MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN));
+            MaterialTable.put(entries, 0, MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN),
+                MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN), 0);
             colored = 1;
             upload();
         }
@@ -157,8 +158,8 @@ final class DistantMaterials {
                 image(2 * index, null, 0xFFFFFF);
                 image(2 * index + 1, null, 0xFFFFFF);
             }
-            entries.putInt(index * ENTRY_INTS * 4, top);
-            entries.putInt(index * ENTRY_INTS * 4 + 4, side);
+            // The state's number as near terrain numbers it, for the table the two will share.
+            MaterialTable.put(entries, index, top, side, Block.getStateId(state));
         }
         colored = size;
         upload();
