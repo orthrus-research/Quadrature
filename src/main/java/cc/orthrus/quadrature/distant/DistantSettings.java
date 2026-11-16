@@ -34,7 +34,7 @@ final class DistantSettings {
         number("quadrature.distant.fogEnd", (float) ((long) REACH << Math.max(0, LEVELS - 1))));
 
     static final int DEBUG_NONE = 0;
-    /** Distant fragments inside the near box are drawn magenta instead of being left out. */
+    /** Magenta where the near box holds distant ground and near terrain drew nothing in front of it. */
     static final int DEBUG_BOX = 1;
     /** Every face takes a color for its tile's level, and no fog. */
     static final int DEBUG_LEVEL = 2;

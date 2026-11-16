@@ -117,6 +117,8 @@ final class Distant {
     private long lastFaces;
     private int lastDraws;
     private int lastTilesDrawn;
+    /** Tiles the near box holds whole, drawn only for the box view. */
+    private int lastTilesInBox;
     private long gpuNanos;
     private long gpuSamples;
     private long mostGpuNanos;
@@ -139,7 +141,8 @@ final class Distant {
         Quadrature.LOGGER.info("Distant terrain: fog {}; debug view {}.",
             DistantSettings.FOG ? "shared with near terrain, " + DistantSettings.FOG_START + " to "
                 + DistantSettings.FOG_END + " blocks" : "the game's on near terrain, none on distant terrain",
-            DistantSettings.DEBUG == DistantSettings.DEBUG_BOX ? "box (magenta where the near box would discard)"
+            DistantSettings.DEBUG == DistantSettings.DEBUG_BOX ? "box (magenta where the near box holds ground and "
+                + "near terrain drew nothing in front)"
                 : DistantSettings.DEBUG == DistantSettings.DEBUG_LEVEL ? "level (a color a level, no fog)" : "off");
         return new Distant(source);
     }
@@ -416,16 +419,20 @@ final class Distant {
         double eyeZ = view.originZ();
         draws.begin(arena.pages());
         int drawn = 0;
+        int inBox = 0;
         for (Long2ObjectOpenHashMap.Entry<Resident> entry : residents.long2ObjectEntrySet()) {
             long key = entry.getLongKey();
             Resident tile = entry.getValue();
             if (tile.faces == 0 || !schedule.drawn(key)) {
                 continue;
             }
-            // The box view draws the tiles the box holds too: their fragments are what it shows.
-            if (DistantSettings.DEBUG != DistantSettings.DEBUG_BOX && TileCulling.inside(key, tile.minimumY,
-                tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ)) {
-                continue;
+            if (TileCulling.inside(key, tile.minimumY, tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY,
+                boxMaxZ)) {
+                // The box view draws the tiles the box holds too: their faces are what it shows.
+                if (DistantSettings.DEBUG != DistantSettings.DEBUG_BOX) {
+                    continue;
+                }
+                inBox++;
             }
             long side = TileKey.side(TileKey.level(key));
             long originX = TileKey.originX(key);
@@ -449,6 +456,7 @@ final class Distant {
         }
         draws.finish();
         lastTilesDrawn = drawn;
+        lastTilesInBox = inBox;
     }
 
     private void readTimer(int timer) {
@@ -493,6 +501,10 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX) {
+            line.append(String.format("%n  box view: %d of the tiles drawn lie wholly in the near box and are drawn "
+                + "for this view only; every layer is drawn twice", lastTilesInBox));
+        }
         line.append(String.format("%n  %s: %d threads, %d at once", workers.governed() ? "Cubature's preview pool"
             : "own threads", workers.threads(), workers.running()));
         line.append(String.format("%n  built %d (sample %.1f ms, mesh %.2f ms a tile), stored %d, abandoned %d, "

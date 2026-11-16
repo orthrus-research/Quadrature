@@ -32,9 +32,20 @@ import org.lwjgl.opengl.GL45;
  * <p>Water's top faces are lowered to the level the game draws a water surface at
  * ({@link NearCover#WATER_SURFACE_DROP}), so near and distant water meet without a step.
  *
- * <p>Two debug views ({@code quadrature.distant.debug}): {@code box} draws in magenta, unfogged, the
- * fragments the near box would discard, so they show wherever near terrain leaves its box open;
- * {@code level} gives every face a color for its tile's level.
+ * <p>Two debug views ({@code quadrature.distant.debug}). {@code level} gives every face a color for
+ * its tile's level. {@code box} shows where the near box stands open: after the ordinary draw, the
+ * faces the box holds are drawn again in magenta, each moved straight away from the eye by
+ * {@link #BOX_VIEW_PUSH} of its distance. A face moved so keeps its place on the screen and loses
+ * to anything drawn at its own depth or nearer, so a pixel is magenta only where distant terrain
+ * has ground in the box and near terrain drew nothing in front of it. Near terrain's cut-out
+ * leaves let it through between their texels, where distant terrain's solid crowns stand behind
+ * them. The game draws its translucent layer afterwards, so near water with nothing opaque behind
+ * it shows as magenta seen through water.
+ *
+ * <p>The first box view drew those faces at their own depth and counted on near terrain to hide
+ * them. Distant ground lies in the plane of near ground, so depth tied and magenta covered near
+ * terrain almost everywhere (the third run): it showed where the two coincide, not where near
+ * terrain is missing.
  */
 final class DistantProgram {
 
@@ -46,6 +57,13 @@ final class DistantProgram {
      * to read a step, not enough to draw a line.
      */
     static final float OCCLUSION_STEP = 0.08f;
+
+    /**
+     * How far the box view moves its faces from the eye, as a share of their distance: a hundredth,
+     * 2 blocks at the box's edge and a tenth of a block at 10. Any amount settles a tie of depth;
+     * this much also clears the lowered water surface and near terrain's own offsets.
+     */
+    static final float BOX_VIEW_PUSH = 0.01f;
 
     private static final int TILES_BINDING = 0;
     private static final int PAGE_BINDING = 1;
@@ -64,6 +82,8 @@ final class DistantProgram {
         "uniform float daylight;",
         "uniform float topDrop;",
         "uniform int debugMode;",
+        "uniform int overlay;",
+        "uniform mat4 projection;",
         "out vec3 fromOrigin;",
         "out vec3 fromEye;",
         "out vec3 faceColor;",
@@ -111,6 +131,10 @@ final class DistantProgram {
         "    fromOrigin = tile.origin + place;",
         "    fromEye = (modelView * vec4(fromOrigin, 1.0)).xyz;",
         "    gl_Position = viewProjection * vec4(fromOrigin, 1.0);",
+        "    if (overlay == 1) {",
+        "        // Straight away from the eye: the same place on the screen, a little deeper.",
+        "        gl_Position = projection * vec4(fromEye * " + (1f + BOX_VIEW_PUSH) + ", 1.0);",
+        "    }",
         "    uint entry = materials[2u * material + (direction < 2u ? 0u : 1u)];",
         "    vec3 color = rgb(entry);",
         "    uint tint = entry >> 24;",
@@ -131,20 +155,24 @@ final class DistantProgram {
         "uniform vec3 nearMinimum;",
         "uniform vec3 nearMaximum;",
         "uniform int fogMode;",
-        "uniform int debugMode;",
+        "uniform int overlay;",
         "in vec3 fromOrigin;",
         "in vec3 fromEye;",
         "in vec3 faceColor;",
         "layout(location = 0) out vec4 result;",
         "void main() {",
         "    // What lies inside the box of loaded cubes is near terrain's to draw.",
-        "    if (all(greaterThanEqual(fromOrigin, nearMinimum)) && all(lessThan(fromOrigin, nearMaximum))) {",
-        "        if (debugMode != 1) {",
+        "    bool inside = all(greaterThanEqual(fromOrigin, nearMinimum)) && all(lessThan(fromOrigin, nearMaximum));",
+        "    if (overlay == 1) {",
+        "        // The box view's second draw: only what the box holds; near terrain hides it by depth.",
+        "        if (!inside) {",
         "            discard;",
         "        }",
-        "        // Seen only where near terrain drew nothing in front: where its box stands open.",
         "        result = vec4(1.0, 0.0, 1.0, 1.0);",
         "        return;",
+        "    }",
+        "    if (inside) {",
+        "        discard;",
         "    }",
         "    // The world's fog, as near terrain's program applies it.",
         "    float fogDistance = length(fromEye);",
@@ -169,6 +197,8 @@ final class DistantProgram {
     private int topDropLocation;
     private int fogModeLocation;
     private int debugModeLocation;
+    private int overlayLocation;
+    private int projectionLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -210,6 +240,27 @@ final class DistantProgram {
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, MATERIALS_BINDING, materials.materialBuffer());
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, BIOMES_BINDING, materials.biomeBuffer());
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, commandBuffer);
+        GL20.glUniform1i(overlayLocation, 0);
+        int draws = layers(list, arena);
+        if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX) {
+            // The box view: the faces the box holds, in magenta, a little deeper than they lie.
+            GL20.glUniform1i(overlayLocation, 1);
+            GL20.glUniformMatrix4fv(projectionLocation, false, projection);
+            draws += layers(list, arena);
+        }
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
+        for (int binding = TILES_BINDING; binding <= BIOMES_BINDING; binding++) {
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, binding, 0);
+        }
+        if (culling) {
+            GL11.glEnable(GL11.GL_CULL_FACE);
+        }
+        StateEnvelopeAccess.leave();
+        return draws;
+    }
+
+    /** The frame's three layers, one indirect draw for each page that has commands in it. */
+    private int layers(TileDraws list, DistantArena arena) {
         int draws = 0;
         for (int layer = 0; layer < TileDraws.LAYERS; layer++) {
             for (int page = 0; page < list.pages(); page++) {
@@ -224,14 +275,6 @@ final class DistantProgram {
                 draws++;
             }
         }
-        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
-        for (int binding = TILES_BINDING; binding <= BIOMES_BINDING; binding++) {
-            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, binding, 0);
-        }
-        if (culling) {
-            GL11.glEnable(GL11.GL_CULL_FACE);
-        }
-        StateEnvelopeAccess.leave();
         return draws;
     }
 
@@ -283,6 +326,8 @@ final class DistantProgram {
         topDropLocation = GL20.glGetUniformLocation(program, "topDrop");
         fogModeLocation = GL20.glGetUniformLocation(program, "fogMode");
         debugModeLocation = GL20.glGetUniformLocation(program, "debugMode");
+        overlayLocation = GL20.glGetUniformLocation(program, "overlay");
+        projectionLocation = GL20.glGetUniformLocation(program, "projection");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();
