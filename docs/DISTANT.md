@@ -1519,6 +1519,32 @@ level view of that moment was not taken.
 **The lease.** Between the first two tours another project's run took the lease in the gap;
 the second and third ran as a turn of their own.
 
+### 17.4 The tenth run: kept tiles, and the targets again
+
+Two tours on the build at b1b9bea and Cubature a8ebb701, neither with an error: the arrival
+tour in the level view, and the join views with the targets written.
+
+**Kept tiles give way.** Half a second, 2, 5, 12 and 30 seconds after the far jump every place
+shows one level's color. Where the eighth run showed several mixed on far ground there is the
+coarsest level's alone until finer tiles are stored, and a tile kept from the old place shows
+only where nothing wanted is shown yet. No hole. The forward pass after the jump read 2.0 to
+2.7 ms mean and 3.0 at most but for one reading of 5.1.
+
+**That run arrived slowly,** and not through this code: the cold join was not done when the
+jump came at 150 seconds, and all tiles after the jump took 66 seconds where the eighth run
+took 30. In both runs Cubature's pool gave one thread at once through the cold phase; in this
+one each cold tile took 31 seconds on it where the eighth run's took 17. Near terrain was not
+meshing and the frame was not slow. Other work on the machine is the likely cause and is not
+shown.
+
+**The targets, with the pass on the drawn-frame gate and near terrain's own table.** From the
+first stored tile on, every one of the log's summaries says the pass drew. Grass and crowns
+read as in the ninth run on both sides of the join, and a crown's occlusion now 0.937 beside
+near terrain's 0.936. Against the ninth run's images of the same view the normal and albedo
+targets differ on 0.5 % and 1.7 % of pixels, the size of the bands, where the pattern now
+moves with the frame; that it moves from one frame to the next was not captured. The player's
+picture is identical to the control's on every row of terrain.
+
 ## 18. Arrival: no hole and no wall
 
 Built and tested without a game; not run in one. What the seventh run showed is in 17.1: for
