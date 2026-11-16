@@ -1674,19 +1674,26 @@ coarsest fill tiles and then level 0, cold:
 
 So pooled builds are worth about 3 seconds on the first tile and 8 to 10 on the coarse cover,
 with the same total of threads in the last two rows as in the first. Most of the first 15
-seconds stays on one thread even then: the outline sampling inside the drainage build is not
-in a part the pool splits. Where exactly was not found.
+seconds stays on one thread even then. A later profile with pooled builds shows what: not
+the outline's sampling, which the pool's threads then take through coast and river shape
+cells, but a stage of the drainage build's own, reached as coast forms, mountain terrain,
+hydrology, drainage. One or two of four tile threads were working in a little over half of
+the stack samples, and where one was, it was most often in that stage. Which stage, by
+method, is not yet read.
 
 **Proposal, for Riven's author; not built.** Each needs a decision about the generator and
 none changes terrain, the builds being pure:
 
-1. On a client, let the preview's builds use a pool: the client's preview is built with
+1. (Built in Riven's branch since, and without effect until Cubature hands a client's preview
+   a pool.) On a client, let the preview's builds use a pool: the client's preview is built with
    `inputs.buildPool()`, which could be Cubature's client preview pool or a small pool of its
    own, and the sampler would not mark itself alone there. Gain as measured above. The
    server is not touched: its sampler keeps the mark.
-2. Split the outline sampling inside the drainage build over the pool as its other stages
-   are. This would help the server's cold builds as well, and is where most of the remaining
-   15 seconds are. Its gain is not measured.
+2. Look at the stage of the drainage build that stays on one thread with pooled builds, and
+   split it over the pool if it can be split with the same result. This would help the
+   server's cold builds as well, and is where most of the remaining 15 seconds are. Its gain
+   is not measured, and whether it can be split is not known: a stage that routes or orders
+   may be sequential by nature.
 3. Hold coast forms, or what they need of drainage, in the regional store, and offer the
    store at a join: 7 to 9 seconds on the first tile with the store as it stands.
 
