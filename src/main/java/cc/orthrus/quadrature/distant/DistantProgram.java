@@ -120,6 +120,9 @@ final class DistantProgram {
         "// How it is lit: sky light, the day, corner occlusion and the shade of its direction.",
         "out float faceLight;",
         "out float faceCover;",
+        "// A hair's breadth into the block a side face belongs to, so that the face is counted to",
+        "// that block's chunk column and not to the one it looks at.",
+        "flat out vec2 faceInto;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
@@ -153,6 +156,7 @@ final class DistantProgram {
         "        // A tile's corner is a block's corner, so a block's image repeats a block apart.",
         "        faceTexel = place.xz;",
         "        faceBelow = 0.0;",
+        "        faceInto = vec2(0.0);",
         "    } else {",
         "        // A side face's corners run lower left, lower right, upper left, upper right as seen",
         "        // from outside it: north and east faces have their left at the higher coordinate.",
@@ -166,6 +170,8 @@ final class DistantProgram {
         "        // Along the face and down it; a mirrored image is not told from one that is not.",
         "        faceTexel = vec2(direction < 4u ? place.x : place.z, -place.y);",
         "        faceBelow = float(y) + float(extent + 1u) - place.y;",
+        "        faceInto = direction == 2u ? vec2(0.0, 0.01) : direction == 3u ? vec2(0.0, -0.01)",
+        "            : direction == 4u ? vec2(0.01, 0.0) : vec2(-0.01, 0.0);",
         "    }",
         "    fromOrigin = tile.origin + place;",
         "    fromEye = (modelView * vec4(fromOrigin, 1.0)).xyz;",
@@ -203,6 +209,9 @@ final class DistantProgram {
         "uniform int fogMode;",
         "uniform int overlay;",
         "uniform sampler2DArray images;",
+        "uniform usampler2D cover;",
+        "uniform int coverSide;",
+        "uniform vec2 coverMinimum;",
         "uniform float detailStart;",
         "uniform float detailEnd;",
         "in vec3 fromOrigin;",
@@ -214,10 +223,23 @@ final class DistantProgram {
         "in float faceBelow;",
         "in float faceLight;",
         "in float faceCover;",
+        "flat in vec2 faceInto;",
         "layout(location = 0) out vec4 result;",
         "void main() {",
-        "    // What lies inside the box of loaded cubes is near terrain's to draw.",
-        "    bool inside = all(greaterThanEqual(fromOrigin, nearMinimum)) && all(lessThan(fromOrigin, nearMaximum));",
+        "    // What near terrain draws is left to it. With its coverage map: a chunk column whose surface",
+        "    // it has meshed, over the heights its cubes span. Without: the box of cubes it meshes.",
+        "    bool inside;",
+        "    if (coverSide > 0) {",
+        "        inside = false;",
+        "        if (fromOrigin.y >= nearMinimum.y && fromOrigin.y < nearMaximum.y) {",
+        "            ivec2 column = ivec2(floor((fromOrigin.xz + faceInto - coverMinimum) / 16.0));",
+        "            if (all(greaterThanEqual(column, ivec2(0))) && all(lessThan(column, ivec2(coverSide)))) {",
+        "                inside = texelFetch(cover, column, 0).r == 3u;",
+        "            }",
+        "        }",
+        "    } else {",
+        "        inside = all(greaterThanEqual(fromOrigin, nearMinimum)) && all(lessThan(fromOrigin, nearMaximum));",
+        "    }",
         "    if (overlay == 1) {",
         "        // The box view's second draw: only what the box holds; near terrain hides it by depth.",
         "        if (!inside) {",
@@ -257,6 +279,8 @@ final class DistantProgram {
 
     /** The texture unit the materials' images are bound to: above any the game or near terrain uses. */
     private static final int IMAGES_UNIT = 7;
+    /** The unit for near terrain's coverage map. */
+    private static final int COVER_UNIT = 6;
 
     private int program;
     private int viewProjectionLocation;
@@ -274,6 +298,9 @@ final class DistantProgram {
     private int imagesLocation;
     private int detailStartLocation;
     private int detailEndLocation;
+    private int coverLocation;
+    private int coverSideLocation;
+    private int coverMinimumLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -286,10 +313,13 @@ final class DistantProgram {
      * @param modelView  the view's matrices, column-major, as the driver holds them
      * @param nearBox    the box of loaded cubes, less the view's origin: minimum then maximum
      * @param daylight   how bright the sky is, 0 to 1
+     * @param cover      near terrain's coverage map, whose side is 0 when the box is to be used
+     * @param coverX     the map's lowest x and z, less the view's origin
+     * @param fade       where level 0's images begin to fade and where they are gone, from the eye
      * @return how many draws were issued
      */
     int draw(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView, float[] projection,
-        float[] nearBox, float daylight) {
+        float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ, float[] fade) {
         if (program == 0) {
             create();
         }
@@ -312,8 +342,14 @@ final class DistantProgram {
         GL20.glUniform1i(fogModeLocation, fogMode());
         GL20.glUniform1i(imageLayersLocation, DistantSettings.DETAIL ? materials.imageLayers() : 0);
         GL20.glUniform1i(imagesLocation, IMAGES_UNIT);
-        GL20.glUniform1f(detailStartLocation, DistantSettings.DETAIL_START);
-        GL20.glUniform1f(detailEndLocation, DistantSettings.DETAIL_END);
+        GL20.glUniform1f(detailStartLocation, fade[0]);
+        GL20.glUniform1f(detailEndLocation, fade[1]);
+        GL20.glUniform1i(coverLocation, COVER_UNIT);
+        GL20.glUniform1i(coverSideLocation, cover.side());
+        GL20.glUniform2f(coverMinimumLocation, coverX, coverZ);
+        if (cover.side() > 0) {
+            GL45.glBindTextureUnit(COVER_UNIT, cover.texture());
+        }
         // Bound to a unit of its own and left there: no texture unit the game draws with is touched.
         GL45.glBindTextureUnit(IMAGES_UNIT, materials.images());
         GL30.glBindVertexArray(vertexArray);
@@ -448,6 +484,9 @@ final class DistantProgram {
         imagesLocation = GL20.glGetUniformLocation(program, "images");
         detailStartLocation = GL20.glGetUniformLocation(program, "detailStart");
         detailEndLocation = GL20.glGetUniformLocation(program, "detailEnd");
+        coverLocation = GL20.glGetUniformLocation(program, "cover");
+        coverSideLocation = GL20.glGetUniformLocation(program, "coverSide");
+        coverMinimumLocation = GL20.glGetUniformLocation(program, "coverMinimum");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();

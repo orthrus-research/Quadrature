@@ -10,9 +10,11 @@ import cc.orthrus.quadrature.core.lod.TileDraws;
 import cc.orthrus.quadrature.core.lod.TileKey;
 import cc.orthrus.quadrature.core.lod.TileMesh;
 import cc.orthrus.quadrature.core.lod.TileSchedule;
+import cc.orthrus.quadrature.core.terrain.CoverageMap;
 import cc.orthrus.quadrature.core.view.View;
 import cc.orthrus.quadrature.depth.DepthCalls;
 import cc.orthrus.quadrature.terrain.DriverMessageAccess;
+import cc.orthrus.quadrature.terrain.TerrainHook;
 
 import io.github.opencubicchunks.cubicchunks.api.client.CubeSource;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSource;
@@ -85,6 +87,10 @@ final class Distant {
     private final float[] modelView = new float[16];
     private final float[] projection = new float[16];
     private final float[] nearBox = new float[6];
+    private final DistantCover cover = new DistantCover();
+    /** Near terrain's coverage map this frame, or null when the box is used in its place. */
+    private CoverageMap covered;
+    private float[] imageFade = {DistantSettings.DETAIL_START, DistantSettings.DETAIL_END};
     private final int[] levelCount = new int[2];
     private DistantWorkers workers;
     private ICubicTerrainPreview preview;
@@ -201,7 +207,9 @@ final class Distant {
             readTimer(timer);
             GL33.glQueryCounter(timerStart[timer], GL33.GL_TIMESTAMP);
             lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
-                minecraft.world.getSunBrightness(partialTicks));
+                minecraft.world.getSunBrightness(partialTicks), cover,
+                (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
+                imageFade);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
             DriverMessageAccess.leave();
         } else {
@@ -401,7 +409,17 @@ final class Distant {
 
     /** Writes the frame's records and commands: the stored tiles the view can see, less what is near. */
     private void list() {
-        // The box near terrain covers: the cubes it meshes, which is the reach less one cube.
+        // What near terrain covers. With its coverage map (-Dquadrature.coverage=true): the chunk
+        // columns whose surface it has meshed, so ground it has not reached yet stays distant
+        // terrain's and gives way column by column. Without: the box of cubes it meshes, which is
+        // the reach less one cube. Either way only over the heights its cubes span.
+        CoverageMap map = TerrainHook.coverage();
+        covered = cover.update(map) ? map : null;
+        int firstCubeX = covered == null ? 0 : (int) (cover.firstBlockX() >> 4);
+        int firstCubeZ = covered == null ? 0 : (int) (cover.firstBlockZ() >> 4);
+        // Images fade outside what near terrain reaches, whatever the view distance.
+        imageFade = NearCover.imageFade(DistantSettings.DETAIL_START, DistantSettings.DETAIL_END,
+            (NearCover.meshedReach(view.across()) + 1) * 16f, REACH);
         long boxMinX = NearCover.minimum(view.originCubeX(), view.across());
         long boxMaxX = NearCover.maximum(view.originCubeX(), view.across());
         long boxMinY = NearCover.minimum(view.originCubeY(), view.upward());
@@ -426,8 +444,14 @@ final class Distant {
             if (tile.faces == 0 || !schedule.drawn(key)) {
                 continue;
             }
-            if (TileCulling.inside(key, tile.minimumY, tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY,
-                boxMaxZ)) {
+            long tileSide = TileKey.side(TileKey.level(key));
+            boolean hidden = covered == null
+                ? TileCulling.inside(key, tile.minimumY, tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY,
+                    boxMaxZ)
+                : tile.minimumY >= boxMinY && tile.maximumY <= boxMaxY && NearCover.covered(covered.states(),
+                    covered.side(), firstCubeX, firstCubeZ, TileKey.originX(key), TileKey.originZ(key),
+                    TileKey.originX(key) + tileSide, TileKey.originZ(key) + tileSide);
+            if (hidden) {
                 // The box view draws the tiles the box holds too: their faces are what it shows.
                 if (DistantSettings.DEBUG != DistantSettings.DEBUG_BOX) {
                     continue;
@@ -501,6 +525,13 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(covered == null
+            ? String.format("%n  near terrain's cover: the box of cubes it meshes (no coverage map)")
+            : String.format("%n  near terrain's cover: its coverage map, %d of %d columns meshed, %d waiting, %d with no "
+                + "surface, %d not loaded; images fade from %.0f to %.0f blocks", covered.count(CoverageMap.SURFACE_MESHED),
+                covered.side() * covered.side(), covered.count(CoverageMap.SURFACE_WAITING),
+                covered.count(CoverageMap.NO_SURFACE), covered.count(CoverageMap.NOT_LOADED), imageFade[0],
+                imageFade[1]));
         if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX) {
             line.append(String.format("%n  box view: %d of the tiles drawn lie wholly in the near box and are drawn "
                 + "for this view only; every layer is drawn twice", lastTilesInBox));

@@ -476,6 +476,43 @@ loaded neighbors and so never the outermost. It is a box, not a column: above an
 vertical reach distant terrain shows. `NearCover` holds the rule, and a test checks it against
 near terrain's (a cube is meshed when its six neighbors are loaded) over whole neighborhoods.
 
+**With near terrain's coverage map** (`-Dquadrature.coverage=true`, which is near terrain's
+switch), the box gives way to what near terrain says it has done. The map holds a state for
+every chunk column of its box; distant terrain is left out only over columns whose surface is
+meshed, and shows over those not loaded, with no surface known, or still waiting. Near
+terrain's outermost ring of columns waits for good, since it lacks a neighbor, so distant
+terrain shows there as it did under the box rule.
+
+- After a teleport, or wherever near terrain has not reached, distant terrain stays under
+  the ground not yet meshed and gives way column by column as the map changes. There is no
+  hole while near terrain catches up, which the box left.
+- Heights. A meshed column is left to near terrain over the heights the box spans, and no
+  further: above and below the cubes near terrain holds, distant terrain shows as before. The
+  map's surface cube is not used to cut finer. Above a column's surface cube everything is
+  air near terrain has meshed, so nothing distant is wanted there. Below its surface band,
+  near terrain's cubes may still be waiting, at the foot of a cliff or in a pit; distant
+  terrain is left out there too. Drawn, it would lie in the plane of near terrain's faces
+  once they arrive and flicker against them; left out, a deep pit in a meshed column can
+  show the sky until its lower cubes are meshed. The second was chosen as the rarer and the
+  shorter.
+- A side face is counted to the column of the block it belongs to, not the one it looks at:
+  its position is taken a hundredth of a block into its own block.
+- The map is a texture of one byte a column, written when the map's generation moves. A tile
+  is not drawn at all when every column it touches is meshed and it lies within the box's
+  heights (`NearCover.covered`).
+- Near terrain works the map out at most once in 20 frames. For that long after a column is
+  meshed both terrains draw it, in one plane; for that long after near terrain lets a column
+  go at the trailing edge of a move, neither does. Both are near terrain's interval to set.
+- Without the switch `TerrainHook.coverage()` is null and the box rule stands. The log says
+  which is in use, and the map's counts by state.
+
+Not seen in a game.
+
+**Where images fade** follows what near terrain reaches: the fade never begins within 32
+blocks of near terrain's edge and ends at least 32 blocks inside ring 0 (`NearCover.imageFade`).
+At the usual view distance that is the 224 and 352 blocks asked for; at 16 chunks and more the
+start moves out and the fade is squeezed against ring 0's edge.
+
 **Light.** Sky light and corner occlusion from the record, the day's brightness, and a fixed
 shade for each direction. A corner is darkened by 0.08 for each of the up to three
 cells that close it in. The game's own figure, about a fifth, drew a dark line along every
