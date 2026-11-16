@@ -493,7 +493,8 @@ instance (2026-11-16).
 - **Faces.** The run draws through the walk and is identical to the default, but of 28.6
   million quads none became a record: 26.4 million whole faces were refused because their
   texture coordinates are not the sprite's own corners. Drawing from records, and a
-  vertex array with no attributes, are not exercised by it.
+  vertex array with no attributes, are not exercised by it. The builder has since taken
+  the rectangle from the quad; see below.
 
 ### The cube source at commit 24f5ad89
 
@@ -508,6 +509,29 @@ with every switch off scored against the game's terrain in the same instance (20
 - In 111 comparisons of what is selected, no cube the game draws is missing from what
   Quadrature draws.
 - Timings are not recorded: a build on the same machine overlapped the run.
+### Faces drawn from records
+
+The instance of the section above, each run scored against the game's terrain in it
+(2026-11-16).
+
+| Run | Passing views | View 07, in the river's box and outside | Against the faces run |
+|---|---|---|---|
+| Faces | 17 of 17 | 0.0870%: 653 and 149 | |
+| Faces, coverage, the light's depth and the scene | 16 of 17 | 0.1075%, failing: 829 and 162 | 17 of 17; 65 pixels in view 07 |
+
+- **Records.** 25.7 of 27.9 million quads are records, 92.1%; the rest are not a whole
+  face of their cell. None was refused for its texture coordinates, and no record failed
+  to give its vertices back. 836 rectangles of texture.
+- **Drawing.** No error from the driver and no message during a terrain draw, in the main
+  pass or the light's depth pass. Against own terrain with every switch off, no pixel of
+  fifteen views differs past the threshold, and no channel by more than 3 levels.
+- **Memory.** 164.8 MiB of records in 3 pages and 44 MiB of kept vertices in 2, where the
+  game's vertices take 592 MiB in 10.
+- In 118 and 120 comparisons of what is selected, no cube the game draws is missing.
+- With faces on the walk is not also compared with the dispatcher; that comparison stands
+  as made above.
+- Timings are not recorded: builds on the same machine overlapped both runs.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.

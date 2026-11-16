@@ -106,6 +106,9 @@ public final class Terrain
     private static final boolean FACE_CENSUS = Boolean.getBoolean("quadrature.faces.count");
     private final long[] faceCensus = new long[3];
     private static final int COVERAGE_FRAMES = 20;
+    /** Once this many quads are sorted, fewer than this part of them as records is logged as a failure. */
+    private static final long FACE_SHARE_QUADS = 1_000_000;
+    private static final double FACE_SHARE_LEAST = 0.5;
     private final CoverageMap coverage = COVERAGE ? new CoverageMap() : null;
     private final SearchEdge searchEdge = new SearchEdge();
     /** Cubes meshed as they now stand, whether or not they draw anything. */
@@ -1243,6 +1246,13 @@ public final class Terrain
         }
         if (CubeMesher.FACE_CHECK || FACES) {
             line += "; " + mesher.faceSummary();
+            FaceBuilder built = mesher.faceBuilder();
+            if (built != null && built.quads() >= FACE_SHARE_QUADS && built.recordShare() < FACE_SHARE_LEAST) {
+                // Terrain is mostly whole faces: so few records means the builder refuses what it should take.
+                Quadrature.LOGGER.error("FACE RECORDS FAILED: {} of quads became records where at least {} is "
+                    + "expected; what is drawn is the game's vertices, and drawing from records is not exercised.",
+                    String.format("%.1f%%", 100 * built.recordShare()), String.format("%.0f%%", 100 * FACE_SHARE_LEAST));
+            }
         }
         if (FACES) {
             line += String.format("; records in %d pages, %.1f MiB capacity, %.1f MiB in use, %d commands", faceArena.pages(),

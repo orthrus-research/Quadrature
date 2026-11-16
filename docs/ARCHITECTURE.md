@@ -480,9 +480,20 @@ and each four are known by sprite, face, tint, layer and block state. A block th
 would not draw by its model through its lighting pipeline is left to the dispatcher. With
 the check on every cube is meshed both ways and the two compared byte for byte. A builder
 then sorts the quads into records of 32 bytes for whole faces of a cell and kept vertices
-for the rest, expanding each record to see that it gives the game's vertices back. The
-walk is verified equal to the dispatcher; drawing from records is not yet exercised, since
-no quad has yet passed the builder's test of its texture coordinates.
+for the rest, expanding each record to see that it gives the game's vertices back.
+
+- **A record's texture is a rectangle of the atlas, the quad's own.** The game does not
+  give a quad its sprite's corners: it draws each a little toward the sprite's middle. So
+  the rectangle is taken from the quad's four coordinates, which must be two values of u
+  and two of v with each of the four corners once, and kept in a table of rectangles the
+  vertex stage reads. Quads of one sprite baked alike share a rectangle.
+- **Records are drawn with no vertex attributes.** The vertex stage finds its record by
+  vertex number and builds the vertex; the main pass and the light's depth pass both draw
+  so, with indirect multi-draw of quads from pages of records of their own.
+- **What it holds.** Over the forest tour 92.1% of quads are records. They take 165 MiB
+  and the kept vertices 44 MiB, where the game's vertices alone take 592 MiB.
+- **A guard.** Once a million quads are sorted, a share of records under half is logged
+  as a failure: a run that draws nothing from records proves nothing about them.
 
 The table serves visibility only. Light that reaches past what is seen needs more of each
 cube than fifteen bits: opacity per block, which the mesher finds on its way to those bits

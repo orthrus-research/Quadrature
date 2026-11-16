@@ -2,8 +2,6 @@ package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.core.terrain.FaceRecord;
 
-import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
-
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 
 import java.nio.ByteBuffer;
@@ -11,7 +9,7 @@ import java.nio.ByteOrder;
 
 /**
  * Sorts a meshed cube's quads into the two streams. A quad the walk noted that is a whole face of its
- * cell showing a whole sprite becomes a record of 32 bytes; every other quad keeps the game's four
+ * cell showing one rectangle of the atlas becomes a record of 32 bytes; every other quad keeps the game's four
  * vertices as they are, with a header saying what is known of it.
  *
  * <p>A record must give back the game's vertices exactly. That is tried for every quad as it is made:
@@ -28,12 +26,18 @@ final class FaceBuilder {
     private static final int LAYERS = CubeMesh.LAYERS;
     private static final int STRIDE = CubeMesh.STRIDE;
 
-    /** Each sprite's number, in the order they were first met. */
-    private final Reference2IntOpenHashMap<TextureAtlasSprite> spriteNumbers = new Reference2IntOpenHashMap<>();
-    /** For each sprite, its least and greatest u and v, as the game's own floats. */
+    /**
+     * Every rectangle of the atlas a quad has shown, numbered in the order first met: least u, least v,
+     * greatest u, greatest v, as the game's own floats. The game draws a quad's coordinates a little
+     * in from its sprite's corners, so a rectangle is a quad's and not a sprite's; quads of one sprite
+     * baked alike share one.
+     */
     private float[] spriteRects = new float[4 * 256];
     private int sprites;
     private long spritesVersion;
+    /** An open hash over the rectangles: a rectangle's number and one, or 0 for an empty place. */
+    private int[] rectPlaces = new int[1024];
+    private final float[] rect = new float[4];
 
     private final int[][] records = new int[LAYERS][FaceRecord.WORDS * 256];
     private final int[] recordCounts = new int[LAYERS];
@@ -58,7 +62,6 @@ final class FaceBuilder {
     private long notGivenBack;
 
     FaceBuilder() {
-        spriteNumbers.defaultReturnValue(-1);
         for (int layer = 0; layer < LAYERS; layer++) {
             vertices[layer] = ByteBuffer.allocateDirect(STRIDE * 4 * 64).order(ByteOrder.nativeOrder());
         }
@@ -112,7 +115,7 @@ final class FaceBuilder {
         return from;
     }
 
-    /** Makes a record of a noted quad, if it is a whole face showing a whole sprite and the record gives it back. */
+    /** Makes a record of a noted quad, if it is a whole face showing one rectangle of the atlas and the record gives it back. */
     private boolean record(ByteBuffer data, int at, QuadWalk walk, int note, int layer) {
         boolean opaque = true;
         boolean lit = true;
@@ -141,9 +144,8 @@ final class FaceBuilder {
             notAFace++;
             return false;
         }
-        TextureAtlasSprite sprite = walk.quad(note).getSprite();
-        int corners = sprite == null ? -1 : FaceRecord.corners(coordinates, sprite.getMinU(), sprite.getMaxU(),
-            sprite.getMinV(), sprite.getMaxV());
+        int corners = FaceRecord.rectangle(coordinates, rect);
+
         if (corners < 0) {
             notASprite++;
             return false;
@@ -156,7 +158,7 @@ final class FaceBuilder {
             lightTooGreat++;
             return false;
         }
-        int number = sprite(sprite);
+        int number = rectangle(rect[0], rect[1], rect[2], rect[3]);
         if (number >= NO_SPRITE) {
             notASprite++;
             return false;
@@ -204,31 +206,56 @@ final class FaceBuilder {
             header[word + 1] = 0xFFFFFF;
         } else {
             TextureAtlasSprite sprite = walk.quad(note).getSprite();
-            header[word] = (sprite == null ? NO_SPRITE : Math.min(NO_SPRITE, sprite(sprite))) | walk.state(note) << 16;
+            header[word] = (sprite == null ? NO_SPRITE : Math.min(NO_SPRITE,
+                rectangle(sprite.getMinU(), sprite.getMinV(), sprite.getMaxU(), sprite.getMaxV()))) | walk.state(note) << 16;
             header[word + 1] = walk.tint(note) | walk.flags(note) << 24;
         }
         header[word + 2] = 0;
         header[word + 3] = 0;
     }
 
-    /** The number a sprite goes by, given the first time it is met. */
-    private int sprite(TextureAtlasSprite sprite) {
-        int number = spriteNumbers.getInt(sprite);
-        if (number < 0) {
-            number = sprites++;
-            spriteNumbers.put(sprite, number);
-            if (number * 4 + 4 > spriteRects.length) {
-                spriteRects = java.util.Arrays.copyOf(spriteRects, spriteRects.length * 2);
+    /** The number a rectangle of the atlas goes by, given the first time it is met. */
+    private int rectangle(float minU, float minV, float maxU, float maxV) {
+        int mask = rectPlaces.length - 1;
+        int hash = Float.floatToRawIntBits(minU) * 0x9E3779B1 ^ Float.floatToRawIntBits(minV) * 0x85EBCA77
+            ^ Float.floatToRawIntBits(maxU) * 0xC2B2AE3D ^ Float.floatToRawIntBits(maxV) * 0x27D4EB2F;
+        int place = (hash ^ hash >>> 15) & mask;
+        while (rectPlaces[place] != 0) {
+            int at = (rectPlaces[place] - 1) * 4;
+            if (spriteRects[at] == minU && spriteRects[at + 1] == minV && spriteRects[at + 2] == maxU
+                && spriteRects[at + 3] == maxV) {
+                return rectPlaces[place] - 1;
             }
-            spriteRects[number * 4] = sprite.getMinU();
-            spriteRects[number * 4 + 1] = sprite.getMinV();
-            spriteRects[number * 4 + 2] = sprite.getMaxU();
-            spriteRects[number * 4 + 3] = sprite.getMaxV();
-            spritesVersion++;
+            place = place + 1 & mask;
+        }
+        int number = sprites++;
+        if (number * 4 + 4 > spriteRects.length) {
+            spriteRects = java.util.Arrays.copyOf(spriteRects, spriteRects.length * 2);
+        }
+        spriteRects[number * 4] = minU;
+        spriteRects[number * 4 + 1] = minV;
+        spriteRects[number * 4 + 2] = maxU;
+        spriteRects[number * 4 + 3] = maxV;
+        spritesVersion++;
+        rectPlaces[place] = number + 1;
+        if (sprites * 2 > rectPlaces.length) {
+            // Half full: twice the places, every rectangle put in again.
+            rectPlaces = new int[rectPlaces.length * 2];
+            mask = rectPlaces.length - 1;
+            for (int i = 0; i < sprites; i++) {
+                hash = Float.floatToRawIntBits(spriteRects[i * 4]) * 0x9E3779B1
+                    ^ Float.floatToRawIntBits(spriteRects[i * 4 + 1]) * 0x85EBCA77
+                    ^ Float.floatToRawIntBits(spriteRects[i * 4 + 2]) * 0xC2B2AE3D
+                    ^ Float.floatToRawIntBits(spriteRects[i * 4 + 3]) * 0x27D4EB2F;
+                place = (hash ^ hash >>> 15) & mask;
+                while (rectPlaces[place] != 0) {
+                    place = place + 1 & mask;
+                }
+                rectPlaces[place] = i + 1;
+            }
         }
         return number;
     }
-
     /**
      * Writes the four vertices a record stands for, in the game's vertex format, as the shader that
      * draws from records builds them.
@@ -281,7 +308,7 @@ final class FaceBuilder {
         return headers[layer];
     }
 
-    /** For each sprite, least u, least v, greatest u, greatest v. */
+    /** For each rectangle of the atlas met, least u, least v, greatest u, greatest v. */
     float[] spriteRects() {
         return spriteRects;
     }
@@ -290,15 +317,25 @@ final class FaceBuilder {
         return sprites;
     }
 
-    /** Moves on whenever a sprite is first met. */
+    /** Moves on whenever a rectangle is first met. */
     long spritesVersion() {
         return spritesVersion;
     }
 
+    /** Every quad sorted so far. */
+    long quads() {
+        return quads;
+    }
+
+    /** The part of them that became records, 0 to 1. */
+    double recordShare() {
+        return quads == 0 ? 0 : (double) compact / quads;
+    }
+
     String summary() {
         return String.format("of %d quads, %d are records (%.1f%%); kept as vertices: %d not drawn from a model, %d not a "
-                + "whole face of their cell, %d not a whole sprite, %d not opaque, %d with light past a byte, %d whose "
-                + "record did not give them back; %d sprites",
+                + "whole face of their cell, %d not one rectangle of texture, %d not opaque, %d with light past a byte, %d whose "
+                + "record did not give them back; %d rectangles of texture",
             quads, compact, 100.0 * compact / Math.max(1, quads), notNoted, notAFace, notASprite, notOpaque, lightTooGreat,
             notGivenBack, sprites);
     }
