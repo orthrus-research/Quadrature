@@ -597,8 +597,14 @@ run that differs from it in one thing.
   none.
 - The list of kinds in the build these runs used was revision 3, in which lamps' states
   were named the wrong way about and lava's emission was 0.95. Neither bears on whether
-  the program writes the targets as the table says. Revision 4's two changes, and reading
-  the list from a folder named at start, are unit tested and have not been run in the game.
+  the program writes the targets as the table says. Revision 4's two changes are unit
+  tested and have not been run in the game.
+- **The list read from a folder named at start** (2026-11-16, one instance): revision 6 of
+  the list, written over continued lines, gives 519 names, the count the list states; its
+  hash is the one the folder's manifest gives; of 1,058 blocks the list and the rule differ
+  on 179 and the rule gives no kind to a block the list does not name. A reader that took
+  each line by itself read 75 of the 519, which nothing else showed: a list read short is
+  now logged as `MATERIAL KINDS FAILED`.
 - **Cost, one view, not a measurement:** opaque terrain 2.21 to 3.37 ms on the GPU and
   0.45 to 0.67 ms on the CPU at the median, for drawing each opaque layer a second time.
 

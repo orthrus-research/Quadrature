@@ -114,22 +114,57 @@ public final class MaterialKinds {
     /** Reads a list. A line that is empty, a comment, or not of the form given is passed over. */
     public static MaterialKinds parse(Iterable<String> lines) {
         MaterialKinds kinds = new MaterialKinds();
+        // A line that ends in a backslash goes on in the next, as in a properties file: a long list of
+        // names is one line written over several.
+        List<String> whole = new ArrayList<>();
+        StringBuilder joined = null;
         for (String line : lines) {
+            String part = joined == null ? line : line.replaceFirst("^\\s+", "");
+            int slashes = 0;
+            while (slashes < part.length() && part.charAt(part.length() - 1 - slashes) == '\\') {
+                slashes++;
+            }
+            boolean goesOn = slashes % 2 == 1 && (joined != null || !(part.trim().startsWith("#") || part.trim().startsWith("!")));
+            String text = goesOn ? part.substring(0, part.length() - 1) : part;
+            if (joined == null) {
+                joined = new StringBuilder(text);
+            } else {
+                joined.append(' ').append(text);
+            }
+            if (!goesOn) {
+                whole.add(joined.toString());
+                joined = null;
+            }
+        }
+        if (joined != null) {
+            whole.add(joined.toString());
+        }
+        for (String line : whole) {
             String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#") || !trimmed.startsWith("block.")) {
+            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!") || !trimmed.startsWith("block.")) {
                 continue;
             }
-            int equals = trimmed.indexOf('=');
-            if (equals < 0) {
+            // The key is block.<kind>; after it comes an equals sign, a colon or only space, as a
+            // properties file allows. The names have colons of their own, so only the first counts.
+            int end = 6;
+            while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
+                end++;
+            }
+            if (end == 6 || end - 6 > 4) {
                 continue;
             }
-            int kind;
-            try {
-                kind = Integer.parseInt(trimmed.substring(6, equals).trim());
-            } catch (NumberFormatException e) {
+            int kind = Integer.parseInt(trimmed.substring(6, end));
+            int from = end;
+            while (from < trimmed.length() && Character.isWhitespace(trimmed.charAt(from))) {
+                from++;
+            }
+            if (from < trimmed.length() && (trimmed.charAt(from) == '=' || trimmed.charAt(from) == ':')) {
+                from++;
+            } else if (from == end && from < trimmed.length()) {
+                // Something else runs on from the number: not a key of this list.
                 continue;
             }
-            for (String name : trimmed.substring(equals + 1).trim().split("\\s+")) {
+            for (String name : trimmed.substring(from).trim().split("\\s+")) {
                 if (name.isEmpty()) {
                     continue;
                 }

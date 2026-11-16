@@ -31,9 +31,37 @@ final class Materials {
         String stage = System.getProperty("quadrature.stage.dir");
         KindsSource source = KindsSource.read(stage == null || stage.isEmpty() ? null : java.nio.file.Paths.get(stage),
             () -> Materials.class.getResourceAsStream(LIST));
+        int revision = -1;
+        if (stage != null && !stage.isEmpty() && source.from().startsWith("the file")) {
+            // Where the folder has a manifest that names the list, the list read must be the one it names.
+            try {
+                cc.orthrus.quadrature.core.stage.StageManifest manifest =
+                    cc.orthrus.quadrature.core.stage.StageManifest.read(java.nio.file.Paths.get(stage));
+                cc.orthrus.quadrature.core.stage.StageManifest.Entry named = manifest.files().get(KindsSource.FILE);
+                if (named == null) {
+                    Quadrature.LOGGER.warn("Material kinds: the folder's manifest does not name the list; it is read unchecked.");
+                } else if (named.sha256.equals(source.sha256())) {
+                    Quadrature.LOGGER.info("Material kinds: the list is the one the folder's manifest names (revision {}).",
+                        manifest.materialKindsRevision());
+                    revision = manifest.materialKindsRevision();
+                } else {
+                    Quadrature.LOGGER.error("Material kinds: the list's sha256 {} is not the manifest's {}; the list shipped is "
+                        + "used instead.", source.sha256(), named.sha256);
+                    source = KindsSource.read(null, () -> Materials.class.getResourceAsStream(LIST));
+                }
+            } catch (java.io.IOException | RuntimeException noManifest) {
+                Quadrature.LOGGER.info("Material kinds: the folder has no manifest that can be read ({}); the list is read "
+                    + "unchecked.", noManifest.toString());
+            }
+        }
         kinds = MaterialKinds.parse(source.lines());
         Quadrature.LOGGER.info("Material kinds: {} names read from {} ({}; sha256 {}).", kinds.names(), source.from(),
             source.revision().isEmpty() ? "no revision line" : source.revision(), source.sha256());
+        String wrong = source.wrongCount(kinds.names(), revision);
+        if (wrong != null) {
+            // A list read short gives most blocks the wrong surface and nothing else shows it.
+            Quadrature.LOGGER.error("MATERIAL KINDS FAILED: {}; the table is not to be trusted in this run.", wrong);
+        }
         if (Boolean.getBoolean("quadrature.materials.audit")) {
             audit();
         }

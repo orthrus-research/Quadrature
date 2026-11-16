@@ -562,6 +562,12 @@ taking `:property=value` once or more for the states that have every value named
 list is the one the build ships, or the file `material_kinds.properties` of the folder
 named by `-Dquadrature.stage.dir` where that is set and holds one, so that a new revision
 of the list needs no new build; which was read, its revision line and its hash are logged.
+The list is read as a properties file is: a line that ends in a backslash goes on in the
+next, and a key ends at an equals sign, a colon or a space. Where the folder has a
+manifest that names the list, the list read must have the hash the manifest gives, and
+the list shipped is used where it has not. A list that gives fewer names than it states,
+or than its revision is known to hold, is logged as `MATERIAL KINDS FAILED`: read short,
+it would give most blocks the wrong surface and nothing else would show it.
 A block
 the list does not name is given a kind by what the game says of it: leaves, plants, glass
 and ice by material, the game's own water, lava, and anything else that gives light as an
