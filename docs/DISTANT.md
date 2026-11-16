@@ -4,8 +4,10 @@ Status: the part with no graphics in it is built and tested, in `core`
 (`cc.orthrus.quadrature.core.lod`): the run tile, the run mesher, the face record, the ring
 selection, the schedule and the draw list. The first frames are written and compile, in
 `cc.orthrus.quadrature.distant` (section 8): sampling, materials, an arena and the draw.
-**None of that has run in a game.** No driver has compiled its shader and no game has applied
-its Mixin; section 9 is the plan for the first run. Section 7 of
+They have run once in a game (section 9): the shader compiles, tiles are sampled, stored and
+drawn in the right places, from one view high above the ground. **Untested still:** the join
+with near terrain, depth against near terrain, the far distance against hosted drawing, and
+any view of the horizon. Section 10 is the plan for the next run. Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
 ## 1. What a tile is
@@ -247,8 +249,7 @@ corrected, before the records move into PROVENANCE.md; until then they are unver
 
 ## 8. First frames
 
-Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`. Written and
-compiled; not yet run.
+Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 
 | Setting | Default | |
 |---|---|---|
@@ -301,9 +302,11 @@ A tile is not drawn when all of it lies in the box near terrain covers, when the
 volume misses its bounds, and, group by group, when its faces turn away from the eye. Faces
 are not culled by winding.
 
-**Where it is drawn, and depth.** At the point where the game goes from its opaque terrain
-layers to its entities, after near terrain, with the matrices the driver holds for the
-world. Depth state is left as the game set it, so the draw is correct with reversed depth
+**Where it is drawn, and depth.** Before the game's first draw of entities in the world
+pass: after near terrain's opaque layers, with the matrices the driver holds for the world.
+The injection is on that call and not on the profiler section before it, whose argument the
+Mixin that reads section names has already rewritten; an injection that looked for the
+section's name beside the call found nothing and stopped the first start of the game. Depth state is left as the game set it, so the draw is correct with reversed depth
 on or off, and distant fragments behind near terrain are rejected before they are shaded.
 Without reversed depth the integer depth buffer cannot separate distant faces (about 30
 blocks at 5 km) and they will flicker; a warning is logged.
@@ -325,7 +328,9 @@ loaded neighbors and so never the outermost. It is a box, not a column: above an
 vertical reach distant terrain shows.
 
 **Light.** Sky light and corner occlusion from the record, the day's brightness, and a fixed
-shade for each direction. No fog.
+shade for each direction. No fog. A corner is darkened by 0.08 for each of the up to three
+cells that close it in. The game's own figure, about a fifth, drew a dark line along every
+one-block step of the ground in the first frame.
 
 **What this simple rule will show.**
 - A hard change at the box's edge from textured, lit near terrain to flat colors.
@@ -340,13 +345,59 @@ shade for each direction. No fog.
 level, being built, kept past the rings, resident; tiles, faces and draws of the last frame;
 GPU time from timestamp queries and the client thread's time; tiles built, sampled and
 meshed milliseconds a tile, stored, abandoned, failed, refused, let go; the arena's pages
-and bytes; materials. The frame log's "opaque terrain" stage includes distant terrain's
-draw. With `-Dquadrature.glDebug=true` the driver's messages are logged as near terrain's
+and bytes; materials. The GPU time is distant terrain's own, from timestamps; the frame
+log's stage times count the draw under "entities", since a stage of its own would need the
+frame graph changed. With `-Dquadrature.glDebug=true` the driver's messages are logged as near terrain's
 are, marked "during distant terrain".
 
-## 9. The first run
+## 9. The first run, 2026-11-16
 
-Not done. One GPU turn under Riven's lease, two tours.
+One turn under the lease, in a 32 km world (seed 2485331, layout scale 4), dedicated server
+and client, reversed depth on, RTX 3060, 1280 by 720.
+
+**What happened.** The first start stopped while the game loaded `EntityRenderer`: the
+injection that draws distant terrain found no target (section 8, where it is drawn). With
+that corrected the game ran. The tour was meant to capture three views and captured one: its
+second view stood where the first did, and Riven's launcher does not capture a view closer
+than 9 blocks to the last, so it waited out its 15 minutes. There was no reference run.
+
+**What the run showed**, from a camera 340 blocks up looking down at 45 degrees:
+
+| | |
+|---|---|
+| The join | Riven's factory built the preview on the client from the server's message; identities agreed |
+| Tiles | 642 wanted in levels 0 to 6 (144, 108, 108, 108, 84, 66, 24), all stored, none failed, none refused |
+| Time from the first request, two threads, nothing built before | First tiles about 30 s; the coarsest level complete about 62 s; everything about 130 s |
+| A tile | 401 ms to sample, 1.0 ms to mesh; storing took at most 0.13 ms of a frame |
+| Drawn | 272 to 335 tiles, 1.41 to 1.61 million faces, 3 draws |
+| GPU time | 2.2 to 2.6 ms mean, 3.1 ms at most |
+| Client thread | 0.11 to 0.15 ms a frame |
+| Arena | One page, 31.4 MiB of 64 |
+| Materials | 281 |
+| Driver | No error. One warning, since removed: the biome tints' usage hint |
+
+**The frame.** The ground is in the right place and whole: two rivers with their banks, the
+steps of the ground, single trees, a braided channel with its bars, and no gap or misplaced
+face where tiles of different levels meet. Colors are flat and strong: water an unbroken
+blue, red sand a vivid orange. Occlusion drew a dark line along every contour, which the
+softer step answers. A dark disc about 100 blocks in radius is real: a sabkha, a salt-flat
+biome whose top block is mud, round as Riven places it, at (-4317, 12851); sampling the
+preview there offline gives mud on red sand.
+
+**What it did not test.** At that height the ground lies below the loaded cubes' vertical
+reach, so near terrain had no mesh and the whole frame was distant terrain. The box near
+terrain covers, depth against near terrain and the far distance against the game's own
+drawing were not exercised, and no view showed the horizon.
+
+## 10. The next run
+
+Not done. One GPU turn under Riven's lease, two tours on one instance.
+
+**Before it, without a game.** `python tools/mixin_check.py --java <java 26>` applies the
+mod's Mixins to the game's development-named classes with OrthLib's offline Mixin check and
+fails if one does not apply or hooks nothing. Run against the first injection it reports the
+failure the game did, word for word; against the current one it reports 33 hooks on 6
+targets, seven of them distant terrain's (six projections and the draw).
 
 **Builds**, each from its clean branch head, none needing the lease:
 
@@ -357,65 +408,65 @@ Not done. One GPU turn under Riven's lease, two tours.
 python tools/build_riven.py --freeze lod-first-frames --no-daemon
 # Quadrature feat/lod:
 ./gradlew build --no-daemon
+python tools/mixin_check.py --java <java 26>
 ```
 
 **Instance**, from the Riven checkout of that branch, without Distant Horizons, with a
-long settle before each capture (3,600 ticks, three minutes) so tiles can arrive:
+settle of three minutes before each capture (3,600 ticks) so tiles can arrive. A rebuilt
+jar needs a freshly prepared instance; both runs then use it, since they differ only in the
+client's options:
 
 ```
-python tools/runtime.py prepare --name quadrature-distant-01 --seed 2485331 --scale 4 \
+python tools/runtime.py prepare --name quadrature-distant-03 --seed 2485331 --scale 4 \
   --no-distant-horizons --capture-ticks 3600 \
   --artifact .local/frozen/lod-first-frames/riven-cleanroom.jar \
   --cubic-artifact <Quadrature>/pins/Cubature-1.12.2-0.1.4.0-cleanroom.jar \
   --client-mod <Quadrature>/build/libs/quadrature-0.1.0-dev.jar
 ```
 
-**Tour.** Three views close together, so the rings and the regional data persist from one
-to the next; the landmass tour's first place:
+**Tour**, `tools/tours/distant-2485331.json`. Every view is far more than 9 blocks from
+the one before, which the launcher needs to capture it. Three stand where near terrain is
+meshed under the camera (the vertical reach is 128 blocks), so the box, depth against near
+terrain and the far distance are exercised; one is high.
 
-```json
-[
-  {"label": "overview_down", "x": -4599.5, "y": 340, "z": 13200.5, "yaw": 180.0, "pitch": 45,
-   "commands": ["time set 6000", "gamerule doDaylightCycle false", "weather clear 100000",
-                "execute {player} -4600 100 12600 riven"]},
-  {"label": "overview_horizon", "x": -4599.5, "y": 340, "z": 13200.5, "yaw": 180.0, "pitch": 8},
-  {"label": "overview_east", "x": -4471.5, "y": 340, "z": 13200.5, "yaw": 270.0, "pitch": 12}
-]
-```
+| View | Where | Looks | For |
+|---|---|---|---|
+| `ground_west` | (-4991.5, 80, 12072.5), two blocks above savanna at 78 | West, level | The horizon over land: plains, then a range 800 to 2,000 blocks off that rises past 160 |
+| `above_west` | (-4799.5, 156, 12000.5), 80 above ground at 76 | West, 15 degrees down | Near terrain below, distant terrain beyond, the join between them in view |
+| `high_down` | (-4599.5, 340, 13200.5) | North, 45 degrees down | The first run's view again, to compare the softer occlusion; no near terrain |
+| `coast_strait` | (-3903.5, 66, 10920.5), three above the sea over shallows | North-east, level | Across about 600 blocks of water to the far shore |
 
-**Runs**, each `play --name quadrature-distant-01 --tour <that file>` with
-`JAVA_TOOL_OPTIONS` set, and the client's `logs/latest.log` copied after each:
+**Runs**, each `play --name quadrature-distant-03 --tour <Quadrature>/tools/tours/distant-2485331.json`
+with `JAVA_TOOL_OPTIONS` set, the client's `logs/latest.log` copied after each, and the
+lease left free three minutes between them:
 
 1. Reference, distant off: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
    -Dquadrature.frameLog=true`.
 2. Distant on: the same, and `-Dquadrature.distant=own -Dquadrature.distant.world=16384
    -Dquadrature.glDebug=true`.
 
-About 12 minutes each (startup, three views of three minutes, shutdown): 25 to 30 minutes
-under the lease.
+About 16 minutes each: a minute and a half to start, four views of three minutes, about two
+minutes of moving between them, and the stop. 32 to 35 minutes under the lease in all.
 
-**Capture:** the three frames of each run, both logs, and GPU memory sampled once a second
+**Capture:** the four frames of each run, both logs, and GPU memory sampled once a second
 beside run 2.
 
-**Pass, for first frames:**
+**Pass:**
 
-1. The game starts and finishes the tour in both runs; no Mixin failure in the log.
-2. Run 2's log says distant terrain is on and is sampling the preview, and never that it
-   failed; no shader error. On the client it must say Riven's preview was built from the
-   server's definitions, not declined.
-3. Tiles arrive: stored counts rise at every level through the run, failed 0, refused 0.
+1. The game starts and finishes the tour in both runs.
+2. Run 2's log says distant terrain is on and sampling, never that it failed; Riven's preview
+   is built from the server's definitions, not declined.
+3. Tiles arrive at every view: stored counts reach the wanted counts, failed 0, refused 0.
 4. No driver message of error severity during distant terrain.
-5. In run 2's horizon views terrain shows beyond near terrain where run 1 shows sky or fog,
-   in plausible colors and the right place: the coast and mountains the terrain atlas shows
-   for those directions.
-6. Inside the near box the two runs' frames agree within `near.json`, apart from pixels
-   where distant terrain shows through gaps. A difference there is a depth or far-distance
-   fault and fails the run.
-7. Recorded, not judged: GPU time of the draw, faces and draws a frame, arena bytes, sample
-   and mesh times, the time from joining to the coarsest level stored.
+5. In `ground_west`, `above_west` and `coast_strait`, run 2 shows land where run 1 shows sky
+   or fog beyond near terrain: the range to the west, the far shore of the strait.
+6. Where near terrain is drawn, the two runs' frames agree within `near.json`, apart from
+   pixels where distant terrain shows past it. A difference on near terrain is a depth or
+   far-distance fault and fails the run. So does a band of sky between near and distant
+   terrain, which means the box is the wrong size.
+7. Recorded, not judged: GPU time of the distant draw and of near terrain in both runs,
+   faces and draws, arena bytes, sample and mesh times, time to the coarsest level.
 
-**Likely first failures**, in the order to look: the shader failing to compile (the log
-names the line; distant terrain turns itself off and the run goes on); nothing drawn
-because the preview is null on the client (the join message or the factory); faces in the
-wrong place or mirrored (the corner tables in the vertex stage); a ring of sky at the box's
-edge (the one-cube allowance).
+**Expected and not failures:** a hard change from textured near terrain to flat colors; the
+game's fog on near terrain's far edge in front of unfogged distant terrain; empty ground
+until tiles arrive; leaves as solid blocks; water without a surface.

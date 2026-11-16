@@ -1,0 +1,7 @@
+[
+  {"label": "ground_west", "x": -4991.5, "y": 80, "z": 12072.5, "yaw": 90.0, "pitch": 2,
+   "commands": ["time set 6000", "gamerule doDaylightCycle false", "weather clear 100000"]},
+  {"label": "above_west", "x": -4799.5, "y": 156, "z": 12000.5, "yaw": 100.0, "pitch": 15},
+  {"label": "high_down", "x": -4599.5, "y": 340, "z": 13200.5, "yaw": 180.0, "pitch": 45},
+  {"label": "coast_strait", "x": -3903.5, "y": 66, "z": 10920.5, "yaw": 225.0, "pitch": 2}
+]
