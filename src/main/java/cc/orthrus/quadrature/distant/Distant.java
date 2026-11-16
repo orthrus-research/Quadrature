@@ -4,8 +4,10 @@ import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.BuiltTile;
 import cc.orthrus.quadrature.core.lod.Cover;
 import cc.orthrus.quadrature.core.view.ShadedGate;
+import cc.orthrus.quadrature.core.view.StateGuard;
 import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
+import cc.orthrus.quadrature.core.lod.FarEdge;
 import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.Travel;
 import cc.orthrus.quadrature.core.lod.Rings;
@@ -255,6 +257,7 @@ final class Distant {
             captured = true;
         }
         DistantHook.drawnTo(drawnTo);
+        DistantHook.nearestEdge(nearestEdge());
         release();
         while (true) {
             // A fill tile whose ground finer tiles draw already is not built.
@@ -515,6 +518,23 @@ final class Distant {
                 workers.abandon(key);
             }
         }
+    }
+
+    /** How far the nearest side of the outermost selected level's square is from the viewer ({@link FarEdge}). */
+    private float nearestEdge() {
+        int level = LEVELS - 1;
+        if (WORLD_HALF > 0) {
+            level = rings.coarsestNeeded(ringsCameraX, ringsCameraZ, -WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
+        }
+        long side = TileKey.side(level);
+        long minX = rings.squareX(level) * side;
+        long minZ = rings.squareZ(level) * side;
+        long maxX = minX + rings.across() * side;
+        long maxZ = minZ + rings.across() * side;
+        return WORLD_HALF > 0
+            ? FarEdge.distance(view.originX(), view.originZ(), minX, minZ, maxX, maxZ, -WORLD_HALF, -WORLD_HALF,
+                WORLD_HALF, WORLD_HALF)
+            : FarEdge.distance(view.originX(), view.originZ(), minX, minZ, maxX, maxZ);
     }
 
     /** Gives back the arena blocks of tiles that left every ring and whose ground is covered again. */

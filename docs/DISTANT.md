@@ -273,7 +273,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.threads` | 2 | The fallback pool's threads, 1 to 8. No effect while Cubature's pool is used, whose size is Cubature's `clientPreviewThreads` |
 | `quadrature.distant.fog` | `own` | `own`: one fog for near and distant terrain. `game`: the game's fog on near terrain and none on distant terrain, as the first two runs drew |
 | `quadrature.distant.fogStart` | the reach (384) | Where the shared fog begins, in blocks from the eye |
-| `quadrature.distant.fogEnd` | the outermost ring's reach (24,576) | Where the shared fog is complete |
+| `quadrature.distant.fogEnd` | the outermost ring's reach less one of its tiles (20,480) | Where the shared fog is complete: no farther than the nearest side of the outermost square can be (section 16.10) |
 | `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
 | `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
 | `quadrature.distant.fill` | `on` | `on`: every level also takes the tiles inside its own hole and draws them until finer tiles are stored, so no hole is open while distant terrain arrives (section 18). `off`: each level its ring only |

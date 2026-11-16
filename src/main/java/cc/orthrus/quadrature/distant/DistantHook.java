@@ -33,6 +33,7 @@ public final class DistantHook {
     private static float farthest;
     private static boolean shaded;
     private static int farthestGeneration;
+    private static float nearestEdge;
 
     private DistantHook() {
     }
@@ -57,6 +58,7 @@ public final class DistantHook {
         sampling = now;
         if (!now) {
             drawnTo(0f);
+            nearestEdge = 0f;
         }
     }
 
@@ -76,6 +78,26 @@ public final class DistantHook {
      */
     public static float farthest() {
         return farthest;
+    }
+
+    /** Told by distant terrain each world pass it draws: how far the nearest side of its outermost square is. */
+    static void nearestEdge(float blocks) {
+        nearestEdge = blocks;
+    }
+
+    /**
+     * How far from the viewer distant terrain is drawn without an edge, in blocks along x or z: the
+     * smallest of the distances from the viewer to the four sides of the outermost level's square as
+     * selected. That square sits on its tiles' grid, so this lies between {@link #farthest} less one
+     * of that level's tiles and {@link #farthest}, and moves with the viewer from pass to pass
+     * without a jump: it is a value of the pass and has no generation. A side on the world's bound
+     * does not count; where all four are, it is the distance to the farthest of them. It is of the
+     * selection and not of what is stored: while the outermost level arrives, sky shows where its
+     * tiles are missing. 0 while distant terrain draws nothing. A fade into the sky that is complete
+     * by here hides the edge.
+     */
+    public static float nearestEdge() {
+        return nearestEdge;
     }
 
     /** Moves whenever {@link #farthest} changes: a world joined or left, or a bound that comes nearer. */

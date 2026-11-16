@@ -28,10 +28,11 @@ final class DistantSettings {
 
     /**
      * {@code quadrature.distant.fogEnd}: where the shared fog is complete. By default the reach of
-     * the outermost ring, so the last tiles fade into the horizon instead of ending on an edge.
+     * the outermost ring less one of its tiles, which is as near as a side of its square can be to
+     * the viewer, so the last tiles fade into the horizon instead of ending on an edge.
      */
     static final float FOG_END = Math.max(FOG_START + 1f,
-        number("quadrature.distant.fogEnd", (float) ((long) REACH << Math.max(0, LEVELS - 1))));
+        number("quadrature.distant.fogEnd", (float) cc.orthrus.quadrature.core.lod.FarEdge.least(REACH, LEVELS)));
 
     /**
      * {@code quadrature.distant.detail}: {@code images} (the default) draws level 0's faces with
