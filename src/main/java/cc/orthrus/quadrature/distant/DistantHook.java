@@ -30,6 +30,8 @@ public final class DistantHook {
     private static Distant distant;
     private static boolean sampling;
     private static boolean fogSaid;
+    private static float farthest;
+    private static int farthestGeneration;
 
     private DistantHook() {
     }
@@ -52,6 +54,32 @@ public final class DistantHook {
     /** Told by distant terrain each world pass: whether it has a terrain preview to draw from. */
     static void sampling(boolean now) {
         sampling = now;
+        if (!now) {
+            drawnTo(0f);
+        }
+    }
+
+    /** Told by distant terrain each world pass it draws: how far along an axis its rings reach. */
+    static void drawnTo(float blocks) {
+        if (blocks != farthest) {
+            farthest = blocks;
+            farthestGeneration++;
+        }
+    }
+
+    /**
+     * How far from the viewer distant terrain is drawn, in blocks along an axis: the reach of its
+     * highest ring that has tiles, or the distance to the world's far edge where a bound is set and
+     * that is nearer. 0 while distant terrain draws nothing. Whatever shades the frame fades to the
+     * sky before this. The highest ring's edges lie within one of its tiles of it.
+     */
+    public static float farthest() {
+        return farthest;
+    }
+
+    /** Moves whenever {@link #farthest} changes: a world joined or left, or a bound that comes nearer. */
+    public static int farthestGeneration() {
+        return farthestGeneration;
     }
 
     /**

@@ -96,6 +96,8 @@ final class Distant {
     /** The camera the rings were last selected for: the holes lie where that selection put them. */
     private long ringsCameraX;
     private long ringsCameraZ;
+    /** How far along an axis the rings last selected are drawn to: published through the hook. */
+    private long drawnTo;
     private final float[] holes = new float[8 * 4];
     private final float[] bandWidths = new float[8];
     private final int[] levelCount = new int[2];
@@ -198,6 +200,7 @@ final class Distant {
         takeEnded();
         takeBuilt();
         select();
+        DistantHook.drawnTo(drawnTo);
         release();
         while (true) {
             long key = schedule.next(workers.threads() * 2);
@@ -397,8 +400,10 @@ final class Distant {
         ringsCameraZ = cameraZ;
         if (WORLD_HALF > 0) {
             rings.select(cameraX, cameraZ, -WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
+            drawnTo = rings.drawnTo(cameraX, cameraZ, -WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
         } else {
             rings.select(cameraX, cameraZ);
+            drawnTo = rings.drawnTo();
         }
         schedule.want(rings);
         for (LongIterator it = inFlight.iterator(); it.hasNext();) {

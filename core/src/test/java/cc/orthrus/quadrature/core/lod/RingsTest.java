@@ -180,6 +180,30 @@ class RingsTest {
     }
 
     @Test
+    void theFarthestDistanceDrawnIsTheHighestRingsReachOrTheWorldsFarEdge() {
+        // No bound: the highest level's reach, wherever the camera stands.
+        assertEquals(24576, new Rings(384, 7).drawnTo());
+        assertEquals(49152, new Rings(384, 8).drawnTo());
+        assertEquals(256, new Rings(256, 1).drawnTo());
+        Rings rings = new Rings(384, 8);
+        // An 8 km world seen from (0, -2560): level 4 is the highest with tiles and reaches 6,144;
+        // the world's far edge, to the south, is 6,656 away.
+        assertEquals(6144, rings.drawnTo(0, -2560, -4096, -4096, 4096, 4096));
+        // From its middle the world ends 4,096 away on every side, nearer than level 4 reaches.
+        assertEquals(4096, rings.drawnTo(0, 0, -4096, -4096, 4096, 4096));
+        // A 32 km world seen from (10240, -8192): level 6 reaches 24,576, the far edge is 26,624 away.
+        assertEquals(24576, rings.drawnTo(10240, -8192, -16384, -16384, 16384, 16384));
+        // From a corner the highest level there is reaches 49,152; the world ends 32,384 away.
+        assertEquals(32384, rings.drawnTo(16000, 16000, -16384, -16384, 16384, 16384));
+        // Seven levels in that corner: level 6 is all there is, and it ends before the world does.
+        assertEquals(24576, new Rings(384, 7).drawnTo(16000, 16000, -16384, -16384, 16384, 16384));
+        // Never below 0, and it does not depend on what was last selected.
+        rings.select(0, 0);
+        assertEquals(4096, rings.drawnTo(0, 0, -4096, -4096, 4096, 4096));
+        assertTrue(rings.drawnTo(1_000_000, 0, -4096, -4096, 4096, 4096) >= 0);
+    }
+
+    @Test
     void aTileKeyHoldsItsPlaceAndItsFamily() {
         Random random = new Random(11);
         for (int trial = 0; trial < 1000; trial++) {

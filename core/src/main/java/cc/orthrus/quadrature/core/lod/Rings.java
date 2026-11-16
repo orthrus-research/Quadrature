@@ -160,6 +160,27 @@ public final class Rings {
     }
 
     /**
+     * How far along an axis distant terrain is drawn from a camera in a world without bounds, in
+     * blocks: the reach of the highest ring. That ring's square is moved to even tile positions, so
+     * its edges lie within one of its tiles of this; its corners are farther by the square root of 2.
+     */
+    public long drawnTo() {
+        return (long) reach << (levels - 1);
+    }
+
+    /**
+     * How far along an axis distant terrain is drawn from a camera in a world that holds the blocks
+     * from (minX, minZ) up to (maxX, maxZ): the reach of the highest ring that has tiles there, or
+     * the distance to the world's farthest edge where that is nearer. 0 for a camera so far outside
+     * the world that nothing of it is drawn along either axis.
+     */
+    public long drawnTo(long cameraX, long cameraZ, long minX, long minZ, long maxX, long maxZ) {
+        long ring = (long) reach << coarsestNeeded(cameraX, cameraZ, minX, minZ, maxX, maxZ);
+        long world = Math.max(Math.max(cameraX - minX, maxX - cameraX), Math.max(cameraZ - minZ, maxZ - cameraZ));
+        return Math.max(0, Math.min(ring, world));
+    }
+
+    /**
      * The lowest level whose square holds every block of the world for this camera, or the highest
      * level there is when none does: no tile above it is ever selected.
      */
