@@ -78,6 +78,22 @@ final class DistantSettings {
     static final boolean SHADED = "on".equals(System.getProperty("quadrature.distant.shaded", "off"));
 
     /**
+     * {@code quadrature.distant.shaded.leaves}: what a distant crown writes to the targets.
+     * {@code plain} (the default): the leaves' own albedo, without the darkening of their gaps, and
+     * the gaps as occlusion, from 0.8. {@code far}: the far color the forward path draws, which holds
+     * the gaps as darkness, and occlusion as for any block. The forward path draws the far color
+     * either way.
+     */
+    static final boolean SHADED_LEAVES_PLAIN = !"far".equals(System.getProperty("quadrature.distant.shaded.leaves", "plain"));
+
+    /**
+     * {@code quadrature.distant.shaded.image}: {@code true} writes the four targets and their depth
+     * as images beside each travel capture ({@code quadrature.distant.travelCapture}), after distant
+     * terrain has drawn into them. A diagnostic.
+     */
+    static final boolean SHADED_IMAGES = SHADED && Boolean.getBoolean("quadrature.distant.shaded.image");
+
+    /**
      * {@code quadrature.distant.joinFade}: {@code on} lets distant terrain fade in across near
      * terrain's last blocks, where near terrain fades out, in place of ending where near terrain's
      * columns begin. Off by default, and with no effect unless near terrain says that it fades and

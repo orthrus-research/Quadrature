@@ -34,6 +34,7 @@ final class TravelCapture {
     private int next;
     private String due;
     private boolean registered;
+    private String lastName = "travel";
 
     /**
      * Once a world pass, on the client thread.
@@ -62,10 +63,16 @@ final class TravelCapture {
         if (next < DELAYS.length && (now - jumpedAt) / 1_000_000L >= DELAYS[next]) {
             due = String.format("travel-%02d-%05dms.png", jump, DELAYS[next]);
             Quadrature.LOGGER.info("Travel capture: {} {} ms after the jump", due, (now - jumpedAt) / 1_000_000L);
+            lastName = due;
             next++;
             return true;
         }
         return false;
+    }
+
+    /** The name of the frame last asked for, for what is written beside it. */
+    String lastName() {
+        return lastName;
     }
 
     /** A world left: the next frame is a first frame again. */

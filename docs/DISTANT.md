@@ -1281,8 +1281,8 @@ color and depth under translucent surfaces; a frame index.
 
 Behind `quadrature.distant.shaded`, off by default; not run in a game.
 
-After the forward draw, and only in a frame in which near terrain drew its targets (their
-generation moved), the opaque and leaf layers are drawn again through the published
+After the forward draw, in every frame the targets stand (`ShadedGate`: published and made),
+the opaque and leaf layers are drawn again through the published
 framebuffer: its viewport, the alpha test and blending off, nothing cleared, the depth test as
 the frame has it, which with reversed depth is nearer-or-equal against near terrain's own
 depth; the framebuffer, the viewport and those two states are put back. The faces, the
@@ -1294,7 +1294,14 @@ last step differs (`TARGETS_OUTPUT` for `FORWARD_OUTPUT`):
 - C: the square root of the linear albedo, which is the image or flat color with the biome's
   tint; 1 for a conductor.
 - D: reflectance and subsurface from the table, or the linear albedo for a conductor; alpha,
-  1 less 0.08 for each cell that closes the corner in.
+  occlusion on the game's scale, which near terrain writes: 1 open, 0.2 less for each closed
+  neighbor of a corner, 0.4 where both edge neighbors are closed. At a coarse level the
+  darkening is divided by the cell's size: the mean over the cell of what the blocks along
+  its edge would have had, not a deeper value.
+- Crowns (`quadrature.distant.shaded.leaves`, default `plain`): C holds the leaves' own
+  albedo, the far color in light over the share of the image that is leaf, and D's alpha is
+  multiplied by 0.8 for the gaps. `far` writes the far color and plain occlusion, for a
+  capture of both across the join. The forward path draws the far color either way.
 
 The table is near terrain's, copied to a buffer of distant terrain's own when its version
 changes; a face finds its row by the state number in its material's third word, which is now
@@ -1309,17 +1316,32 @@ the player's, nothing is lost.
 they held, in their order, with only the declarations and assignments of four new values the
 targets need.
 
-**Unclear, asked and not guessed:**
+**Settled since, by near terrain and the shader thread:**
 
-- Occlusion's scale. Near terrain writes the game's own vertex occlusion; distant terrain's is
-  its own, 0.08 a closed cell, chosen for the forward look. Whether D's alpha should be on the
-  game's scale is the shader's to say.
-- Leaves. Distant crowns are solid and in the far color, which already holds the darkening of
-  their gaps; near leaves are cut out with their own albedo. The same crown is therefore a
-  little darker in albedo far than near, before any light.
-- Sky light under leaves and beside walls is the tile's simple column light, not the game's.
-- A tile fading in or a band fading writes the targets by the pattern, as it writes the frame:
-  a kept pixel carries one level's surface whole, never a mix.
+- The targets' generation counts how often they were made anew and is no sign of a frame. The
+  first version of this pass waited for it to move and would have drawn once and stopped;
+  `ShadedGateTest` holds the pass to drawing frame after frame with the generation unchanged.
+  Near terrain is to publish the frame the targets were drawn in beside a frame index; until
+  that is in this tree the pass draws whenever the targets stand, which is every frame near
+  terrain's switch is on, since this pass runs only in frames near terrain draws.
+- Occlusion and leaves as above.
+- Sky light by column is accepted: open ground is exactly 15 and under a canopy it falls one a
+  block of leaves, which `RunMesherTest` holds (a flat top at 15; 15 less 3 under three blocks
+  of leaves).
+- A pixel in a fade carries one surface whole in all four targets and depth. The pattern's
+  frame stays 0, on both paths, until near terrain publishes a frame index.
+- Block light 0 and no distant water are accepted for now.
+- Near terrain is to publish its material buffer; until then the table is copied.
+
+**Images of the targets.** `quadrature.distant.shaded.image=true` writes the four targets,
+their alphas and the depth as images beside each travel capture, after this pass
+(`TargetImages`). Near terrain's own images are written before distant terrain draws and show
+near terrain alone.
+
+**The ninth run, planned:** at noon, a view across the near join from above and one from the
+ground, each with the targets written, with crowns `plain` and again with `far`; read from
+them that a surface has the same albedo, normal, sky light and occlusion just inside and just
+outside near terrain, which is the shader thread's test.
 
 ## 17. A tour of distant terrain in travel
 

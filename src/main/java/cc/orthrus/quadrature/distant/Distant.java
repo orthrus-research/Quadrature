@@ -4,6 +4,7 @@ import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.BuiltTile;
 import cc.orthrus.quadrature.core.lod.Cover;
 import cc.orthrus.quadrature.core.material.MaterialTable;
+import cc.orthrus.quadrature.core.view.ShadedGate;
 import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
 import cc.orthrus.quadrature.core.lod.NearCover;
@@ -114,7 +115,6 @@ final class Distant {
         }
     });
     private final LongArrayList spared = new LongArrayList();
-    private long shadedGeneration = Long.MIN_VALUE;
     private int lastShadedDraws;
     private final java.nio.IntBuffer viewport = org.lwjgl.BufferUtils.createIntBuffer(16);
     /** The band the join fades over this frame, start then end, or null. */
@@ -266,6 +266,9 @@ final class Distant {
                 imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
             DistantHook.shaded(DistantSettings.SHADED && shade(minecraft, partialTicks, fading));
+            if (captured && DistantSettings.SHADED_IMAGES && DistantHook.shaded()) {
+                TargetImages.write(TerrainHook.shadingTargets(), travel.lastName());
+            }
             DriverMessageAccess.leave();
         } else {
             lastDraws = 0;
@@ -591,11 +594,12 @@ final class Distant {
     private boolean shade(Minecraft minecraft, float partialTicks, boolean fading) {
         ShadingTargets targets = TerrainHook.shadingTargets();
         MaterialTable table = TerrainHook.materials();
-        if (targets == null || table == null || targets.framebuffer() == 0 || targets.generation() == shadedGeneration) {
-            // No targets, or near terrain did not draw them this frame: nothing to add to.
+        if (!ShadedGate.draws(targets) || table == null) {
+            // No targets: near terrain's switch for them is off, or they are not made yet. Where they
+            // stand near terrain draws them in every frame, and this pass runs only in frames in
+            // which near terrain draws (DistantHook.draw), so every frame they stand is theirs.
             return false;
         }
-        shadedGeneration = targets.generation();
         int framebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
         GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
         boolean alpha = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
