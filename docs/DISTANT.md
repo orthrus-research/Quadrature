@@ -1576,12 +1576,11 @@ fight and no gap. Their d is the same because the place is the same.
   shows what lies behind: a block's difference over a 16-block band is one pixel in sixteen
   along such an edge.
 
-**Water.** Distant water is one of the layers the rule applies to, so in the band it is drawn
-in the pixels the pattern keeps, over a bed kept the same way, and is blended as elsewhere.
-Near water is drawn later, in the game's translucent pass. If near terrain fades its water by
-the same rule each pixel gets one water surface; if it does not, near water lies whole over
-the band and distant water under it is hidden where near water is opaque enough and tints it
-where not. Which it does is near terrain's to say; this side needs no change either way.
+**Water.** Distant water takes no part in the fade: over a column near terrain has meshed it
+is discarded as before, band or no band. Near water is still drawn by the game's own renderer
+and does not fade, so a faded distant water would lie under or over it and a pixel would have
+two water surfaces. The sea bed under it does fade, being opaque ground like any other. When
+near terrain draws and fades its own translucent layer, distant water can join the rule.
 
 **Columns that wait.** A column near terrain has loaded and not meshed is not covered, so
 distant terrain draws it whole, band or no band; near terrain draws nothing there to trade

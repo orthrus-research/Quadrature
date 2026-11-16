@@ -300,6 +300,8 @@ final class DistantProgram {
         "// The join's fade: where it starts and ends, in blocks from the view along the farther of x",
         "// and z. End not past start: none.",
         "uniform vec2 joinBand;",
+        "// 0 while the water layer is drawn.",
+        "uniform int imaged;",
         FadePattern.glsl(),
         "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
         "float within(vec4 hole, vec2 place) {",
@@ -342,8 +344,10 @@ final class DistantProgram {
         "        // With the join's fade, near terrain gives pixels up across its last blocks and distant",
         "        // terrain takes exactly those: the same distance, the same band, the pattern where",
         "        // near terrain keeps its complement.",
+        "        // Not water: near water is the game's own and does not fade, so distant water ends",
+        "        // where near terrain's columns begin and every pixel has one water surface.",
         "        float square = max(abs(fromOrigin.x), abs(fromOrigin.z));",
-        "        if (joinBand.y <= joinBand.x || square <= joinBand.x || !" + FadePattern.GLSL_FUNCTION
+        "        if (imaged == 0 || joinBand.y <= joinBand.x || square <= joinBand.x || !" + FadePattern.GLSL_FUNCTION
             + "(gl_FragCoord.xy, clamp((square - joinBand.x) / (joinBand.y - joinBand.x), 0.0, 1.0), false, 0)) {",
         "            discard;",
         "        }",
