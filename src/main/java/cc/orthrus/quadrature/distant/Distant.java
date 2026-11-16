@@ -106,6 +106,8 @@ final class Distant {
         }
     });
     private final LongArrayList spared = new LongArrayList();
+    /** The band the join fades over this frame, start then end, or null. */
+    private float[] joinBand;
     /** For the draw: a bit for each tile of each level's square that is shown, and where the squares lie. */
     private final int[] shownMasks = new int[8 * Cover.maskWords(2 * REACH / 64)];
     private final float[] squareOrigins = new float[8 * 2];
@@ -250,7 +252,7 @@ final class Distant {
             lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
                 minecraft.world.getSunBrightness(partialTicks), cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across());
+                imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
             DriverMessageAccess.leave();
         } else {
@@ -486,6 +488,7 @@ final class Distant {
         double eyeX = view.originX();
         double eyeY = view.originY() + Minecraft.getMinecraft().getRenderViewEntity().getEyeHeight();
         double eyeZ = view.originZ();
+        joinBand = DistantHook.joinBand();
         draws.begin(arena.pages());
         int drawn = 0;
         int inBox = 0;
@@ -507,6 +510,13 @@ final class Distant {
                 : tile.minimumY >= boxMinY && tile.maximumY <= boxMaxY && NearCover.covered(covered.states(),
                     covered.side(), firstCubeX, firstCubeZ, TileKey.originX(key), TileKey.originZ(key),
                     TileKey.originX(key) + tileSide, TileKey.originZ(key) + tileSide);
+            // With the join's fade, a tile near terrain covers is still drawn where it reaches the
+            // band: there it shows in the pixels near terrain gives up.
+            if (hidden && joinBand != null && !NearCover.beforeJoin(TileKey.originX(key), TileKey.originZ(key),
+                    TileKey.originX(key) + tileSide, TileKey.originZ(key) + tileSide, view.originX(), view.originZ(),
+                    joinBand[0])) {
+                hidden = false;
+            }
             if (hidden) {
                 // The box view draws the tiles the box holds too: their faces are what it shows.
                 if (DistantSettings.DEBUG != DistantSettings.DEBUG_BOX) {
@@ -626,6 +636,9 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(joinBand == null ? String.format("%n  join fade: off")
+            : String.format("%n  join fade: distant terrain fades in from %.0f to %.0f blocks over near terrain's columns%s",
+                joinBand[0], joinBand[1], DistantSettings.JOIN_FADE_DEBUG != null ? " (debug band, whatever near terrain does)" : ""));
         line.append(DistantSettings.FILL
             ? String.format("%n  fill tiles: on, each level's hole is drawn from that level until finer tiles are stored; "
                 + "%d let go once covered; order %s", tilesSpared,

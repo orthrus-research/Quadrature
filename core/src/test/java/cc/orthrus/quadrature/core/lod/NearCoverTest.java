@@ -97,4 +97,24 @@ class NearCoverTest {
         assertEquals(0f, NearCover.topDrop(TileDraws.OPAQUE));
         assertEquals(0f, NearCover.topDrop(TileDraws.CUTOUT));
     }
+
+    @Test
+    void theJoinFadesByTheFartherOfXAndZAndOnlyTilesWhollyBeforeItAreSkipped() {
+        // Near terrain's band at a view distance of 12: from 160 to 176 blocks.
+        assertEquals(0f, NearCover.joinFade(100, -159.9, 160, 176));
+        assertEquals(0.5f, NearCover.joinFade(-168, 20, 160, 176));
+        assertEquals(0.5f, NearCover.joinFade(168, 168, 160, 176), "square, not round");
+        assertEquals(1f, NearCover.joinFade(3, 176, 160, 176));
+        assertEquals(1f, NearCover.joinFade(-400, 0, 160, 176));
+        // A level 0 tile from 64 to 128 on both axes, seen from the origin: all of it nearer than 160.
+        assertTrue(NearCover.beforeJoin(64, 64, 128, 128, 0, 0, 160));
+        // The next tile out reaches 192: part of it is in the band.
+        assertFalse(NearCover.beforeJoin(128, 64, 192, 128, 0, 0, 160));
+        // The tile the view stands in, and one behind it on the other side.
+        assertTrue(NearCover.beforeJoin(-64, -64, 0, 0, -10.5, -20, 160));
+        assertFalse(NearCover.beforeJoin(-192, -64, -128, 0, 0, 0, 160));
+        // It is the far corner that counts.
+        assertFalse(NearCover.beforeJoin(100, 0, 164, 64, 0.5, 0.5, 160));
+        assertTrue(NearCover.beforeJoin(96, 0, 160, 64, 0, 0, 160));
+    }
 }

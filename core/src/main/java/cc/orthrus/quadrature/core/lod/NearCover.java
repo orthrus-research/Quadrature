@@ -68,6 +68,32 @@ public final class NearCover {
     }
 
     /**
+     * How far through the join's fade a place is: 0 up to where the band starts, 1 from where it
+     * ends, by its distance from the view along the farther of x and z, which is how near terrain
+     * measures it. Near terrain keeps a pixel where the shared pattern's complement keeps it at
+     * this value and distant terrain where the pattern itself does, so over ground both draw
+     * each pixel is drawn once.
+     */
+    public static float joinFade(double fromViewX, double fromViewZ, float start, float end) {
+        double square = Math.max(Math.abs(fromViewX), Math.abs(fromViewZ));
+        return (float) Math.max(0, Math.min(1, (square - start) / (end - start)));
+    }
+
+    /**
+     * Whether a square of ground lies wholly nearer the view than where the join's fade starts,
+     * by the same distance. Only such a tile, when near terrain covers it, need not be drawn:
+     * one that reaches into the band is drawn there in the pixels near terrain gives up.
+     *
+     * @param minX the square's lowest block; {@code maxX} is the block after its highest
+     */
+    public static boolean beforeJoin(long minX, long minZ, long maxX, long maxZ, double viewX, double viewZ,
+            float start) {
+        double farthest = Math.max(Math.max(Math.abs(minX - viewX), Math.abs(maxX - viewX)),
+            Math.max(Math.abs(minZ - viewZ), Math.abs(maxZ - viewZ)));
+        return farthest <= start;
+    }
+
+    /**
      * Where level 0's images fade to flat color, in blocks from the eye: as asked for, but never
      * beginning inside what near terrain covers, so that the join is not also a fade, and ending
      * inside ring 0, so that no image ends on a level's edge.

@@ -31,6 +31,9 @@ public final class DistantHook {
     private static boolean sampling;
     private static boolean fogSaid;
     private static float farthest;
+    private static float nearFadeStart;
+    private static float nearFadeEnd;
+    private static final float[] JOIN_BAND = new float[2];
     private static int farthestGeneration;
 
     private DistantHook() {
@@ -109,6 +112,32 @@ public final class DistantHook {
                 + "terrain alike, in place of the game's {} to {}.", DistantSettings.FOG_START,
                 DistantSettings.FOG_END, far * 0.75f, far);
         }
+    }
+
+    /**
+     * Told by near terrain: that it fades out across its last blocks, from {@code start} to
+     * {@code end} blocks from the view along the farther of x and z, keeping the pixels the shared
+     * pattern's complement keeps; or, with {@code end} not past {@code start}, that it does not.
+     * Distant terrain fades in over the same band only while this says so and
+     * {@code -Dquadrature.distant.joinFade=on}: each side alone would draw the band twice or leave
+     * it open. Nothing calls this yet; near terrain's fade is to, each frame it is on.
+     */
+    public static void nearFades(float start, float end) {
+        nearFadeStart = start;
+        nearFadeEnd = end;
+    }
+
+    /** The band distant terrain fades in over this frame, start then end, or null for none. */
+    static float[] joinBand() {
+        if (DistantSettings.JOIN_FADE_DEBUG != null) {
+            return DistantSettings.JOIN_FADE_DEBUG;
+        }
+        if (!DistantSettings.JOIN_FADE || !(nearFadeEnd > nearFadeStart)) {
+            return null;
+        }
+        JOIN_BAND[0] = nearFadeStart;
+        JOIN_BAND[1] = nearFadeEnd;
+        return JOIN_BAND;
     }
 
     /** Draws distant terrain. Called once a world pass, after the opaque layers of near terrain. */

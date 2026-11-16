@@ -70,6 +70,37 @@ final class DistantSettings {
     static final boolean FILL = !"off".equals(System.getProperty("quadrature.distant.fill", "on"));
 
     /**
+     * {@code quadrature.distant.joinFade}: {@code on} lets distant terrain fade in across near
+     * terrain's last blocks, where near terrain fades out, in place of ending where near terrain's
+     * columns begin. Off by default, and with no effect unless near terrain says that it fades and
+     * over what band ({@code DistantHook.nearFades}): one side alone would draw the band twice or
+     * not at all.
+     */
+    static final boolean JOIN_FADE = "on".equals(System.getProperty("quadrature.distant.joinFade", "off"));
+
+    /**
+     * {@code quadrature.distant.joinFadeBand}: {@code start,end} in blocks, for looking at distant
+     * terrain's half of the join's fade alone. It takes the band as given whatever near terrain
+     * does, so with near terrain not fading it draws distant terrain's pattern over near terrain's
+     * whole ground. A debug view, not a look.
+     */
+    static final float[] JOIN_FADE_DEBUG = band(System.getProperty("quadrature.distant.joinFadeBand"));
+
+    private static float[] band(String setting) {
+        if (setting == null) {
+            return null;
+        }
+        try {
+            String[] parts = setting.split(",");
+            float start = Float.parseFloat(parts[0].trim());
+            float end = Float.parseFloat(parts[1].trim());
+            return parts.length == 2 && start >= 0 && end > start ? new float[] {start, end} : null;
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /**
      * {@code quadrature.distant.order}: {@code near} (the default, and only with fill tiles) builds
      * the coarsest level's fill tiles, then every level from the finest outward; {@code coarse}
      * builds the coarsest level first, as the first seven runs did.

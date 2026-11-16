@@ -297,6 +297,9 @@ final class DistantProgram {
         "uniform int acrossTiles;",
         "// Where each level's square begins, from the view's origin.",
         "uniform vec2 squareOrigin[8];",
+        "// The join's fade: where it starts and ends, in blocks from the view along the farther of x",
+        "// and z. End not past start: none.",
+        "uniform vec2 joinBand;",
         FadePattern.glsl(),
         "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
         "float within(vec4 hole, vec2 place) {",
@@ -336,7 +339,14 @@ final class DistantProgram {
         "        return;",
         "    }",
         "    if (inside) {",
-        "        discard;",
+        "        // With the join's fade, near terrain gives pixels up across its last blocks and distant",
+        "        // terrain takes exactly those: the same distance, the same band, the pattern where",
+        "        // near terrain keeps its complement.",
+        "        float square = max(abs(fromOrigin.x), abs(fromOrigin.z));",
+        "        if (joinBand.y <= joinBand.x || square <= joinBand.x || !" + FadePattern.GLSL_FUNCTION
+            + "(gl_FragCoord.xy, clamp((square - joinBand.x) / (joinBand.y - joinBand.x), 0.0, 1.0), false, 0)) {",
+        "            discard;",
+        "        }",
         "    }",
         "    if (faceShows >= 0.0) {",
         "        // A tile that has just arrived comes in over a few frames.",
@@ -416,6 +426,7 @@ final class DistantProgram {
     private int maskWordsLocation;
     private int acrossTilesLocation;
     private int squareOriginLocation;
+    private int joinBandLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -437,7 +448,7 @@ final class DistantProgram {
      */
     int draw(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView, float[] projection,
         float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ, float[] fade,
-        float[] holes, float[] bandWidths, int levels, int[] shownMasks, float[] squareOrigins, int across) {
+        float[] holes, float[] bandWidths, int levels, int[] shownMasks, float[] squareOrigins, int across, float[] joinBand) {
         if (program == 0) {
             create();
         }
@@ -471,6 +482,7 @@ final class DistantProgram {
         GL20.glUniform1i(maskWordsLocation, cc.orthrus.quadrature.core.lod.Cover.maskWords(across));
         GL20.glUniform1i(acrossTilesLocation, across);
         GL20.glUniform2fv(squareOriginLocation, squareOrigins);
+        GL20.glUniform2f(joinBandLocation, joinBand == null ? 0f : joinBand[0], joinBand == null ? 0f : joinBand[1]);
         if (holes != null) {
             GL20.glUniform4fv(holesLocation, holes);
             GL20.glUniform1fv(bandWidthLocation, bandWidths);
@@ -623,6 +635,7 @@ final class DistantProgram {
         maskWordsLocation = GL20.glGetUniformLocation(program, "maskWords");
         acrossTilesLocation = GL20.glGetUniformLocation(program, "acrossTiles");
         squareOriginLocation = GL20.glGetUniformLocation(program, "squareOrigin");
+        joinBandLocation = GL20.glGetUniformLocation(program, "joinBand");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();

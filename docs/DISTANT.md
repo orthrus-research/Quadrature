@@ -278,6 +278,8 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
 | `quadrature.distant.fill` | `on` | `on`: every level also takes the tiles inside its own hole and draws them until finer tiles are stored, so no hole is open while distant terrain arrives (section 18). `off`: each level its ring only |
 | `quadrature.distant.order` | `near` | `near`: the coarsest level's fill tiles, then every level from the finest outward. `coarse`: the coarsest level first. Needs fill tiles (sections 18, 19) |
+| `quadrature.distant.joinFade` | `off` | `on`: distant terrain fades in across near terrain's last blocks. No effect unless near terrain says it fades (section 20) |
+| `quadrature.distant.joinFadeBand` | none | `start,end` in blocks: a debug view of distant terrain's half of that fade alone, whatever near terrain does |
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
@@ -1520,3 +1522,65 @@ none changes terrain, the builds being pure:
 
 A change that only reorders which thread asks for which cell was considered and dropped: the
 threads wait on one cell's build, not on each other's cells.
+
+## 20. The near join's fade, distant terrain's side
+
+Built behind `quadrature.distant.joinFade`, off by default; tested without a game as far as it
+can be; not run. Near terrain's side is built in its own branch and not in this one.
+
+**The agreement.** A fragment's distance d is from the view's position along the farther of x
+and z, in blocks: a square, as near terrain's columns are. The fade is (d - start) / (end -
+start), held to 0 to 1. Near terrain keeps a pixel where the shared pattern's complement keeps
+it at that fade; distant terrain where the pattern itself does. Unset, near terrain's band runs
+from 32 to 16 blocks inside the view distance, 160 to 176 at 12 chunks, and ends at its last
+meshed column.
+
+**What distant terrain does.** Until now a fragment over a column near terrain has meshed was
+discarded, and a tile wholly over such columns not drawn at all. With the fade, a fragment over
+a meshed column is kept where d is past the band's start and the pattern keeps it at the fade
+(`NearCover.joinFade`, and the same in the fragment stage); a covered tile is skipped only if
+all of it lies nearer than the start (`NearCover.beforeJoin`). Outside the band the coverage
+rule stands as it was.
+
+**The switch follows near terrain's, by what it is told.** `DistantHook.nearFades(start, end)`
+is for near terrain to call each frame its own fade is on; nothing calls it yet, so the switch
+has no effect in this tree. Distant terrain fades only while that says so and its own switch is
+on. One side alone is wrong both ways: distant terrain alone draws its pattern over near
+terrain's whole ground; near terrain alone leaves its given-up pixels open.
+`quadrature.distant.joinFadeBand` forces a band for looking at this half by itself and is a
+debug view.
+
+**Where both draw the same surface.** Level 0's cells are blocks, so on plain ground the two
+surfaces lie in one plane at one depth, and each pixel is kept by exactly one side: no depth
+fight and no gap. Their d is the same because the place is the same.
+
+**Where they do not.**
+
+- *Leaves.* Near leaves are cut out and show what is behind them; distant leaves are solid in
+  the far color. In the band a crown goes from cut-out to solid by the pattern: the pixels
+  distant terrain keeps are solid. That is the change that happens anyway with distance,
+  spread over 16 blocks.
+- *Small things.* Near terrain draws plants, slabs and other blocks distant terrain leaves
+  out. In the band they thin out by the pattern, and through the pixels they lose the ground
+  under them shows, which distant terrain draws.
+- *Edges at different depths.* Where the two sides' fragments in one pixel lie at different
+  distances, at a silhouette or a step, their fades differ by the difference in d over the
+  band's width. A pixel can then be kept by both, which depth settles, or by neither, which
+  shows what lies behind: a block's difference over a 16-block band is one pixel in sixteen
+  along such an edge.
+
+**Water.** Distant water is one of the layers the rule applies to, so in the band it is drawn
+in the pixels the pattern keeps, over a bed kept the same way, and is blended as elsewhere.
+Near water is drawn later, in the game's translucent pass. If near terrain fades its water by
+the same rule each pixel gets one water surface; if it does not, near water lies whole over
+the band and distant water under it is hidden where near water is opaque enough and tints it
+where not. Which it does is near terrain's to say; this side needs no change either way.
+
+**Columns that wait.** A column near terrain has loaded and not meshed is not covered, so
+distant terrain draws it whole, band or no band; near terrain draws nothing there to trade
+pixels with. The same holds for its outermost ring of columns, which it never meshes: the
+band's end is its last meshed column, and past it distant terrain is whole.
+
+**Not known until both sides run:** that near terrain's view position is the one distant
+terrain uses (the viewer's interpolated position), to the fraction of a block; a difference
+would show as a seam of doubled or missing pixels across the band.
