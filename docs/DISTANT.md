@@ -1792,3 +1792,86 @@ band's end is its last meshed column, and past it distant terrain is whole.
 **Not known until both sides run:** whether the two patterns meet without a seam. Both now
 measure from one place, so a seam would be a fault in one side's arithmetic and not a
 difference of origin.
+
+## 21. Proposal: distant water as inputs for shading
+
+Not built. Section 14.4 and 16.4 say what the shader wants of water and that distant water
+has it; this is how it could be handed over, for near terrain and the shader thread to
+answer.
+
+**Today.** Distant water is the third draw layer of the forward pass: flat top faces a ninth
+of a block under the block's top, no side faces, the biome's water tint times a flat color,
+sky light of 4 bits a face, lit and fogged by this mod's own sums, blended over what is drawn
+by the mean alpha of the game's water image. It writes depth as the opaque layers do. Over a
+column near terrain has meshed it is discarded whole, and it takes no part in the join's fade
+(section 20). On the shaded path it is not drawn into the targets, rightly: a target holds
+one surface a pixel and water needs two, itself and the bed under it. Near water is still the
+game's own draw.
+
+**What a water surface has to give,** from 14.4: that it is water (kind 100), a flat upward
+normal, the tint apart from any image, sky light at the surface, cover, and its depth, kept
+out of the opaque depth so that the opaque color and depth under it can be read.
+
+**Three ways.**
+
+1. *A water target.* After the opaque pass and before shading, the water layer is drawn into
+   a small set of its own that near terrain makes and publishes beside A to D: one color
+   target (tint in color, sky light and cover packed in alpha, the kind implied by the
+   target) and a depth of its own, the size of the window. The normal is up and is not
+   stored. The shader reads opaque depth and water depth side by side. Near water, when near
+   terrain draws it, writes the same set, and nearer-or-equal depth settles near against far.
+   Cost: one more pass over the water layer's draws, which are few (tops only, coarse beyond
+   ring 0); 8 bytes a pixel of targets; a new published set and its drawn-frame gate, as for
+   A to D. Limit: one water surface a pixel, the nearest, so water seen through water (a lake
+   behind a waterfall's edge) loses the farther. Translucents other than water do not fit.
+2. *A published list.* Distant terrain publishes what it would draw: the water layer's
+   indirect commands and pages, the buffers' names, the vertex stage's source and uniforms.
+   The shader thread's stage binds them and draws water with a fragment stage of its own,
+   after shading. Cost here: none in the frame, since nothing is drawn twice. Cost overall:
+   the vertex stage's layout (face records, origins, masks, the cover rule's uniforms)
+   becomes a contract another project compiles against, and every change to a record or to
+   the cover rule is then a change for two projects. Nothing is limited to one surface.
+3. *Forward, as now, until near terrain owns translucents.* Distant water stays this mod's
+   forward draw, moved after shading on the shaded path, reading the lit opaque color and the
+   opaque depth near terrain is to publish (ARCHITECTURE 6.6), with depth writes off. Its
+   look is this mod's and not the shader's: no waves, no reflection, its own absorption or
+   none. When near terrain draws its translucent layer, with whatever inputs or hooks that
+   takes, distant water follows the same route. Cost: nothing new now but the depth mask and
+   the place in the frame; near and far water do not shade alike until then.
+
+**Recommended:** the third now and the first as what it turns into. Shading does not exist
+yet and near water is still the game's, so anything built today for the first or second way
+would be built against nothing that can check it; the ninth and tenth runs showed how much
+the opaque pass needed near terrain's real targets to be got right. The one thing worth doing
+at once is small and wanted by every way: stop distant water writing depth on the shaded
+path and draw it after the opaque pass, so the opaque depth is the bed's. Of the two real
+deliveries the first is preferred: it keeps the record layout private, costs one cheap pass,
+and gives near and far water one shape, which is what makes them shade alike. The second is
+kept only if the shader must have more than one water surface a pixel.
+
+**Questions for near terrain.**
+
+1. Will near terrain draw translucent terrain itself, and write water as inputs (a target)
+   or shade it forward in its own stage? Distant water should take whichever it takes.
+2. If a target: would near terrain make and publish the water set (one color, one depth,
+   window-sized, its framebuffer, a drawn-frame count) beside A to D, as it does those?
+3. Where in the frame may distant water draw once shading exists: is there to be a hook
+   after shading and before the game's translucent pass, and are the lit opaque color and
+   the opaque depth published as textures by then, as 6.6 says?
+4. Until near water fades at the join, distant water ends at near terrain's meshed columns.
+   When near terrain draws its own water, will it fade by the same band and pattern as its
+   opaque layers?
+
+**Questions for the shader thread.**
+
+1. Is one water surface a pixel enough, the nearest, or is water behind water needed?
+2. Is tint, sky light, cover and depth, with the normal taken as up and the kind as given by
+   the target, everything wanted of distant water? In particular: is cover wanted at all
+   once the shader does its own absorption, and is 4 bits of sky light enough at a surface?
+3. Is a depth of its own for water acceptable, read beside the opaque depth, or is one depth
+   with water's distance in a color channel preferred?
+4. Distant water has no side faces and no flow, and its tops are flat at one level a column:
+   a waterfall or a step in a river is a missing wall of water at a distance. Does shading
+   need those faces, or is that left as a known difference?
+5. Should water beyond some distance stop being a translucent and be written into A to D as
+   an opaque surface of kind 100, so that the farthest rings cost nothing extra?
