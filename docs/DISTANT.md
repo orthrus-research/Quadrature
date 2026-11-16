@@ -1309,6 +1309,13 @@ left over a finer one. The same tour in the level view shows which level each pi
 **Not covered still:** continuous motion, which needs a flight and a video or a run of frames
 a tick apart.
 
+**The arrival tour,** `tools/tours/distant-arrival-2485331.json`, made after the seventh run
+(17.1) for an instance that settles 3,000 ticks, two and a half minutes, at each view, with
+delays of 0.5, 2, 5, 12, 30 and 60 seconds: a cold join seen from 160 blocks up, so the whole
+fill of the rings is caught from nothing; then, with everything stored, a jump of 2 km at the
+same height, which is the jump the first tour made too early; then two steps of 32 blocks.
+All four views keep one height, so the launcher makes one teleport a view.
+
 ### 17.1 The seventh run
 
 Two runs under one lease on the build at e4df9ef, neither with an error: the travel tour, and

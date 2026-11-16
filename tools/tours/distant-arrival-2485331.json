@@ -1,0 +1,40 @@
+[
+  {
+    "label": "cold_join",
+    "x": -4991.5,
+    "y": 160,
+    "z": 12072.5,
+    "yaw": 90.0,
+    "pitch": 15,
+    "commands": [
+      "time set 6000",
+      "gamerule doDaylightCycle false",
+      "weather clear 100000",
+      "tp {player} -4991.5 160 12072.5 90.0 15"
+    ]
+  },
+  {
+    "label": "far_jump",
+    "x": -3000.5,
+    "y": 160,
+    "z": 12000.5,
+    "yaw": 90.0,
+    "pitch": 15
+  },
+  {
+    "label": "step_1",
+    "x": -3032.5,
+    "y": 160,
+    "z": 12000.5,
+    "yaw": 90.0,
+    "pitch": 15
+  },
+  {
+    "label": "step_2",
+    "x": -3064.5,
+    "y": 160,
+    "z": 12000.5,
+    "yaw": 90.0,
+    "pitch": 15
+  }
+]
