@@ -4,14 +4,16 @@ Status: the part with no graphics in it is built and tested, in `core`
 (`cc.orthrus.quadrature.core.lod`): the run tile, the run mesher, the face record, the ring
 selection, the schedule and the draw list. The first frames are written and compile, in
 `cc.orthrus.quadrature.distant` (section 8): sampling, materials, an arena and the draw.
-They have run five times in a game (sections 9 to 13): tiles are sampled on Cubature's client
+They have run six times in a game (sections 9 to 13 and 15): tiles are sampled on Cubature's client
 preview pool, stored and drawn in the right places; land shows beyond near terrain to the
 horizon under one fog; distant land begins where near land ends with no band of sky; near and
 distant water meet at one level and in one color; on land and over the sea the near box does
-not stand open; an entity 150 blocks out is drawn in front of distant land. **Untested
-still:** the pool's threads when a world is left, whether images near the join show, the
-corrected color of leaf images, near terrain's coverage map in place of the box, the crossfade
-between levels, the hand, and the rest of section 14. Section 15 is the plan for the next run.
+not stand open; an entity 150 blocks out is drawn in front of distant land; near terrain's
+coverage map stands in for the box with no hole; levels fade into each other with no line.
+Distant crowns are still darker than near ones, 0.88 of their brightness. **Untested still:**
+the pool's threads when a world is left, whether images near the join show, a tile arriving
+in view, anything in motion, the hand, a short view distance, and the rest of section 14;
+the first three steps of section 16.6 are built and have not run in a game.
 Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
@@ -1013,9 +1015,10 @@ pixel sees 8 of them, so a band resolves in eighths. A fragment stage passes
 - The order of distant water against near water.
 - Emission: how distant terrain learns a state's emission before the shared table exists.
 
-## 15. The next run
+## 15. The sixth run
 
-Not done. One GPU turn under Riven's lease, two tours on one fresh instance
+Done 2026-11-16; what it showed is at the end of this section. The plan as it was written: one
+GPU turn under Riven's lease, two tours on one fresh instance
 (`quadrature-distant-09`), on the current build: near terrain's coverage map in place of the
 box, the crossfade between levels with tiles fading in, and leaf images filled to their far
 color. Cubature 24f5ad89.
@@ -1073,6 +1076,33 @@ set, GPU memory sampled beside both, bounded from outside at 24 minutes:
 **Still not covered by this run:** a tile arriving in view (stills are captured after a
 settle), anything in motion, the pool's threads when a world is left, and a short view
 distance.
+
+### 15.1 What it showed
+
+Both tours ran to the end with no error, on the build at bc6ba14.
+
+| | Result |
+|---|---|
+| 1 | Pass. The log names the coverage map and the crossfade |
+| 2 | Pass: no hole and no band of sky at the near join in any view |
+| 3 | Meshed columns rise after a teleport (the coast: 0, 355, 529 of 625; `ground_join`: 264, 284, 562). The tiles drawn beside them were not read off |
+| 4 | Pass: the rows near terrain fills are identical to the fifth run's in `ground_west` and `above_west`. In `coast_join` near water differs by about 1.5 of 255 on a sixth to a quarter of its pixels; not traced |
+| 5 | Missed: distant crowns are 0.88 of near crowns' brightness where images show (the fifth run: 0.83 by the same measure) and 0.86 beyond. What is left is the flat far color, not the images |
+| 6 | Pass by eye in `above_west` and `coast_join` |
+| 7 | Pass: 764 to 788 tiles wanted and stored (the fifth run: 658 and 676), failed 0, refused 0. Arena 42.4 MiB (35.6); GPU 2.6 ms mean, 3.1 at most (2.0 to 2.4); 386 tiles and 1.9 million faces in 3 draws |
+| 8 | The join cannot be found by eye; trunks and crowns go on past near terrain. At 4 to 5 pixels a block an image cannot be told from a flat color |
+| 9 | Pass: levels 0 to 4 in order up the frame, each pair mixed by the pattern across its band; sky-colored pixels inside the leveled ground 0.00 to 0.05 % |
+| 10 | In part: every band is there and in order; that each lies one coarser tile inside its ring's edge was not measured |
+| 11 | Not a test: in the level view the shared fog is off, so near terrain stands in the game's own fog, 144 to 192 blocks, and fades out before level 0 begins |
+
+At rest the coverage map read 529 of 625 columns meshed and 96 waiting, the 96 being its outer
+ring, which near terrain never meshes; after a short move, 562 and 63.
+
+**Seen in the level view at the coast.** From some 50 blocks out distant sea bed shows through
+near water over a wide area: near terrain has no bed there, most likely because the bed lies
+below its lowest meshed cube. In the normal look that area is lighter by about 2 of 255
+(37, 52, 173 against 35, 49, 170). It may be what the lighter patches in near water are; that
+is not shown.
 
 ## 16. Plan: the shaded path
 
