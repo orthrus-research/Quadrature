@@ -38,6 +38,11 @@ final class SurfaceHeights {
     /** For each column asked about, its band, and the source's version of it then. */
     private final Long2LongOpenHashMap bands = new Long2LongOpenHashMap();
     private final Long2LongOpenHashMap versions = new Long2LongOpenHashMap();
+    /** Columns a cube changed in or beside the band kept for them: their answers are checked before they are used again. */
+    private final it.unimi.dsi.fastutil.longs.LongOpenHashSet stale = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+    private long versionsAsked;
+    /** The columns asked about since the coverage map last took their bands. */
+    private final it.unimi.dsi.fastutil.longs.LongArrayList answered = new it.unimi.dsi.fastutil.longs.LongArrayList();
     private long asked;
     private long nanos;
     private long mostNanos;
@@ -99,21 +104,24 @@ final class SurfaceHeights {
      * changed is dropped.
      */
     long band(int columnX, int columnZ) {
+        return bands.get(column(columnX, columnZ));
+    }
+
+    /**
+     * Says that a cube of a column changed: arrived, left, was meshed anew. Where the cube lies in or
+     * beside the band kept for the column, or no band is kept, the answer may no longer hold and the
+     * column is asked about again when next it comes up; a change far from the band leaves the answer
+     * as it is.
+     */
+    void touched(int columnX, int cubeY, int columnZ) {
         long key = column(columnX, columnZ);
+        if (!versions.containsKey(key)) {
+            return;
+        }
         long band = bands.get(key);
-        if (band == SurfaceBand.NONE) {
-            return band;
+        if (band == SurfaceBand.NONE || cubeY >= SurfaceBand.lowest(band) - 1 && cubeY <= SurfaceBand.highest(band) + 1) {
+            stale.add(key);
         }
-        try {
-            if ((long) version.invokeExact(source, columnX, columnZ) != versions.get(key)) {
-                bands.remove(key);
-                versions.remove(key);
-                return SurfaceBand.NONE;
-            }
-        } catch (Throwable e) {
-            return SurfaceBand.NONE;
-        }
-        return band;
     }
 
     /** Asks the source about a column and keeps the answer. Call only for a column whose ground is among cubes held. */
@@ -125,6 +133,8 @@ final class SurfaceHeights {
             long key = column(columnX, columnZ);
             long band = fromLoaded == 0 ? SurfaceBand.NONE : SurfaceBand.of(ground, liquid, loaded, UNKNOWN);
             versions.put(key, (long) version.invokeExact(source, columnX, columnZ));
+            stale.remove(key);
+            answered.add(key);
             if (band == SurfaceBand.NONE) {
                 bands.remove(key);
             } else {
@@ -137,6 +147,11 @@ final class SurfaceHeights {
         asked++;
         nanos += took;
         mostNanos = Math.max(mostNanos, took);
+    }
+
+    /** The columns asked about since they were last taken, as {@code columnX << 32 | columnZ}: the taker clears it. */
+    it.unimi.dsi.fastutil.longs.LongArrayList answered() {
+        return answered;
     }
 
     /** Whether the cube source can be told never to work a height out from the generator. */
@@ -158,19 +173,35 @@ final class SurfaceHeights {
         }
     }
 
-    /** Whether a column has been asked about and not changed since by this object's account. */
+    /** Whether a column has been asked about and the source's version of it has not moved since. */
     boolean known(int columnX, int columnZ) {
-        return versions.containsKey(column(columnX, columnZ));
+        long key = column(columnX, columnZ);
+        if (!versions.containsKey(key)) {
+            return false;
+        }
+        if (!stale.contains(key)) {
+            return true;
+        }
+        // A cube by its band changed. The answer still holds if the source's version of the column has not moved.
+        stale.remove(key);
+        try {
+            versionsAsked++;
+            return (long) version.invokeExact(source, columnX, columnZ) == versions.get(key);
+        } catch (Throwable e) {
+            return false;
+        }
     }
 
     /** Forgets every answer, as when the world is left. */
     void clear() {
         bands.clear();
         versions.clear();
+        stale.clear();
+        answered.clear();
     }
 
     String summary() {
-        return String.format("surface heights asked %d times, %.3f ms each, %.3f ms most, %d columns kept", asked,
-            asked == 0 ? 0.0 : nanos / 1e6 / asked, mostNanos / 1e6, bands.size());
+        return String.format("surface heights asked %d times, %.3f ms each, %.3f ms most, %d columns kept, a column's version "
+                + "asked %d times", asked, asked == 0 ? 0.0 : nanos / 1e6 / asked, mostNanos / 1e6, bands.size(), versionsAsked);
     }
 }

@@ -463,7 +463,10 @@ holds, or in place of what has not arrived, is told two things.
   whether it waits its turn or lacks a neighbor and cannot be meshed; and has its
   *surface meshed* when the surface cube holds a mesh and the cube beneath does not wait.
   The map also gives each column's surface cube. It is worked out again when what is held
-  changes, no oftener than every twenty frames.
+  changes, no oftener than every twenty frames, and then it is brought up to date and not
+  filled anew: only the cubes that arrived, left or were meshed since the last time are
+  told of, and only their columns are judged again. It is filled anew when the box is
+  another, and every 64th time as a guard.
 - *The highest cubes held are never meshed*, for want of a neighbor above, so nothing
   would be known to be air and every column would read as having no surface. With
   coverage on, a cube that cannot be meshed is therefore asked whether it is empty, and
@@ -472,8 +475,11 @@ holds, or in place of what has not arrived, is told two things.
   source's surface heights, surface version and cube content by name. Where they are
   present a column's band comes from the heights, a column is judged by the band's cubes,
   and emptiness is one look-up; where they are absent the scan above stands and emptiness
-  is asked of a snapshot. The cube source pinned has them; coverage is verified so far
-  only against a cube source without them.
+  is asked of a snapshot. The cube source pinned has them. A column's heights are asked
+  for when a cube of it is meshed, beside the mesh, and kept until a cube of the column
+  changes; the pass itself asks only for a column left without an answer, the nearest
+  first, and stops asking after 0.15 ms. One ask is a call into the cube source and is
+  not bounded by this.
 - *What the rule cannot tell:* a cube that is solid and wholly enclosed draws nothing and
   reads as air, which matters only above the surface, where there is none; and a roof
   over a column, an overhang or a tree's crown, is taken for its surface. A height for

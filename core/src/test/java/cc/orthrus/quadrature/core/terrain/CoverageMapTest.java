@@ -1,7 +1,10 @@
 package cc.orthrus.quadrature.core.terrain;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -141,5 +144,77 @@ class CoverageMapTest {
         map.finish(MAX);
         assertEquals(CoverageMap.SURFACE_MESHED, map.state(10, 20));
         assertEquals(5, map.surfaceCubeY(10, 20));
+    }
+
+    @Test
+    void broughtUpToDateItIsTheSameAsFilledAnew() {
+        java.util.Random random = new java.util.Random(7);
+        int across = 3;
+        int upward = 4;
+        int side = 2 * across + 1;
+        int tall = 2 * upward + 1;
+        byte[] world = new byte[side * side * tall];
+        int[] low = new int[side * side];
+        int[] high = new int[side * side];
+        java.util.Arrays.fill(low, CoverageMap.NONE);
+        CoverageMap kept = new CoverageMap();
+        kept.begin(10, 20, -30, across, upward);
+        kept.finish(1000);
+        long generation = kept.generation();
+        for (int round = 0; round < 400; round++) {
+            assertTrue(kept.holds(10, 20, -30, across, upward));
+            kept.update();
+            // A few cubes change state, a column gains or loses its band.
+            for (int change = 0; change < 1 + random.nextInt(4); change++) {
+                int x = random.nextInt(side);
+                int y = random.nextInt(tall);
+                int z = random.nextInt(side);
+                byte state = (byte) random.nextInt(4);
+                world[(y * side + z) * side + x] = state;
+                kept.cube(10 - across + x, 20 - upward + y, -30 - across + z, state);
+            }
+            if (random.nextInt(3) == 0) {
+                int column = random.nextInt(side * side);
+                if (random.nextBoolean()) {
+                    low[column] = 20 - upward + random.nextInt(tall - 1);
+                    high[column] = low[column] + 1;
+                    kept.band(10 - across + column % side, -30 - across + column / side, low[column], high[column]);
+                } else {
+                    low[column] = CoverageMap.NONE;
+                    kept.noBand(10 - across + column % side, -30 - across + column / side);
+                }
+            }
+            kept.finish(1000);
+            CoverageMap anew = new CoverageMap();
+            anew.begin(10, 20, -30, across, upward);
+            for (int i = 0; i < world.length; i++) {
+                if (world[i] != 0) {
+                    anew.cube(10 - across + i % side, 20 - upward + i / (side * side), -30 - across + i / side % side, world[i]);
+                }
+            }
+            for (int column = 0; column < low.length; column++) {
+                if (low[column] != CoverageMap.NONE) {
+                    anew.band(10 - across + column % side, -30 - across + column / side, low[column], high[column]);
+                }
+            }
+            anew.finish(1000);
+            assertArrayEquals(anew.states(), kept.states(), "round " + round);
+            for (byte state = 0; state < 4; state++) {
+                assertEquals(anew.count(state), kept.count(state));
+            }
+            assertEquals(anew.meshedWithoutBand(), kept.meshedWithoutBand());
+            for (int column = 0; column < low.length; column++) {
+                assertEquals(anew.surfaceCubeY(10 - across + column % side, -30 - across + column / side),
+                    kept.surfaceCubeY(10 - across + column % side, -30 - across + column / side));
+            }
+        }
+        // The generation moved, and it does not move when nothing changes.
+        assertTrue(kept.generation() > generation);
+        long before = kept.generation();
+        kept.update();
+        kept.finish(1000);
+        assertEquals(before, kept.generation());
+        // Another box is not held: it must be filled anew.
+        assertFalse(kept.holds(11, 20, -30, across, upward));
     }
 }

@@ -122,7 +122,24 @@ public final class Terrain
     private long mostCoverageNanos;
     private long coverages;
     private long emptinessAsked;
-    private static final int HEIGHT_COLUMNS_A_PASS = 16;
+    /** The time a pass of coverage may spend asking the cube source for surface heights. */
+    private static final long HEIGHT_NANOS_A_PASS = 150_000;
+    private long coverageScanNanos;
+    private long coverageBandNanos;
+    private long coverageAskNanos;
+    /** After this many passes the map is filled anew whatever changed, as a guard against a change that was not noted. */
+    private static final int COVERAGE_ANEW_EVERY = 64;
+    /** A diagnostic, off unless {@code -Dquadrature.coverage.check=true}: each map brought up to date is set beside one filled anew. */
+    private static final boolean COVERAGE_CHECK = COVERAGE && Boolean.getBoolean("quadrature.coverage.check");
+    private final it.unimi.dsi.fastutil.longs.LongArrayList coverageTouched = new it.unimi.dsi.fastutil.longs.LongArrayList();
+    private boolean coverageAnew = true;
+    private long coveragesAnew;
+    private CoverageMap coverageReference;
+    private long coverageChecks;
+    private long coverageCheckFailures;
+    private long heightsAtMesh;
+    private long heightsInPass;
+    private long heightCapTrips;
     private SurfaceHeights surfaceHeights;
     /**
      * Off unless {@code -Dquadrature.scene.gpu=true}, which needs the scene: the scene is copied to
@@ -313,6 +330,7 @@ public final class Terrain
             slots.acquire(CubeKey.of(x, y, z));
         });
         tableVersion++;
+        coverageAnew = true;
     }
 
     @Override
@@ -324,6 +342,7 @@ public final class Terrain
     @Override
     public void cubeLoaded(int x, int y, int z) {
         long key = CubeKey.of(x, y, z);
+        touch(key);
         dirty.add(key);
         // Until it is meshed nothing is known of it, so it hides nothing.
         if (!links.containsKey(key)) {
@@ -336,6 +355,7 @@ public final class Terrain
     @Override
     public void cubeUnloaded(int x, int y, int z) {
         long key = CubeKey.of(x, y, z);
+        touch(key);
         dirty.remove(key);
         release(meshes.remove(key));
         links.remove(key);
@@ -363,6 +383,7 @@ public final class Terrain
     @Override
     public void cubeChanged(int x, int y, int z, int kinds, int minX, int minY, int minZ, int maxX, int maxY,
         int maxZ) {
+        touch(CubeKey.of(x, y, z));
         dirty.add(CubeKey.of(x, y, z));
         unsettle(CubeKey.of(x, y, z));
     }
@@ -385,6 +406,12 @@ public final class Terrain
         }
         links.clear();
         tableVersion++;
+        coverageAnew = true;
+        coverageTouched.clear();
+        if (surfaceHeights != null) {
+            // Another world's columns are other columns: no answer carries over.
+            surfaceHeights.clear();
+        }
     }
 
     private void release(CubeMesh mesh) {
@@ -463,6 +490,7 @@ public final class Terrain
     }
 
     private void rebuild(long key) {
+        touch(key);
         int x = CubeKey.x(key);
         int y = CubeKey.y(key);
         int z = CubeKey.z(key);
@@ -471,7 +499,6 @@ public final class Terrain
             links.remove(key);
             slots.release(key);
             releaseFaceSlot(key);
-        releaseFaceSlot(key);
             tableVersion++;
             unsettle(key);
             if (scene != null) {
@@ -529,6 +556,19 @@ public final class Terrain
         }
         if (scene != null) {
             scene.put(x, y, z, mesher.cells(), mesher.blocking());
+        }
+        if (COVERAGE && any) {
+            // A column's surface heights are asked for here, beside the mesh of a cube of it that draws
+            // something, and again when the source's version of the column has moved: once or a few
+            // times a column, each a small part of a mesh's own time. The coverage pass then only
+            // looks at what is kept.
+            if (surfaceHeights == null) {
+                surfaceHeights = new SurfaceHeights(source);
+            }
+            if (surfaceHeights.present() && !surfaceHeights.known(x, z)) {
+                surfaceHeights.ask(x, z);
+                heightsAtMesh++;
+            }
         }
         CubeMesh mesh = null;
         if (any) {
@@ -740,45 +780,98 @@ public final class Terrain
         coverageStamp = stamp;
         coverageFrame = frames;
         coverageOriginY = mainView.originCubeY();
-        coverage.begin(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
-            mainView.upward());
-        for (LongIterator it = links.keySet().iterator(); it.hasNext();) {
-            long key = it.nextLong();
-            coverage.cube(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), meshes.containsKey(key) ? CoverageMap.CUBE_MESHED
-                : settled.contains(key) ? CoverageMap.CUBE_EMPTY : CoverageMap.CUBE_HELD);
-        }
-        int side = coverage.side();
+        // The map is filled anew when the box is another, when everything changed at once, and now and
+        // then as a guard; otherwise only the cubes that changed since the last time are told of.
+        boolean anew = coverageAnew || coverages % COVERAGE_ANEW_EVERY == 0
+            || !coverage.holds(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
+                mainView.upward());
         int lowX = mainView.originCubeX() - mainView.across();
         int lowZ = mainView.originCubeZ() - mainView.across();
-        if (surfaceHeights.present()) {
-            // Where the cube source has said where a column's surface lies, the column is judged by that.
-            for (int z = 0; z < side; z++) {
-                for (int x = 0; x < side; x++) {
-                    long band = surfaceHeights.band(lowX + x, lowZ + z);
-                    if (band != SurfaceBand.NONE) {
-                        coverage.band(lowX + x, lowZ + z, SurfaceBand.lowest(band), SurfaceBand.highest(band));
-                    }
-                }
+        if (anew) {
+            coverageAnew = false;
+            coveragesAnew++;
+            coverage.begin(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
+                mainView.upward());
+            for (LongIterator it = links.keySet().iterator(); it.hasNext();) {
+                long key = it.nextLong();
+                coverage.cube(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), coverageState(key));
+            }
+        } else {
+            coverage.update();
+            for (int i = 0, count = coverageTouched.size(); i < count; i++) {
+                long key = coverageTouched.getLong(i);
+                coverage.cube(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), coverageState(key));
             }
         }
-        coverage.finish(source.maxCubeY());
+        coverageTouched.clear();
+        int side = coverage.side();
+        long scanned = System.nanoTime();
         if (surfaceHeights.present()) {
-            // A few columns are asked about each time, and only where the scan found ground among the
-            // cubes held, so that the source need not work a height out from the generator.
-            int budget = HEIGHT_COLUMNS_A_PASS;
-            for (int z = 0; z < side && budget > 0; z++) {
-                for (int x = 0; x < side && budget > 0; x++) {
-                    // Where the source can be told not to work a height out, every column held may be asked.
-                    byte state = coverage.state(lowX + x, lowZ + z);
-                    if ((state >= CoverageMap.SURFACE_WAITING || surfaceHeights.neverPreviews() && state != CoverageMap.NOT_LOADED)
-                        && !surfaceHeights.known(lowX + x, lowZ + z)) {
-                        surfaceHeights.ask(lowX + x, lowZ + z);
-                        budget--;
+            // Where the cube source has said where a column's surface lies, the column is judged by that.
+            if (anew) {
+                for (int z = 0; z < side; z++) {
+                    for (int x = 0; x < side; x++) {
+                        long band = surfaceHeights.band(lowX + x, lowZ + z);
+                        if (band != SurfaceBand.NONE) {
+                            coverage.band(lowX + x, lowZ + z, SurfaceBand.lowest(band), SurfaceBand.highest(band));
+                        }
+                    }
+                }
+                surfaceHeights.answered().clear();
+            } else {
+                // Only the columns answered since the last time can have another band.
+                it.unimi.dsi.fastutil.longs.LongArrayList answered = surfaceHeights.answered();
+                for (int i = 0, count = answered.size(); i < count; i++) {
+                    long column = answered.getLong(i);
+                    int columnX = (int) (column >> 32);
+                    int columnZ = (int) column;
+                    long band = surfaceHeights.band(columnX, columnZ);
+                    if (band == SurfaceBand.NONE) {
+                        coverage.noBand(columnX, columnZ);
+                    } else {
+                        coverage.band(columnX, columnZ, SurfaceBand.lowest(band), SurfaceBand.highest(band));
+                    }
+                }
+                answered.clear();
+            }
+        }
+        long banded = System.nanoTime();
+        coverage.finish(source.maxCubeY());
+        long finished = System.nanoTime();
+        if (COVERAGE_CHECK && !anew) {
+            checkCoverage(lowX, lowZ);
+            finished = System.nanoTime();
+        }
+        if (surfaceHeights.present()) {
+            // A guard: columns are asked about beside their meshes, so here only one whose version moved
+            // with no mesh of it made since, or that was meshed before coverage began, is left to ask.
+            // Columns are asked about only where the scan found ground among the cubes held: elsewhere
+            // the source has no loaded answer, and asking is wasted. The nearest come first, ring by
+            // ring outward, and asking stops for this pass once it has taken its share of time.
+            int center = mainView.across();
+            long deadline = finished + HEIGHT_NANOS_A_PASS;
+            asking:
+            for (int ring = 0; ring <= center; ring++) {
+                for (int z = center - ring; z <= center + ring; z++) {
+                    boolean edge = z == center - ring || z == center + ring;
+                    for (int x = center - ring; x <= center + ring; x += edge || ring == 0 ? 1 : 2 * ring) {
+                        if (coverage.state(lowX + x, lowZ + z) >= CoverageMap.SURFACE_WAITING
+                            && !surfaceHeights.known(lowX + x, lowZ + z)) {
+                            surfaceHeights.ask(lowX + x, lowZ + z);
+                            heightsInPass++;
+                            if (System.nanoTime() >= deadline) {
+                                heightCapTrips++;
+                                break asking;
+                            }
+                        }
                     }
                 }
             }
         }
         lastCoverageNanos = System.nanoTime() - start;
+        coverageScanNanos += scanned - start + finished - banded;
+        coverageBandNanos += banded - scanned;
+        coverageAskNanos += start + lastCoverageNanos - finished;
         coverageNanos += lastCoverageNanos;
         mostCoverageNanos = Math.max(mostCoverageNanos, lastCoverageNanos);
         coverages++;
@@ -786,6 +879,58 @@ public final class Terrain
 
     private int coverageOriginY;
 
+    /** What the coverage map is told of a cube: meshed, known to draw nothing, held, or no longer held. */
+    private byte coverageState(long key) {
+        return meshes.containsKey(key) ? CoverageMap.CUBE_MESHED : settled.contains(key) ? CoverageMap.CUBE_EMPTY
+            : links.containsKey(key) ? CoverageMap.CUBE_HELD : CoverageMap.CUBE_GONE;
+    }
+
+    /** Notes that a cube arrived, left or was meshed anew, for the coverage map and the heights kept for its column. */
+    private void touch(long key) {
+        if (COVERAGE) {
+            coverageTouched.add(key);
+            if (surfaceHeights != null) {
+                surfaceHeights.touched(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key));
+            }
+        }
+    }
+
+    /** A diagnostic: fills a second map anew and sets it beside the one brought up to date. */
+    private void checkCoverage(int lowX, int lowZ) {
+        if (coverageReference == null) {
+            coverageReference = new CoverageMap();
+        }
+        coverageReference.begin(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
+            mainView.upward());
+        for (LongIterator it = links.keySet().iterator(); it.hasNext();) {
+            long key = it.nextLong();
+            coverageReference.cube(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), coverageState(key));
+        }
+        int side = coverage.side();
+        if (surfaceHeights.present()) {
+            for (int z = 0; z < side; z++) {
+                for (int x = 0; x < side; x++) {
+                    long band = surfaceHeights.band(lowX + x, lowZ + z);
+                    if (band != SurfaceBand.NONE) {
+                        coverageReference.band(lowX + x, lowZ + z, SurfaceBand.lowest(band), SurfaceBand.highest(band));
+                    }
+                }
+            }
+        }
+        coverageReference.finish(source.maxCubeY());
+        coverageChecks++;
+        if (!java.util.Arrays.equals(coverageReference.states(), coverage.states())) {
+            int differing = 0;
+            for (int i = 0; i < coverage.states().length; i++) {
+                differing += coverage.states()[i] != coverageReference.states()[i] ? 1 : 0;
+            }
+            coverageCheckFailures++;
+            if (coverageCheckFailures <= 20) {
+                Quadrature.LOGGER.error("Coverage check: the map brought up to date differs from one filled anew in {} of {} "
+                    + "columns, pass {}.", differing, coverage.states().length, coverages);
+            }
+        }
+    }
     private void setLinks(long key, short joined) {
         if (links.put(key, joined) != joined) {
             tableVersion++;
@@ -1366,6 +1511,15 @@ public final class Terrain
                 coverage.count(CoverageMap.SURFACE_WAITING), coverage.count(CoverageMap.NO_SURFACE),
                 coverage.count(CoverageMap.NOT_LOADED), coverage.generation(), coverages, lastCoverageNanos / 1e6,
                 coverages == 0 ? 0.0 : coverageNanos / 1e6 / coverages, mostCoverageNanos / 1e6, emptinessAsked);
+            line += String.format("; heights asked beside a mesh %d times and in the pass %d times, the pass's cap reached %d times",
+                heightsAtMesh, heightsInPass, heightCapTrips);
+            line += String.format("; the map filled anew %d times and brought up to date %d; %d columns with their surface meshed "
+                    + "have no answer from the cube source%s", coveragesAnew, coverages - coveragesAnew, coverage.meshedWithoutBand(),
+                COVERAGE_CHECK ? String.format("; checked against a map filled anew %d times, %d differed", coverageChecks,
+                    coverageCheckFailures) : "");
+            line += String.format("; of the mean, %.3f ms the scan, %.3f ms looking at kept heights, %.3f ms asking for heights",
+                coverages == 0 ? 0.0 : coverageScanNanos / 1e6 / coverages, coverages == 0 ? 0.0 : coverageBandNanos / 1e6 / coverages,
+                coverages == 0 ? 0.0 : coverageAskNanos / 1e6 / coverages);
             if (surfaceHeights != null && surfaceHeights.present()) {
                 line += "; " + surfaceHeights.summary();
             }

@@ -498,6 +498,34 @@ instance (2026-11-16).
   vertex array with no attributes, are not exercised by it. The builder has since taken
   the rectangle from the quad; see below.
 
+### Coverage brought up to date
+
+One instance with the cube source at commit a8ebb701, which gives surface heights; the
+forest tour, own terrain, each run scored against the game's terrain in the same instance
+(2026-11-16).
+
+| Run | Passing views | Passes | Mean | Worst | Checks that differed |
+|---|---|---|---|---|---|
+| Coverage with its check | 17 of 17 | 786 | 0.606 ms, the check within it | 6.129 ms | 0 of 745 |
+| Coverage | 16 of 17 | 847 | 0.182 ms | 3.714 ms | |
+
+- **The map brought up to date is the map filled anew**: in 745 of 745 passes that
+  brought it up to date, a second map filled anew held the same state for every column.
+- **No column is left without an answer**: at every summary of both runs, no column with
+  its surface meshed lacked heights from the cube source. At the last view 552 of 625
+  columns have their surface meshed and 73 have it waiting.
+- **Cost.** Filling the map anew on every pass, with heights asked in the pass, took
+  0.558 ms on average; bringing it up to date takes 0.182 ms, of which 0.100 ms is the
+  scan and 0.078 ms asking for heights. The machine was under a load that was not
+  identified during the second run, in which meshes were built at a third of the first
+  run's rate at the slowest, so 0.182 ms is an upper bound. The mean is within 0.46 ms.
+- **The worst pass is open.** 3.714 ms came in the first 15 passes, while the world was
+  loading, and one ask of the cube source for a column's heights took up to 3.345 ms of
+  it. A worst pass under 2.5 ms depends on that call.
+- The second run's view 03 differs by 2.66%: it was captured with 11,608 meshes still
+  waiting under that load, and lacks the farthest terrain. It is not a difference of
+  coverage, which draws nothing.
+
 ### The cube source at commit 24f5ad89
 
 One instance prepared with the cube source at that commit, the forest tour, own terrain
@@ -633,6 +661,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.touch=true` | A page is written once, whole, when it is made |
 | `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
 | `quadrature.coverage=true` | Works out the coverage map and adds its counts and cost to the terrain summary |
+| `quadrature.coverage.check=true` | With coverage: each time the map is brought up to date, fills a second map anew and logs any column that differs; its time is counted in the pass |
 | `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
 | `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
 | `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
