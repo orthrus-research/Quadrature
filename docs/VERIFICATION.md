@@ -532,6 +532,27 @@ The instance of the section above, each run scored against the game's terrain in
   as made above.
 - Timings are not recorded: builds on the same machine overlapped both runs.
 
+### The cube source at commit a8ebb701
+
+One instance prepared with the cube source at that commit, the forest tour, scored
+against the game's terrain in the same instance (2026-11-16).
+
+- The game's two runs: no view captured facing elsewhere; no error, no Mixin that failed
+  to apply and no linkage error in the client's or the server's log. The client joins and
+  stays, so the messages this cube source adds between server and client are understood
+  on both sides.
+- Own terrain with every switch off: 16 of 17 views pass. View 15 fails at 0.41%, 3,747
+  changed pixels in a strip at the horizon, where own terrain shows sky and the game shows
+  terrain: a CPU-heavy build on the same machine overlapped the capture, and 11,400 cubes
+  were still waiting to be meshed shortly before it. In the next run on the same instance,
+  own terrain with coverage on, views 13 and 15 pass at 0.013% and 0.021%.
+- That next run: 16 of 17, view 07 failing at 0.13% on the river alone, 1,060 changed
+  pixels in the river's box and 152 outside it.
+- In 109 and 105 comparisons of what is selected, no cube the game draws is missing from
+  what Quadrature draws.
+- 57,871 and 58,537 meshes were built over a tour, against 59,043 on the cube source
+  before: the light this cube source sends again when it changes does not multiply meshes.
+- Timings are not recorded: builds on the same machine overlapped both runs.
 ### Targets for shading
 
 One instance, the forest tour, the cube source at 24f5ad89 (2026-11-16). Reversed depth,
