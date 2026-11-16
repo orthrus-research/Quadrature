@@ -94,7 +94,14 @@ public final class Terrain
      * buffers a shader can read, a bounded amount a frame.
      */
     private static final boolean SCENE_GPU = SCENE && Boolean.getBoolean("quadrature.scene.gpu");
-    private final SceneBuffers sceneBuffers = SCENE_GPU ? new SceneBuffers(scene) : null;
+    /**
+     * Off unless {@code -Dquadrature.scene.states=true}, which needs the scene's buffers: each cell's
+     * block state is copied there too, and what each state does to light.
+     */
+    private static final boolean SCENE_STATES = SCENE_GPU && Boolean.getBoolean("quadrature.scene.states");
+    /** A diagnostic, off unless {@code -Dquadrature.scene.check=true}: the buffers are read back and set beside the scene. */
+    private static final boolean SCENE_CHECK = SCENE_GPU && Boolean.getBoolean("quadrature.scene.check");
+    private final SceneBuffers sceneBuffers = SCENE_GPU ? new SceneBuffers(scene, SCENE_STATES, SCENE_CHECK) : null;
     private final CubeMesher mesher = new CubeMesher(scene);
     private final TerrainProgram program = new TerrainProgram();
     private final TerrainArena arena = OWN_BUFFERS ? null : new TerrainArena();

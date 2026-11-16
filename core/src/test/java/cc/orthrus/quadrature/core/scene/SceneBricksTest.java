@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cc.orthrus.quadrature.core.terrain.CubeKey;
+
 import org.junit.jupiter.api.Test;
 
 class SceneBricksTest {
@@ -159,5 +161,41 @@ class SceneBricksTest {
         bricks.update(0, 0, 0);
         assertEquals(SceneBricks.NOT_AVAILABLE, bricks.entry(0, 1, 0));
         assertEquals(0, bricks.bricksHeld());
+    }
+
+    @Test
+    void cubesAreTakenFromTheSceneABoundedNumberAtATime() {
+        LightScene scene = scene();
+        SceneBricks bricks = new SceneBricks(scene, 2, 0);
+        for (int x = -2; x <= 2; x++) {
+            scene.putUniform(x, 0, 0, STONE);
+        }
+        put(scene, 0, 0, 1, 7);
+        bricks.update(0, 0, 0, 2);
+        // The box's 25 cubes are queued, and the six the scene reports as new once more; two are taken.
+        assertEquals(25 + 6 - 2, bricks.cubesWaiting());
+        int known = 0;
+        for (int entry : bricks.lookup()) {
+            known += entry != SceneBricks.NOT_AVAILABLE ? 1 : 0;
+        }
+        assertTrue(known <= 2);
+        for (int i = 0; i < 40 && bricks.cubesWaiting() > 0; i++) {
+            bricks.update(0, 0, 0, 2);
+        }
+        assertEquals(0, bricks.cubesWaiting());
+        assertEquals(SceneBricks.UNIFORM | STONE, bricks.entry(-2, 0, 0));
+        assertEquals(SceneBricks.BRICK, bricks.entry(0, 0, 1) & (3 << 30));
+        assertEquals(CubeKey.of(0, 0, 1), bricks.cubeOfSlot(bricks.entry(0, 0, 1) & 0xFFFFFF));
+
+        // A cube removed from the scene is dropped at once, even with nothing allowed to be taken.
+        scene.remove(-2, 0, 0);
+        bricks.update(0, 0, 0, 0);
+        assertEquals(SceneBricks.NOT_AVAILABLE, bricks.entry(-2, 0, 0));
+        // And one that leaves the box likewise.
+        bricks.update(2, 0, 0, 0);
+        // Cube -1 left; its entry now stands for cube 4, which has not been taken yet.
+        assertEquals(bricks.entryIndex(-1, 0, 0), bricks.entryIndex(4, 0, 0));
+        assertEquals(SceneBricks.NOT_AVAILABLE, bricks.lookup()[bricks.entryIndex(-1, 0, 0)]);
+        assertEquals(SceneBricks.UNIFORM | STONE, bricks.entry(1, 0, 0));
     }
 }

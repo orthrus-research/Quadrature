@@ -84,6 +84,7 @@ public final class LightScene {
     private long logged;
     private long version;
     private int mixed;
+    private long statesDefined;
 
     public LightScene() {
         this(16_384);
@@ -112,6 +113,12 @@ public final class LightScene {
             throw new IllegalArgumentException("Emission and transmission run from 0 to 15");
         }
         states[state] = (short) (DEFINED | (blocks ? BLOCKS : 0) | emission << 4 | transmission);
+        statesDefined++;
+    }
+
+    /** How many times a state has been defined: when this moves on, the table has changed. */
+    public long statesDefined() {
+        return statesDefined;
     }
 
     public boolean stateDefined(int state) {

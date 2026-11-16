@@ -1,5 +1,7 @@
 package cc.orthrus.quadrature.core.scene;
 
+import cc.orthrus.quadrature.core.terrain.CubeKey;
+
 /**
  * The light scene in the form a ray can walk: a lookup with an entry for every cube position in a box
  * about an origin cube, and for each cube whose cells differ a brick of bits, one for each cell that
@@ -43,6 +45,11 @@ public final class SceneBricks implements LightScene.Changes {
     private final int sizeZ;
     private final int[] lookup;
     private long[] bricks = new long[BRICK_WORDS * 64];
+    private long[] cubeOfSlot = new long[64];
+    /** Cubes to take from the scene, a ring. */
+    private long[] waiting = new long[1024];
+    private int waitingHead;
+    private int waitingTail;
     private int[] freeSlots = new int[64];
     private int freeCount;
     private int slots;
@@ -119,6 +126,15 @@ public final class SceneBricks implements LightScene.Changes {
      * changed since the last call is taken again.
      */
     public void update(int originCubeX, int originCubeY, int originCubeZ) {
+        update(originCubeX, originCubeY, originCubeZ, Integer.MAX_VALUE);
+    }
+
+    /**
+     * As {@link #update(int, int, int)}, taking no more than {@code most} cubes from the scene in this
+     * call; the rest wait for the next. A cube that left the box or was removed from the scene is
+     * dropped at once, whatever the bound, so the lookup never names what it no longer holds.
+     */
+    public void update(int originCubeX, int originCubeY, int originCubeZ, int most) {
         long before = marks;
         boolean moved = !placed || originCubeX != originX || originCubeY != originY || originCubeZ != originZ;
         if (moved) {
@@ -148,13 +164,23 @@ public final class SceneBricks implements LightScene.Changes {
                     for (int x = originX - across; x <= originX + across; x++) {
                         if (!had || Math.abs(x - oldX) > across || Math.abs(y - oldY) > upward
                             || Math.abs(z - oldZ) > across) {
-                            take(x, y, z);
+                            await(x, y, z);
                         }
                     }
                 }
             }
         }
         seen = scene.changesSince(seen, this);
+        for (int taken = 0; taken < most && waitingHead != waitingTail; taken++) {
+            long key = waiting[waitingHead];
+            waitingHead = (waitingHead + 1) % waiting.length;
+            int x = CubeKey.x(key);
+            int y = CubeKey.y(key);
+            int z = CubeKey.z(key);
+            if (inside(x, y, z)) {
+                take(x, y, z);
+            }
+        }
         if (moved || marks != before) {
             generation++;
         }
@@ -173,8 +199,36 @@ public final class SceneBricks implements LightScene.Changes {
     @Override
     public void updated(int cubeX, int cubeY, int cubeZ, long cubeGeneration) {
         if (inside(cubeX, cubeY, cubeZ)) {
-            take(cubeX, cubeY, cubeZ);
+            await(cubeX, cubeY, cubeZ);
         }
+    }
+
+    /** Queues a cube to be taken from the scene. */
+    private void await(int cubeX, int cubeY, int cubeZ) {
+        int next = (waitingTail + 1) % waiting.length;
+        if (next == waitingHead) {
+            long[] larger = new long[waiting.length * 2];
+            int count = 0;
+            for (int i = waitingHead; i != waitingTail; i = (i + 1) % waiting.length) {
+                larger[count++] = waiting[i];
+            }
+            waiting = larger;
+            waitingHead = 0;
+            waitingTail = count;
+            next = count + 1;
+        }
+        waiting[waitingTail] = CubeKey.of(cubeX, cubeY, cubeZ);
+        waitingTail = next;
+    }
+
+    /** Cubes queued to be taken from the scene. */
+    public int cubesWaiting() {
+        return (waitingTail - waitingHead + waiting.length) % waiting.length;
+    }
+
+    /** The cube whose brick is at a slot, as {@link CubeKey} packs it. */
+    public long cubeOfSlot(int slot) {
+        return cubeOfSlot[slot];
     }
 
     @Override
@@ -206,6 +260,10 @@ public final class SceneBricks implements LightScene.Changes {
             if ((slot + 1) * BRICK_WORDS > bricks.length) {
                 bricks = java.util.Arrays.copyOf(bricks, Math.max(bricks.length * 2, (slot + 1) * BRICK_WORDS));
             }
+            if (slot >= cubeOfSlot.length) {
+                cubeOfSlot = java.util.Arrays.copyOf(cubeOfSlot, Math.max(cubeOfSlot.length * 2, slot + 1));
+            }
+            cubeOfSlot[slot] = CubeKey.of(cubeX, cubeY, cubeZ);
             set(index, BRICK | slot);
         }
         int at = slot * BRICK_WORDS;

@@ -18,6 +18,14 @@ package cc.orthrus.quadrature.core.scene;
  * light, numbered {@code (y / 2 * 8 + z / 2) * 8 + x / 2} the same way.
  *
  * <p>A brick is always copied before the entry that names it.
+ *
+ * <p><b>States</b>, where they are published. Three more buffers, each the store of a buffer texture,
+ * tell which block state each cell of a brick's cube holds. Cells: an unsigned byte for each cell of
+ * each slot, 4,096 to a slot in the brick's cell order, an index into the slot's list. Lists: 256
+ * unsigned 16-bit state numbers to a slot. A cube of more than 256 states is clamped: cells of the
+ * states past the 255th name the last place. State table: for each of 65,536 states four unsigned
+ * 16-bit numbers, of which the first holds transmission in bits 0 to 3, emission in bits 4 to 7 and
+ * whether the state blocks light in bit 8; the other three are kept for color and are zero.
  */
 public final class PublishedScene {
 
@@ -41,7 +49,26 @@ public final class PublishedScene {
     private int changedCount;
     private boolean everything;
 
+    private int cellTexture;
+    private int listTexture;
+    private int stateTexture;
+    private long stateBytes;
+    private long clampedCubes;
+
     // What the host sets.
+
+    /** Says where the states are published. */
+    public void states(int cellTexture, int listTexture, int stateTexture, long bytes) {
+        this.cellTexture = cellTexture;
+        this.listTexture = listTexture;
+        this.stateTexture = stateTexture;
+        this.stateBytes = bytes;
+    }
+
+    /** Notes a cube whose states were clamped to 256 when its cells were copied. */
+    public void clamped() {
+        clampedCubes++;
+    }
 
     public void objects(int lookupBuffer, int lookupTexture, int brickBuffer, int brickTexture, long bytes) {
         this.lookupBuffer = lookupBuffer;
@@ -107,9 +134,34 @@ public final class PublishedScene {
         return brickTexture;
     }
 
-    /** The memory the two buffers take. */
+    /** The memory the lookup and brick buffers take. */
     public long bytes() {
         return bytes;
+    }
+
+    /** A buffer texture of unsigned bytes: each cell's place in its slot's list. 0 where states are not published. */
+    public int cellTexture() {
+        return cellTexture;
+    }
+
+    /** A buffer texture of unsigned 16-bit integers: each slot's list of state numbers. */
+    public int listTexture() {
+        return listTexture;
+    }
+
+    /** A buffer texture of four unsigned 16-bit integers a state: what each state does to light. */
+    public int stateTexture() {
+        return stateTexture;
+    }
+
+    /** The memory the three state buffers take. */
+    public long stateBytes() {
+        return stateBytes;
+    }
+
+    /** How many times a cube's states were clamped to 256. */
+    public long clampedCubes() {
+        return clampedCubes;
     }
 
     public int sizeX() {

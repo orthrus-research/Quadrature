@@ -205,7 +205,9 @@ authors can dedicate: their own expression of ideas, never copied code.
   compatibility specification (buffer textures, integer formats). A coarse lookup over
   bricks of cells is common to sparse voxel structures, as in Crassin, Neyret, Lefebvre
   and Eisemann, "GigaVoxels", I3D 2009.
-- Taken: the idea of a lookup that names a brick or says a region is uniform.
+- Taken: the idea of a lookup that names a brick or says a region is uniform. A cell's
+  state as a short index into its cube's own list of states is the palette commonly used
+  to store voxel volumes, written anew.
 - Not taken: any structure's source, and no hierarchy beyond one coarser level a brick.
 - Added: 2026-11-16
 
