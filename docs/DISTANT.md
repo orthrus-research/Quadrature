@@ -756,7 +756,7 @@ server, which disconnects the client, and ends the client only once the server h
 
 ## 14. Design: transitions and the shading targets
 
-Not built. What comes after the first pass on looks: the crossfade between levels and at the
+Not built, but for the pattern (14.5). What comes after the first pass on looks: the crossfade between levels and at the
 near join, and distant terrain writing the targets near terrain writes for shading. Read for
 it, and not changed: near terrain's targets on its own branch (`GBufferTarget` and
 `TerrainProgram` there), and the Riven shader's `docs/TARGET.md` and
@@ -878,22 +878,88 @@ distances. A shading stage that brings its own aerial perspective replaces it; u
 the shading stage must apply the same two distances to both terrains, or leave the fog where
 it is now, in each terrain's forward path.
 
-### 14.4 Open questions
+### 14.4 Decided, 2026-11-16
 
-1. The near join: will near terrain's stage take the band and the pattern, and is the
-   coverage map to come first? Who owns the pattern function, so both sides use one?
-2. The targets: may distant terrain draw into near terrain's framebuffer, and through what
-   call does it get it? Does the frame graph gain two stages for distant terrain, opaque
-   before shading and translucent after?
-3. Materials: one table for both terrains, numbered by block state, in place of distant
-   terrain's own numbering? The face record's 13 bits hold 8,192; a world's block states met
-   by the preview have stayed near 300.
-4. Response class: terrain's 0.375 for distant terrain too, or a value of its own?
-5. Block light beyond the box: accepted as none until the preview reports emitters, or should
-   Cubature's preview carry them (a change to its contract)?
-6. The dither's offset by frame: is there to be an accumulating stage at all in the first
-   shaded frames, or should the pattern be chosen to look right with none?
-7. Water: distant water shaded forward after the targets, like near water; is that the plan
-   for near water, or will water be written to targets of its own?
-8. The fog's two distances once shading is in: kept as settings of distant terrain, or
-   handed to the shader as aerial perspective?
+Answers to the questions this design raised, from near terrain and from the Riven shader.
+Near terrain's targets and material table compile and have not run; its names may move.
+
+**The pattern.** One function for both terrains, in core: `FadePattern` (built, section
+14.5). Near terrain calls it; distant terrain owns it.
+
+**The near join.** The coverage map first, then the fade on both sides. Near terrain's fade is
+behind a switch that is off by default, since it breaks its pixel parity with the game in the
+band; the band is a uniform, so cubes outside it pay nothing; the light's depth pass does not
+fade.
+
+**The targets.** Distant terrain draws into near terrain's targets. Order: near opaque, near
+cut-out, distant opaque, then shading; translucents after, forward. The targets come from
+`TerrainHook.shadingTargets()`: a framebuffer, its size, and a generation that moves when it
+is resized. Rules for distant terrain's pass: write the encodings of 14.3 exactly; never
+clear; test against the targets' reversed float depth, greater or equal, cleared to 0; turn
+the fixed-function alpha test off, since target A's alpha is roughness. No new line of GPU
+memory.
+
+**Materials.** One table for both terrains: 8 bytes a block state (roughness, reflectance,
+subsurface, emission, flags, a kind), indexed by the 16-bit state number the light scene uses
+(block id and metadata). The class is in core and the host publishes the filled table;
+distant terrain reads it and drops its own numbering. Where a coarse cell stands for several
+states, distant terrain picks the dominant one.
+
+**Response class.** The same as near terrain's, 0.375. A stage that must tell the two apart
+uses depth against the box's edge.
+
+**Block light.** None beyond the box is accepted. One addition where the preview knows the
+state: emission strength in target B's green for surfaces that light themselves, lava above
+all, so distant lava glows. Emitters lighting distant terrain are not needed.
+
+**The pattern over frames.** There is an accumulating stage: temporal antialiasing with
+history, whose sampling shifts over a cycle of 8 frames. The pattern is offset each frame
+from the published frame index, the one the history targets use, so a band resolves to a
+smooth blend. It must still be tolerable in one frame: history resets on a camera cut, a
+change of dimension or a resize, and a lower profile may run without it. So the pattern
+stays ordered, and bands stay narrow.
+
+**Fog.** On the shaded path distant terrain writes unfogged albedo: the shader's aerial
+perspective replaces both distances. 384 and 24,576 stay as settings of the forward path
+only. Distant terrain publishes instead the farthest distance it is drawn to, with a signal
+when that changes, so that the shader fades to the sky before the edge.
+
+**Water.** Near translucent terrain stays forward after the targets, reading the opaque color
+and depth; distant water the same way, its order against near water to be settled when both
+exist. Beyond color, cover, normal and depth the shader wants of water:
+
+- a way to tell water from other translucent surfaces: a material kind (100) or a class
+  code, since it lights water itself;
+- sky light at the surface;
+- the water's color as a tint apart from its image, not a lit color;
+- water kept out of the opaque depth, with the opaque color and depth under it available
+  for absorption and refraction;
+- a flat upward normal: it adds the waves.
+
+If distant water gives normal, tint, sky light and kind as inputs, near and far water shade
+alike. Distant water has all four today, worked out apart (section 8).
+
+### 14.5 Built: the pattern
+
+`cc.orthrus.quadrature.core.fade.FadePattern`. Ordered, 4 by 4, from the pixel's place in the
+window; thresholds are the sixteen odd thirty-seconds in Bayer's order.
+
+```java
+static boolean keeps(int x, int y, float fade, boolean complement, int frame)
+static String glsl()   // declares: bool quadratureFadeKeeps(vec2 window, float fade, bool complement, int frame)
+```
+
+`fade` is how much of the primary side shows, 0 to 1. The primary side asks with
+`complement` false, the other with true and the same fade, and exactly one of them keeps any
+pixel. `frame` is 0 with no accumulating stage; with one it is the published frame index, and
+the pattern moves through its 16 places, one a frame. Over the shader's cycle of 8 frames a
+pixel sees 8 of them, so a band resolves in eighths. A fragment stage passes
+`gl_FragCoord.xy` and discards where the function is false. Nothing uses it yet.
+
+### 14.6 Still open
+
+- Which side is the primary at the near join. Proposed: distant terrain, its fade rising from
+  0 at the band's inner edge to 1 at the box's edge.
+- Whether the pattern's walk should be 8 places to fit the shader's cycle.
+- The order of distant water against near water.
+- Emission: how distant terrain learns a state's emission before the shared table exists.
