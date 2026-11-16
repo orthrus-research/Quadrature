@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.distant;
 
+import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.TileDraws;
 import cc.orthrus.quadrature.frame.StateEnvelopeAccess;
 
@@ -24,7 +25,16 @@ import org.lwjgl.opengl.GL45;
  * <p>The projection and model-view are the view's, read from the driver, so depth is whatever the
  * frame uses, reversed or not, and matches near terrain's exactly. Color is the material's flat
  * color, its biome's tint, the face's sky light and corner occlusion, the day's light and a fixed
- * shade for each direction. The game's fog is not applied.
+ * shade for each direction, then the world's fog as the fixed-function state holds it when the draw
+ * is made, by distance from the eye, exactly as near terrain's program applies it: with the shared
+ * fog on (see {@code DistantHook.fog}) both fade by one rule.
+ *
+ * <p>Water's top faces are lowered to the level the game draws a water surface at
+ * ({@link NearCover#WATER_SURFACE_DROP}), so near and distant water meet without a step.
+ *
+ * <p>Two debug views ({@code quadrature.distant.debug}): {@code box} draws in magenta, unfogged, the
+ * fragments the near box would discard, so they show wherever near terrain leaves its box open;
+ * {@code level} gives every face a color for its tile's level.
  */
 final class DistantProgram {
 
@@ -50,9 +60,15 @@ final class DistantProgram {
         "layout(std430, binding = 2) readonly buffer Materials { uint materials[]; };",
         "layout(std430, binding = 3) readonly buffer Biomes { uint biomes[]; };",
         "uniform mat4 viewProjection;",
+        "uniform mat4 modelView;",
         "uniform float daylight;",
+        "uniform float topDrop;",
+        "uniform int debugMode;",
         "out vec3 fromOrigin;",
+        "out vec3 fromEye;",
         "out vec3 faceColor;",
+        "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
+        "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
         "const float SHADE[6] = float[6](1.0, 0.5, 0.8, 0.8, 0.6, 0.6);",
         "vec3 rgb(uint value) {",
@@ -78,7 +94,8 @@ final class DistantProgram {
         "    if (direction < 2u) {",
         "        float width = float((extent & 63u) + 1u);",
         "        float depth = float((extent >> 6) + 1u);",
-        "        place = vec3((float(x) + across * width) * tile.cell, float(y),",
+        "        place = vec3((float(x) + across * width) * tile.cell,",
+        "            float(y) - (direction == 0u ? topDrop : 0.0),",
         "            (float(z) + along * depth) * tile.cell);",
         "    } else {",
         "        // A side face's corners run lower left, lower right, upper left, upper right as seen",
@@ -92,6 +109,7 @@ final class DistantProgram {
         "        place = vec3(px * tile.cell, float(y) + along * float(extent + 1u), pz * tile.cell);",
         "    }",
         "    fromOrigin = tile.origin + place;",
+        "    fromEye = (modelView * vec4(fromOrigin, 1.0)).xyz;",
         "    gl_Position = viewProjection * vec4(fromOrigin, 1.0);",
         "    uint entry = materials[2u * material + (direction < 2u ? 0u : 1u)];",
         "    vec3 color = rgb(entry);",
@@ -104,20 +122,42 @@ final class DistantProgram {
         "    float closed = float((occlusion >> (2 * corner)) & 3u);",
         "    float lit = 0.2 + 0.8 * (float(light) / 15.0) * daylight;",
         "    faceColor = color * lit * (1.0 - " + OCCLUSION_STEP + " * closed) * SHADE[direction];",
+        "    if (debugMode == 2) {",
+        "        faceColor = LEVEL[min(tile.level, 7u)] * (0.55 + 0.45 * SHADE[direction]) * (1.0 - 0.1 * closed);",
+        "    }",
         "}");
     private static final String FRAGMENT = String.join("\n",
         "#version 460 compatibility",
         "uniform vec3 nearMinimum;",
         "uniform vec3 nearMaximum;",
+        "uniform int fogMode;",
+        "uniform int debugMode;",
         "in vec3 fromOrigin;",
+        "in vec3 fromEye;",
         "in vec3 faceColor;",
         "layout(location = 0) out vec4 result;",
         "void main() {",
         "    // What lies inside the box of loaded cubes is near terrain's to draw.",
         "    if (all(greaterThanEqual(fromOrigin, nearMinimum)) && all(lessThan(fromOrigin, nearMaximum))) {",
-        "        discard;",
+        "        if (debugMode != 1) {",
+        "            discard;",
+        "        }",
+        "        // Seen only where near terrain drew nothing in front: where its box stands open.",
+        "        result = vec4(1.0, 0.0, 1.0, 1.0);",
+        "        return;",
         "    }",
-        "    result = vec4(faceColor, 1.0);",
+        "    // The world's fog, as near terrain's program applies it.",
+        "    float fogDistance = length(fromEye);",
+        "    float clear = 1.0;",
+        "    if (fogMode == 1) {",
+        "        clear = (gl_Fog.end - fogDistance) * gl_Fog.scale;",
+        "    } else if (fogMode == 2) {",
+        "        clear = exp(-gl_Fog.density * fogDistance);",
+        "    } else if (fogMode == 3) {",
+        "        float d = gl_Fog.density * fogDistance;",
+        "        clear = exp(-d * d);",
+        "    }",
+        "    result = vec4(mix(gl_Fog.color.rgb, faceColor, clamp(clear, 0.0, 1.0)), 1.0);",
         "}");
 
     private int program;
@@ -125,6 +165,10 @@ final class DistantProgram {
     private int daylightLocation;
     private int nearMinimumLocation;
     private int nearMaximumLocation;
+    private int modelViewLocation;
+    private int topDropLocation;
+    private int fogModeLocation;
+    private int debugModeLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -158,6 +202,9 @@ final class DistantProgram {
         GL20.glUniform1f(daylightLocation, daylight);
         GL20.glUniform3f(nearMinimumLocation, nearBox[0], nearBox[1], nearBox[2]);
         GL20.glUniform3f(nearMaximumLocation, nearBox[3], nearBox[4], nearBox[5]);
+        GL20.glUniformMatrix4fv(modelViewLocation, false, modelView);
+        GL20.glUniform1i(debugModeLocation, DistantSettings.DEBUG);
+        GL20.glUniform1i(fogModeLocation, fogMode());
         GL30.glBindVertexArray(vertexArray);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, TILES_BINDING, recordBuffer);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, MATERIALS_BINDING, materials.materialBuffer());
@@ -170,6 +217,7 @@ final class DistantProgram {
                 if (count == 0) {
                     continue;
                 }
+                GL20.glUniform1f(topDropLocation, NearCover.topDrop(layer));
                 GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, PAGE_BINDING, arena.buffer(page));
                 GL43.glMultiDrawArraysIndirect(GL11.GL_TRIANGLES, list.runOffset(layer, page), count,
                     TileDraws.COMMAND_BYTES);
@@ -185,6 +233,21 @@ final class DistantProgram {
         }
         StateEnvelopeAccess.leave();
         return draws;
+    }
+
+    /**
+     * Which fog the fragment stage applies: none, linear, exponential or squared exponential. Fog
+     * is fixed-function state a shader cannot read as on or off, or by mode, so it is asked of the
+     * driver, as near terrain does. With the shared fog off, or in the level view, distant terrain
+     * takes none: the game's own would hide all of it.
+     */
+    private static int fogMode() {
+        if (!DistantSettings.FOG || DistantSettings.DEBUG == DistantSettings.DEBUG_LEVEL
+            || !GL11.glIsEnabled(GL11.GL_FOG)) {
+            return 0;
+        }
+        int mode = GL11.glGetInteger(GL11.GL_FOG_MODE);
+        return mode == GL11.GL_LINEAR ? 1 : mode == GL11.GL_EXP ? 2 : 3;
     }
 
     /** {@code left * right} for column-major matrices. */
@@ -216,6 +279,10 @@ final class DistantProgram {
         daylightLocation = GL20.glGetUniformLocation(program, "daylight");
         nearMinimumLocation = GL20.glGetUniformLocation(program, "nearMinimum");
         nearMaximumLocation = GL20.glGetUniformLocation(program, "nearMaximum");
+        modelViewLocation = GL20.glGetUniformLocation(program, "modelView");
+        topDropLocation = GL20.glGetUniformLocation(program, "topDrop");
+        fogModeLocation = GL20.glGetUniformLocation(program, "fogMode");
+        debugModeLocation = GL20.glGetUniformLocation(program, "debugMode");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();

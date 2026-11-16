@@ -3,6 +3,7 @@ package cc.orthrus.quadrature.distant;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.BuiltTile;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
+import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.Rings;
 import cc.orthrus.quadrature.core.lod.TileCulling;
 import cc.orthrus.quadrature.core.lod.TileDraws;
@@ -46,8 +47,8 @@ import java.util.ArrayList;
  */
 final class Distant {
 
-    private static final int REACH = Integer.getInteger("quadrature.distant.reach", 384);
-    private static final int LEVELS = Integer.getInteger("quadrature.distant.levels", 7);
+    private static final int REACH = DistantSettings.REACH;
+    private static final int LEVELS = DistantSettings.LEVELS;
     private static final long WORLD_HALF = Long.getLong("quadrature.distant.world", 0L);
     private static final boolean LOG = Boolean.getBoolean("quadrature.frameLog");
     private static final long LOG_INTERVAL_NANOS = 5_000_000_000L;
@@ -136,6 +137,11 @@ final class Distant {
         Quadrature.LOGGER.info("Distant terrain is on: {} levels, ring 0 reaches {} blocks, {} worker threads of "
             + "its own (a stand-in for Cubature's client executor), world bound {}.", LEVELS, REACH,
             DistantWorkers.THREADS, WORLD_HALF > 0 ? WORLD_HALF + " blocks from the origin" : "none");
+        Quadrature.LOGGER.info("Distant terrain: fog {}; debug view {}.",
+            DistantSettings.FOG ? "shared with near terrain, " + DistantSettings.FOG_START + " to "
+                + DistantSettings.FOG_END + " blocks" : "the game's on near terrain, none on distant terrain",
+            DistantSettings.DEBUG == DistantSettings.DEBUG_BOX ? "box (magenta where the near box would discard)"
+                : DistantSettings.DEBUG == DistantSettings.DEBUG_LEVEL ? "level (a color a level, no fog)" : "off");
         return new Distant(source);
     }
 
@@ -150,6 +156,7 @@ final class Distant {
             cpuNanos += System.nanoTime() - started;
             cpuSamples++;
         } catch (RuntimeException failure) {
+            DistantHook.sampling(false);
             // A shader that does not compile, a driver refusal: distant terrain stops, the game goes on.
             failed = true;
             Quadrature.LOGGER.error("Distant terrain failed and is off for the rest of this run.", failure);
@@ -159,7 +166,9 @@ final class Distant {
     private void run(float partialTicks) {
         frame++;
         DriverMessageAccess.install();
-        if (!follow()) {
+        boolean following = follow();
+        DistantHook.sampling(following);
+        if (!following) {
             return;
         }
         Minecraft minecraft = Minecraft.getMinecraft();
@@ -382,16 +391,13 @@ final class Distant {
 
     /** Writes the frame's records and commands: the stored tiles the view can see, less what is near. */
     private void list() {
-        // Near terrain meshes a cube only among loaded neighbors, so the outermost loaded cubes
-        // stay unmeshed: the box near terrain covers is the reach less one cube on every side.
-        int across = Math.max(0, view.across() - 1);
-        int upward = Math.max(0, view.upward() - 1);
-        long boxMinX = (view.originCubeX() - across) * 16L;
-        long boxMaxX = (view.originCubeX() + across + 1) * 16L;
-        long boxMinY = (view.originCubeY() - upward) * 16L;
-        long boxMaxY = (view.originCubeY() + upward + 1) * 16L;
-        long boxMinZ = (view.originCubeZ() - across) * 16L;
-        long boxMaxZ = (view.originCubeZ() + across + 1) * 16L;
+        // The box near terrain covers: the cubes it meshes, which is the reach less one cube.
+        long boxMinX = NearCover.minimum(view.originCubeX(), view.across());
+        long boxMaxX = NearCover.maximum(view.originCubeX(), view.across());
+        long boxMinY = NearCover.minimum(view.originCubeY(), view.upward());
+        long boxMaxY = NearCover.maximum(view.originCubeY(), view.upward());
+        long boxMinZ = NearCover.minimum(view.originCubeZ(), view.across());
+        long boxMaxZ = NearCover.maximum(view.originCubeZ(), view.across());
         nearBox[0] = (float) (boxMinX - view.originX());
         nearBox[1] = (float) (boxMinY - view.originY());
         nearBox[2] = (float) (boxMinZ - view.originZ());
@@ -409,8 +415,9 @@ final class Distant {
             if (tile.faces == 0 || !schedule.drawn(key)) {
                 continue;
             }
-            if (TileCulling.inside(key, tile.minimumY, tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY,
-                boxMaxZ)) {
+            // The box view draws the tiles the box holds too: their fragments are what it shows.
+            if (DistantSettings.DEBUG != DistantSettings.DEBUG_BOX && TileCulling.inside(key, tile.minimumY,
+                tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ)) {
                 continue;
             }
             long side = TileKey.side(TileKey.level(key));
