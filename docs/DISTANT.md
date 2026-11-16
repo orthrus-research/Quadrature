@@ -1668,13 +1668,14 @@ a meshed column is kept where d is past the band's start and the pattern keeps i
 all of it lies nearer than the start (`NearCover.beforeJoin`). Outside the band the coverage
 rule stands as it was.
 
-**The switch follows near terrain's, by what it is told.** `DistantHook.nearFades(start, end)`
-is for near terrain to call each frame its own fade is on; nothing calls it yet, so the switch
-has no effect in this tree. Distant terrain fades only while that says so and its own switch is
-on. One side alone is wrong both ways: distant terrain alone draws its pattern over near
-terrain's whole ground; near terrain alone leaves its given-up pixels open.
-`quadrature.distant.joinFadeBand` forces a band for looking at this half by itself and is a
-debug view.
+**The switch follows near terrain's, by what it publishes.** Each frame distant terrain reads
+`TerrainHook.fadeBandInUse()`, the band near terrain drew its own fade with, null where its
+fade is off, and `TerrainHook.fadeOrigin()`, the place it measured from, which is the camera
+and not, in a view from behind, the player. Distant terrain fades only while there is a band
+and its own switch is on, over that band and from that place. One side alone is wrong both
+ways: distant terrain alone draws its pattern over near terrain's whole ground; near terrain
+alone leaves its given-up pixels open. `quadrature.distant.joinFadeBand` forces a band for
+looking at this half by itself, measured from the viewer, and is a debug view.
 
 **Where both draw the same surface.** Level 0's cells are blocks, so on plain ground the two
 surfaces lie in one plane at one depth, and each pixel is kept by exactly one side: no depth
@@ -1706,6 +1707,6 @@ distant terrain draws it whole, band or no band; near terrain draws nothing ther
 pixels with. The same holds for its outermost ring of columns, which it never meshes: the
 band's end is its last meshed column, and past it distant terrain is whole.
 
-**Not known until both sides run:** that near terrain's view position is the one distant
-terrain uses (the viewer's interpolated position), to the fraction of a block; a difference
-would show as a seam of doubled or missing pixels across the band.
+**Not known until both sides run:** whether the two patterns meet without a seam. Both now
+measure from one place, so a seam would be a fault in one side's arithmetic and not a
+difference of origin.

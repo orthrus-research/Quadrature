@@ -117,8 +117,11 @@ final class Distant {
     private final LongArrayList spared = new LongArrayList();
     private int lastShadedDraws;
     private final java.nio.IntBuffer viewport = org.lwjgl.BufferUtils.createIntBuffer(16);
-    /** The band the join fades over this frame, start then end, or null. */
+    /** The band the join fades over this frame, start then end, then where it is measured from, or null. */
     private float[] joinBand;
+    private final float[] joinValues = new float[4];
+    private double joinX;
+    private double joinZ;
     /** For the draw: a bit for each tile of each level's square that is shown, and where the squares lie. */
     private final int[] shownMasks = new int[8 * Cover.maskWords(2 * REACH / 64)];
     private final float[] squareOrigins = new float[8 * 2];
@@ -503,7 +506,20 @@ final class Distant {
         double eyeX = view.originX();
         double eyeY = view.originY() + Minecraft.getMinecraft().getRenderViewEntity().getEyeHeight();
         double eyeZ = view.originZ();
-        joinBand = DistantHook.joinBand();
+        float[] band = DistantHook.joinBand();
+        if (band == null) {
+            joinBand = null;
+        } else {
+            // The band, and where its distance is measured from, from the view's origin.
+            double[] origin = DistantHook.joinOrigin();
+            joinX = origin == null ? view.originX() : origin[0];
+            joinZ = origin == null ? view.originZ() : origin[2];
+            joinValues[0] = band[0];
+            joinValues[1] = band[1];
+            joinValues[2] = (float) (joinX - view.originX());
+            joinValues[3] = (float) (joinZ - view.originZ());
+            joinBand = joinValues;
+        }
         draws.begin(arena.pages());
         int drawn = 0;
         int inBox = 0;
@@ -532,7 +548,7 @@ final class Distant {
             // With the join's fade, a tile near terrain covers is still drawn where it reaches the
             // band: there it shows in the pixels near terrain gives up.
             if (hidden && joinBand != null && !NearCover.beforeJoin(TileKey.originX(key), TileKey.originZ(key),
-                    TileKey.originX(key) + tileSide, TileKey.originZ(key) + tileSide, view.originX(), view.originZ(),
+                    TileKey.originX(key) + tileSide, TileKey.originZ(key) + tileSide, joinX, joinZ,
                     joinBand[0])) {
                 hidden = false;
             }

@@ -366,6 +366,8 @@ final class DistantProgram {
         "// The join's fade: where it starts and ends, in blocks from the view along the farther of x",
         "// and z. End not past start: none.",
         "uniform vec2 joinBand;",
+        "// Where that distance is measured from, x and z from the view's origin: near terrain's camera.",
+        "uniform vec2 joinOrigin;",
         "// 0 while the water layer is drawn.",
         "uniform int imaged;",
         FadePattern.glsl(),
@@ -412,7 +414,7 @@ final class DistantProgram {
         "        // near terrain keeps its complement.",
         "        // Not water: near water is the game's own and does not fade, so distant water ends",
         "        // where near terrain's columns begin and every pixel has one water surface.",
-        "        float square = max(abs(fromOrigin.x), abs(fromOrigin.z));",
+        "        float square = max(abs(fromOrigin.x - joinOrigin.x), abs(fromOrigin.z - joinOrigin.y));",
         "        if (imaged == 0 || joinBand.y <= joinBand.x || square <= joinBand.x || !" + FadePattern.GLSL_FUNCTION
             + "(gl_FragCoord.xy, clamp((square - joinBand.x) / (joinBand.y - joinBand.x), 0.0, 1.0), false, 0)) {",
         "            discard;",
@@ -509,6 +511,7 @@ final class DistantProgram {
     private int acrossTilesLocation;
     private int squareOriginLocation;
     private int joinBandLocation;
+    private int joinOriginLocation;
     private int targetsProgram;
     private int shadedBuffer;
     private long shadedVersion = Long.MIN_VALUE;
@@ -610,6 +613,7 @@ final class DistantProgram {
         GL20.glUniform1i(acrossTilesLocation, across);
         GL20.glUniform2fv(squareOriginLocation, squareOrigins);
         GL20.glUniform2f(joinBandLocation, joinBand == null ? 0f : joinBand[0], joinBand == null ? 0f : joinBand[1]);
+        GL20.glUniform2f(joinOriginLocation, joinBand == null ? 0f : joinBand[2], joinBand == null ? 0f : joinBand[3]);
         if (holes != null) {
             GL20.glUniform4fv(holesLocation, holes);
             GL20.glUniform1fv(bandWidthLocation, bandWidths);
@@ -781,6 +785,7 @@ final class DistantProgram {
         acrossTilesLocation = GL20.glGetUniformLocation(program, "acrossTiles");
         squareOriginLocation = GL20.glGetUniformLocation(program, "squareOrigin");
         joinBandLocation = GL20.glGetUniformLocation(program, "joinBand");
+        joinOriginLocation = GL20.glGetUniformLocation(program, "joinOrigin");
     }
 
     /** The uniforms' places as they stand, to put back after the other program has drawn. */
@@ -790,7 +795,7 @@ final class DistantProgram {
             imageLayersLocation, imagedLocation, imagesLocation, detailStartLocation, detailEndLocation, coverLocation,
             coverSideLocation, coverMinimumLocation, holesLocation, bandWidthLocation, levelCountLocation,
             crossfadeLocation, shownMaskLocation, maskWordsLocation, acrossTilesLocation, squareOriginLocation,
-            joinBandLocation};
+            joinBandLocation, joinOriginLocation};
     }
 
     private void locations(int[] kept) {
@@ -821,7 +826,8 @@ final class DistantProgram {
         maskWordsLocation = kept[i++];
         acrossTilesLocation = kept[i++];
         squareOriginLocation = kept[i++];
-        joinBandLocation = kept[i];
+        joinBandLocation = kept[i++];
+        joinOriginLocation = kept[i];
     }
 
     private static int compile(int type, String source) {

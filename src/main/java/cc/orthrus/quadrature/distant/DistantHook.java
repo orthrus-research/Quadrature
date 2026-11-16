@@ -31,10 +31,7 @@ public final class DistantHook {
     private static boolean sampling;
     private static boolean fogSaid;
     private static float farthest;
-    private static float nearFadeStart;
     private static boolean shaded;
-    private static float nearFadeEnd;
-    private static final float[] JOIN_BAND = new float[2];
     private static int farthestGeneration;
 
     private DistantHook() {
@@ -116,16 +113,25 @@ public final class DistantHook {
     }
 
     /**
-     * Told by near terrain: that it fades out across its last blocks, from {@code start} to
-     * {@code end} blocks from the view along the farther of x and z, keeping the pixels the shared
-     * pattern's complement keeps; or, with {@code end} not past {@code start}, that it does not.
-     * Distant terrain fades in over the same band only while this says so and
-     * {@code -Dquadrature.distant.joinFade=on}: each side alone would draw the band twice or leave
-     * it open. Nothing calls this yet; near terrain's fade is to, each frame it is on.
+     * The band distant terrain fades in over this frame, start then end in blocks, or null for
+     * none. It is the band near terrain says it drew its own fade with this frame
+     * ({@code TerrainHook.fadeBandInUse}), and only with {@code -Dquadrature.distant.joinFade=on}:
+     * each side alone would draw the band twice or leave it open.
      */
-    public static void nearFades(float start, float end) {
-        nearFadeStart = start;
-        nearFadeEnd = end;
+    static float[] joinBand() {
+        if (DistantSettings.JOIN_FADE_DEBUG != null) {
+            return DistantSettings.JOIN_FADE_DEBUG;
+        }
+        return DistantSettings.JOIN_FADE ? TerrainHook.fadeBandInUse() : null;
+    }
+
+    /**
+     * Where the fade's distance is measured from, x, y and z in the world: the place near terrain
+     * measured its own from this frame, which is the camera, or null with the debug band or none,
+     * for which the viewer's own place serves.
+     */
+    static double[] joinOrigin() {
+        return DistantSettings.JOIN_FADE_DEBUG != null || !DistantSettings.JOIN_FADE ? null : TerrainHook.fadeOrigin();
     }
 
     /** Told by distant terrain each world pass: whether it drew into the targets for shading. */
@@ -139,19 +145,6 @@ public final class DistantHook {
      */
     public static boolean shaded() {
         return shaded;
-    }
-
-    /** The band distant terrain fades in over this frame, start then end, or null for none. */
-    static float[] joinBand() {
-        if (DistantSettings.JOIN_FADE_DEBUG != null) {
-            return DistantSettings.JOIN_FADE_DEBUG;
-        }
-        if (!DistantSettings.JOIN_FADE || !(nearFadeEnd > nearFadeStart)) {
-            return null;
-        }
-        JOIN_BAND[0] = nearFadeStart;
-        JOIN_BAND[1] = nearFadeEnd;
-        return JOIN_BAND;
     }
 
     /** Draws distant terrain. Called once a world pass, after the opaque layers of near terrain. */
