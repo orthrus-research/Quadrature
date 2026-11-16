@@ -4,12 +4,13 @@ Status: the part with no graphics in it is built and tested, in `core`
 (`cc.orthrus.quadrature.core.lod`): the run tile, the run mesher, the face record, the ring
 selection, the schedule and the draw list. The first frames are written and compile, in
 `cc.orthrus.quadrature.distant` (section 8): sampling, materials, an arena and the draw.
-They have run twice in a game (sections 9 and 10): tiles are sampled, stored and drawn in the
-right places, land shows beyond near terrain to the horizon, and near terrain is drawn exactly
-as without distant terrain. **Untested still:** whether a band of sky stands between near and
-distant terrain (the game's fog hid the join), the shared fog, the two debug views and the
-lowered water surface, which were written after the second run and have not run in a game;
-clouds and the hand under the raised far distance. Section 11 is the plan for the next run.
+They have run three times in a game (sections 9 to 11): tiles are sampled, stored and drawn
+in the right places, land shows beyond near terrain to the horizon, near terrain is drawn
+exactly as without distant terrain, and with one fog for both, distant land begins where near
+land ends with no band of sky. **Untested still:** whether the near box stands open anywhere
+(the first box view could not show it), the lowered water surface, clouds and entities under
+the shared fog, the hand, and everything on Cubature's client preview pool. Section 12 is the
+plan for the next run.
 Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
@@ -388,13 +389,22 @@ slot between them at the box's edge the unlit bed beyond showed: a third of a pi
 blocks, which the second run drew as a row of dark dashes along the join (section 10). The
 water layer's top faces are now lowered by `NearCover.WATER_SURFACE_DROP`.
 
-**Debug views.** `-Dquadrature.distant.debug=box` draws in magenta, unfogged, the fragments the
-near box would discard, and draws the tiles wholly inside the box as well. Near terrain is
-drawn first and hides them by depth wherever it has a mesh, so magenta marks exactly where the
-box stands open: a cube not yet meshed, a hole in near terrain, or a box larger than what near
-terrain meshes. `=level` gives every face a color for its tile's level (0 red, 1 orange, 2
-yellow, 3 green, 4 cyan, 5 blue, 6 violet), with no fog on distant terrain and the game's fog
-on near terrain.
+**Debug views.** `-Dquadrature.distant.debug=box` shows where the near box stands open. After
+the ordinary draw, which leaves out what the box holds, the faces the box holds are drawn
+again in magenta, each moved straight away from the eye by a hundredth of its distance. They
+keep their place on the screen and lose to anything at their own depth or nearer, so a pixel
+is magenta only where distant terrain has ground in the box and near terrain drew nothing in
+front: a cube not yet meshed, a hole in near terrain, or a box larger than what near terrain
+meshes. Two things show through that are not faults: near terrain's cut-out leaves, between
+their texels, where distant terrain's solid crowns stand behind; and near water with nothing
+opaque behind it, which is drawn afterwards and shows as magenta seen through water. The
+tiles the box holds whole are drawn for this view only, and the log says how many.
+
+The first box view (section 11) drew those faces at their own depth. Distant ground lies in
+the plane of near ground, so depth tied and magenta covered near terrain almost everywhere.
+
+`=level` gives every face a color for its tile's level (0 red, 1 orange, 2 yellow, 3 green, 4
+cyan, 5 blue, 6 violet), with no fog on distant terrain and the game's fog on near terrain.
 
 **What near terrain covers.** Fragments inside a box round the camera are discarded: the
 loaded cubes' reach on each axis less one cube, since near terrain meshes a cube only among
@@ -517,106 +527,137 @@ now drawn at the game's level (section 8). Not yet seen in a game.
 **Also seen, not distant terrain's:** lighter patches of water at near terrain's outer edge in
 both runs, where near water has nothing opaque drawn behind it.
 
-## 11. The next run
+## 11. The third run, 2026-11-16
 
-Not done. It runs the build tagged `lod-turn-3`: this branch before it moved to Cubature's
-pool, with Cubature 802bab6d and distant terrain's own two threads, as instance
-`quadrature-distant-04` was prepared. One short GPU turn under Riven's lease: two runs with distant terrain on, on one
-fresh instance (a rebuilt jar needs a freshly prepared instance, and the Quadrature jar has
-changed). There is no reference run: with the fog changed it would differ from both runs
-everywhere past 144 blocks, and the second run's reference frames exist for three of the four
-views.
+One turn under the lease, two starts. The build is tagged `lod-turn-3`: Cubature 802bab6d,
+distant terrain's own two threads, the shared fog, the lowered water surface and the first
+box view. The tour is `tools/tours/distant-join-2485331.json`.
+
+**The first start stopped** while the game loaded `EntityRenderer`: "@Shadow field
+farPlaneDistance was not located in the target class". The fog's Mixin shadowed a private
+field, and this build does not carry a shadowed member's name into the released jar. The
+offline check had passed, since it reads development names, where the field resolves. The fog
+now reads the view distance from the game's settings, the same number.
+
+**Rule: no Mixin of this mod shadows a game member.** Use an accessor, whose name the build
+does record, or the game's public state. `tools/mixin_check.py` refuses a Mixin with a
+`@Shadow`, because it cannot see this fault otherwise.
+
+**The second start** ran the box view on a fresh instance (`quadrature-distant-06`: that build
+with the correction, branch `fix/lod-turn-3-fog`) and captured 4 of 4 views with no error.
+
+| | |
+|---|---|
+| Fog | The log: the world's fog runs from 384 to 24,576 blocks for near and distant terrain alike, in place of the game's 144 to 192 |
+| Tiles | Stored equal to wanted at every view (658, 658, 676, 676); failed 0, refused 0 |
+| Arrival | First tiles 30 s after sampling began, level 6 complete at 75 s, all 658 at 150 s |
+| Drawn | 240 to 332 tiles, 1.14 to 1.59 million faces, 3 draws |
+| GPU time | 2.2 to 2.4 ms mean, 3.5 ms at most |
+| Driver, during distant terrain | Notifications only |
+
+**What it showed.**
+
+- The shared fog works. Near terrain is clear to its edge; distant terrain fades gently and
+  meets the horizon's color without an edge. The sky is unchanged from the second run's
+  reference (identical in one view, within 2 of 255 in another).
+- In `above_west`, near terrain's plants and images run up to a clean line and distant terrain
+  continues the same ground at the same height from there: no band of sky, no band of fog,
+  and no strip of solid magenta along the edge, which a box larger than near terrain's
+  meshes would have drawn at ground level.
+- In `coast_join` the box's corner is a sharp angle in the water where it was expected.
+
+**What it did not show.**
+
+- Whether the box stands open. The box view was wrong: magenta covered most of near terrain
+  (116,000 to 535,000 pixels a frame), because distant ground ties with near ground in
+  depth, distant crowns are solid where near leaves are cut out, and near water, drawn
+  later, loses to distant water at its own level. It marked where the two coincide. Section 8
+  describes the corrected view.
+- The lowered water surface and the dashed row: under magenta in both water views.
+- Clouds and entities under the shared fog: the instance's client has clouds off and no
+  animals, and the player is a spectator.
+- The normal look: the turn's second tour went to the retry.
+
+**Open: GPU memory.** It peaked at 3,189 MiB against the second run's 2,633. Not explained.
+The box view drew the tiles the box holds as well, and its client held a different set of
+other programs' memory; the sampler counts the whole GPU, not the game. The next run samples
+memory in both of its runs, and its log says how many tiles the box view adds.
+
+## 12. The next run
+
+Not done. One GPU turn under Riven's lease, two tours on one fresh instance, on the current
+build: Cubature 24f5ad89 (the published build of Cubature's main), tiles built on Cubature's
+client preview pool, the shared fog, the lowered water surface, the corrected box view. It is
+the first run in a game of Cubature's pool, and of `surfaceHeights` and `cubeContent`, which
+distant terrain does not call but its near-terrain neighbor will.
 
 **Before it, without a game.** Gradle must run on Eclipse Adoptium 25.0.5 exactly
 (`JAVA_HOME`), or the build stops at once. The Mixin check needs OrthLib's `orthlib-mixinkit`
 jar: it looks for a sibling `OrthLib` checkout's build and otherwise takes `--mixinkit <jar>`.
 
 ```
-# Riven feat/lod-client-sampler: the frozen jar of the second run stands (lod-first-frames).
-# Quadrature feat/lod:
 JAVA_HOME=<Adoptium 25.0.5> ./gradlew build --no-daemon
 JAVA_HOME=<Adoptium 25.0.5> python tools/mixin_check.py --java <java 26> --mixinkit <orthlib-mixinkit jar>
 ```
 
-The check reports 36 hooks on 6 targets, ten of them distant terrain's: six projections, the
-draw, and the fog's three (the clouds' start and end, and `setupFog`).
+The check reports 36 hooks on 6 targets and no shadowed member.
 
-**Instance**, from the Riven checkout of that branch:
+**Instance** `quadrature-distant-07`, from the Riven checkout of its branch, with animals
+allowed so that the tour's two cows stay, and with clouds turned on in the prepared client's
+options before its first start (the launcher's default has them off):
 
 ```
-python tools/runtime.py prepare --name quadrature-distant-04 --seed 2485331 --scale 4 \
-  --no-distant-horizons --capture-ticks 3600 \
+python tools/runtime.py prepare --name quadrature-distant-07 --seed 2485331 --scale 4 \
+  --no-distant-horizons --capture-ticks 3600 --spawn-animals \
   --artifact <the frozen Riven jar, lod-first-frames> \
   --cubic-artifact <Quadrature>/pins/Cubature-1.12.2-0.1.4.0-cleanroom.jar \
   --client-mod <Quadrature>/build/libs/quadrature-0.1.0-dev.jar
+# then, in the instance's client/options.txt: renderClouds:true
 ```
 
-**Tour**, `tools/tours/distant-join-2485331.json`: `ground_west`, `above_west` and
-`coast_strait` as before, and `coast_join`, 33 blocks above the strait looking 20 degrees down,
-so the water join lies across the middle of the frame and not on the horizon. Consecutive views
-are 192 blocks, about 1,400 blocks and 30 blocks of height apart; the launcher captures a view
-only more than 8 blocks from the last, and waits 900 s a view against a settle of 180 s.
+Riven's frozen jar was built against Cubature 802bab6d; what Cubature added since is
+additive, and that it links is the run's first check.
 
-**Runs**, each `play --name quadrature-distant-04 --tour <the tour>` with `JAVA_TOOL_OPTIONS`
-set and bounded from outside at 24 minutes, the lease left free three minutes between them:
+**Tour**, `tools/tours/distant-fourth-2485331.json`: the four views of the third run, with
+two cows standing 15 and 20 blocks in front of `ground_west`, so an entity is seen against
+distant land under the shared fog.
 
-1. Box view: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
+**Runs**, each `play --name quadrature-distant-07 --tour <the tour>` with `JAVA_TOOL_OPTIONS`
+set, GPU memory sampled beside both, bounded from outside at 24 minutes, the lease left free
+three minutes between them:
+
+1. Normal look: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
    -Dquadrature.frameLog=true -Dquadrature.distant=own -Dquadrature.distant.world=16384
-   -Dquadrature.glDebug=true -Dquadrature.distant.debug=box`. Settles whether the near box
-   stands open anywhere and whether a band of sky lies at the join.
-2. Normal look: the same without `-Dquadrature.distant.debug=box`. The frames to judge the
-   fog, the water's level and the join by eye.
+   -Dquadrature.glDebug=true`.
+2. Box view: the same, and `-Dquadrature.distant.debug=box`.
 
-About 15 minutes each. If a third run fits a later turn: the same with
-`-Dquadrature.distant.debug=level`.
+**Pass, run 1:**
 
-**Pass:**
-
-1. Both runs start and finish the tour; each log says the fog runs from 384 to 24,576 blocks,
-   run 1's that the box view is on, and neither that distant terrain failed.
-2. Tiles arrive at every view; failed 0, refused 0; no driver message of error severity.
-3. Run 1: no magenta once a view has settled, in any of the four frames. Magenta along the
-   box's edge means the box is larger than what near terrain meshes; magenta patches inside
-   mean near terrain has holes there. Either is reported with where it lies.
-4. With the fog pushed out, near terrain's far edge is visible in `above_west` and
-   `coast_join`. Distant terrain begins where near terrain ends: no band of sky or of the
-   horizon's color between them.
-5. No row of dark dashes at the water join in `coast_strait` or `coast_join`.
-6. The two runs' frames agree except where run 1 shows magenta. Against the second run's
-   reference frames (`ground_west`, `above_west`, `coast_strait`), near terrain within 144
-   blocks of the eye, where the game's fog had not begun, agrees within `near.json`; beyond
-   that it differs by the fog alone, clearer and never displaced.
-7. Looked at and described: how the shared fog reads at the join and at the horizon, clouds
-   against clear terrain, the step from near water to flat distant water.
-
-## 12. The run after: Cubature's pool
-
-Not done. After section 11's turn, one tour on the current build: Cubature 0aedf201, tiles
-built on its client preview pool. It is also the first run in a game of three additions to
-Cubature's cube source: `surfaceHeights` and `surfaceVersion` (158b9a0a), `cubeContent`
-(6bf47ee3) and `previewWork` (0aedf201), which distant terrain's near-terrain neighbor waits
-on before it moves its own pin.
-
-**Instance** `quadrature-distant-05`, prepared as section 11's with the new jars:
-`--cubic-artifact <Quadrature>/pins/Cubature-1.12.2-0.1.4.0-cleanroom.jar` (sha256
-58b552a9...8de7) and this build's Quadrature jar. Riven's frozen jar stands: it was built
-against Cubature 802bab6d, and the additions since are additive.
-
-**Run:** the tour and options of section 11's run 2 (shared fog, normal look).
-
-**Pass:**
-
-1. The game starts: Cubature's new classes load, and Riven's jar built against
-   the older Cubature links.
+1. The game starts: Cubature's new classes load, and Riven's jar built against the older
+   Cubature links.
 2. The log says tiles are built on Cubature's client preview pool, with its threads and how
-   many run at once, and not the fallback's warning.
+   many run at once, and not the fallback's warning; and that the fog runs from 384 to 24,576.
 3. Tiles arrive at every view: stored equal to wanted, failed 0, refused 0. The time to the
-   first tile, to the coarsest level and to all tiles is recorded beside the second run's
-   (27 s, 75 s, 155 s on two threads of its own).
+   first tile, to the coarsest level and to all tiles is recorded beside the third run's
+   (30 s, 75 s, 150 s on two threads of its own).
 4. The log's count of tiles at once moves with the governor: recorded with the frame rate.
    Frames stay at the cap while tiles are built.
 5. After a move, abandoned tiles are counted and none stays in flight: "being built" returns
    to 0 at every settled view.
-6. Leaving the world and stopping leaves no thread named "Cubature client preview" alive
-   (a thread dump before the stop, or the client's exit without a hang).
-7. The frames match section 11's run 2 where both have settled.
+6. Leaving the world and stopping leaves no thread named "Cubature client preview" alive:
+   the client exits without a hang.
+7. No row of dark dashes at the water join in `coast_strait` or `coast_join`, and no step
+   between near and distant water that the eye finds.
+8. Distant terrain begins where near terrain ends in `above_west` and `coast_join`.
+9. Looked at and described: the cows and the clouds against clear terrain, how the fog reads
+   at the join and the horizon, the change from near water to flat distant water.
+
+**Pass, run 2:**
+
+10. No magenta once a view has settled, other than through near leaves' cut-outs and through
+    near water with nothing opaque behind it. Magenta along the box's edge means the box is
+    larger than what near terrain meshes; magenta patches inside mean near terrain has holes
+    there. Either is reported with where it lies.
+11. Where it shows no magenta, the frame equals run 1's.
+12. GPU memory in both runs, and the log's count of tiles the box view adds, set beside the
+    third run's 3,189 MiB.
