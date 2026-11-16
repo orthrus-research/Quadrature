@@ -290,14 +290,28 @@ the driver and never mapped, each also the store of a buffer texture read with
   blocks light, cells ordered x fastest, then z, then y, and after them a bit for each
   block of two cells a side in which any cell blocks light. 576 bytes; room is taken for
   a brick for every cube of the box, 8.6 MiB.
-- **Copying is bounded:** at most 64 bricks a frame, bricks before the entries that name
-  them, and the whole lookup in one call when many entries change. Each frame the box's
-  origin cube, a generation and the entries copied are published.
-- **Not bounded:** when the box's origin jumps, as on a teleport, every cube of the box
-  is read again in that frame, which has taken 17.5 ms.
+- **The state of each cell**, with `-Dquadrature.scene.states=true` as well, in three more
+  buffers. For each brick slot an unsigned byte a cell, naming a place in the cube's own
+  list of the states it holds, and the list, 256 state numbers of 16 bits: 4,096 and 512
+  bytes a slot. A cube holding more than 256 states is clamped, the cells of states past
+  the 255th naming the last place, and counted. For each of 65,536 states, four 16-bit
+  numbers: the first holds what the state does to light and three are kept for color.
+  Room is taken for every cube of the box: 61.0 MiB of cells, 7.6 MiB of lists and
+  0.5 MiB for the table.
+- **Room for every cube is more than is used.** With the lookup and occupancy bricks the
+  buffers take 77.8 MiB, inside the 128 MiB the shading work allows for materials and
+  visibility. The buffers are to be sized to about one and a half times the most slots
+  seen in use, once that has been measured in different places: forest, a cave system, a
+  built-up area, ocean. Only the forest tour has been measured: 6,406 slots at most.
+- **Copying is bounded:** at most 64 bricks a frame, with their cells and lists, bricks
+  before the entries that name them, and the whole lookup in one call when many entries
+  change. Cubes are taken from the scene 512 a frame, so that a jump of the box's origin,
+  as on a teleport, fills the box over some thirty frames; a cube that left the box or the
+  scene is dropped at once. Each frame the box's origin cube, a generation and the entries
+  copied are published.
 
-Not built: the state of each cell on the GPU, the color of light a state emits or passes,
-shapes smaller than a cell, entities.
+Not built: the color of light a state emits or passes, shapes smaller than a cell,
+entities.
 
 ## 6. Near terrain
 
@@ -575,7 +589,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | A view as the input to visibility and drawing | Decided; built | |
-| The scene for lighting: a state number per cell, light properties per state, occupancy bricks under a wrapped lookup | Built, behind switches | States per cell on the GPU; color; the cost of a jump of the box |
+| The scene for lighting: a state number per cell, light properties per state, occupancy and state bricks under a wrapped lookup | Built, behind switches | Color; shapes smaller than a cell |
 | The light's depth: one fixed, texel-snapped orthographic box drawn into a layer of an array texture, kept between frames | Built, behind a switch | Entities in it; further layers; what samples it |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |

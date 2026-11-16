@@ -439,6 +439,36 @@ terrain with the light's view, the scene for lighting and its buffers all on
   thread on average and 17.5 ms in the worst, a jump of the box.
 - **The driver** reported no error.
 
+Each cell's state was then published as well (`-Dquadrature.scene.states=true`), cubes
+taken from the scene 512 a frame, and what the buffers hold read back and set beside the
+scene (`-Dquadrature.scene.check=true`). On a further instance, the same four runs:
+
+| | Game | Own terrain | Own terrain, scene with states, and the light's view |
+|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 16 of 17 |
+| Worst changed fraction | | 0.0550% (`07-boreal_forest`) | 0.1434% (`07-boreal_forest`) |
+| Changed pixels, all 17 views, and outside the river | | 1,611 and 1,230 | 2,427 and 1,269 |
+| CPU, median | 0.56 ms | 0.48 ms | 0.19 ms |
+| GPU, median and most | 1.73 and 2.28 ms | 1.41 and 2.22 ms | 1.70 and 4.01 ms |
+| Meshing a cube | | 1.120 ms | 1.166 ms |
+| Frames per second at the captures, least | 120 | 119 | 119 |
+
+- **The frame that fails does so on the river**, 1,158 of its pixels in the river's box.
+  The two own-terrain runs differ in no view by more than 0.0387%: 12 of 17 are identical
+  byte for byte, and of 358 changed pixels 351 are on the river.
+- **What the buffers hold is what the scene holds.** 72 times over the tour the lookup
+  and 16 bricks were read back, 1,136 bricks in all, each cell followed through its
+  cube's list to its state number: no difference.
+- **No cube was clamped,** and no state failed to fit 16 bits. The state table was sent
+  289 times, once for each time a state was first met.
+- **Slots in use:** 6,406 at most, 5,617 at the end, of the 15,625 there is room for.
+- **Copying** took 0.027 ms a frame on the client thread on average. The worst frame took
+  13.1 ms, where the jump of the box took 17.5 ms before cubes were taken a bounded
+  number a frame; what that frame holds is not established, and the first frame makes
+  78 MiB of buffers.
+- **Meshing a cube** took 0.05 ms longer with the scene in this pair of runs and 0.01 ms
+  in the pair before; meshing time varies by about that between runs.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
