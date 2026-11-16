@@ -40,6 +40,7 @@ final class GBufferTarget {
     private int width;
     private int height;
     private long generation;
+    private long drawnFrame = -1;
     private boolean alpha;
     private boolean blend;
     private final float[] zero = {0f, 0f, 0f, 0f};
@@ -83,6 +84,7 @@ final class GBufferTarget {
             throw new IllegalStateException("The shading targets' framebuffer is incomplete: 0x" + Integer.toHexString(status));
         }
         readback = null;
+        generation++;
         Quadrature.LOGGER.info("Shading targets: {} by {}, four of 8 bits a channel and depth, {} MiB.", width, height,
             String.format("%.1f", bytes() / 1048576.0));
     }
@@ -97,8 +99,9 @@ final class GBufferTarget {
      * first and put back by {@link #end}; the framebuffer and viewport are the envelope's to restore.
      *
      * @param first whether this is the frame's first layer, at which the targets are cleared
+     * @param frame the frame's index, kept as the frame the targets were last drawn in
      */
-    void begin(boolean first) {
+    void begin(boolean first, long frame) {
         ensure();
         if (first) {
             for (int i = 0; i < TARGETS; i++) {
@@ -106,7 +109,7 @@ final class GBufferTarget {
             }
             // Depth is reversed: the farthest is 0.
             GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
-            generation++;
+            drawnFrame = frame;
         }
         // The game's alpha test would judge a fragment by the first target's alpha, which is roughness.
         alpha = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
@@ -153,9 +156,14 @@ final class GBufferTarget {
         return height;
     }
 
-    /** Moves on each frame the targets are drawn. */
+    /** Moves on whenever the textures are made anew, as when the window changes size; not from frame to frame. */
     long generation() {
         return generation;
+    }
+
+    /** The frame the targets were last cleared and drawn in, or -1. */
+    long drawnFrame() {
+        return drawnFrame;
     }
 
     /** A diagnostic: writes each target as an image, color as it is stored and alpha as a gray image beside it. */

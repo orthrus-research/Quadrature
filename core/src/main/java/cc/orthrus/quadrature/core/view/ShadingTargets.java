@@ -27,11 +27,13 @@ public final class ShadingTargets {
     private int height;
     private long bytes;
     private long generation;
+    private long drawnFrame = -1;
 
     /** Sets what the host has made and drawn. */
     public void set(int framebuffer, int a, int b, int c, int d, int depth, int width, int height, long bytes,
-        long generation) {
+        long generation, long drawnFrame) {
         this.framebuffer = framebuffer;
+        this.drawnFrame = drawnFrame;
         textures[0] = a;
         textures[1] = b;
         textures[2] = c;
@@ -76,8 +78,22 @@ public final class ShadingTargets {
         return bytes;
     }
 
-    /** Moves on each frame the targets are drawn. */
+    /**
+     * Moves on only when the textures and the framebuffer are made anew, as when the window changes
+     * size: what holds their names must take them again. It does not move from frame to frame; whether
+     * the targets are this frame's is told by {@link #drawnFrame}.
+     */
     public long generation() {
         return generation;
+    }
+
+    /**
+     * The index of the last frame in which the targets were cleared and drawn, by the count the host
+     * publishes as the frame's index; -1 before the first. They are cleared when a world pass draws its
+     * first opaque layer, so once a frame unless the game draws the world twice in one, as it does for
+     * its two-colored stereo picture.
+     */
+    public long drawnFrame() {
+        return drawnFrame;
     }
 }

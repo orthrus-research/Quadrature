@@ -582,9 +582,15 @@ The defaults are roughness 0.85 and reflectance 0.04. Emission is the light a st
 over 15, whatever its kind, but for lava and plain states.
 
 **What is published.** `TerrainHook.shadingTargets()` gives the framebuffer, the five
-textures, their size and a generation that moves each frame they are drawn.
+textures, their size and a generation that moves when they are made anew.
 `TerrainHook.materials()` gives the table and `TerrainHook.material(state)` a state's
 number, filling its row if near terrain has not met the state.
+`TerrainHook.materialsBuffer()` gives the storage buffer the table lies in, brought up to
+the table's version when asked. `TerrainHook.frame()` gives the frame's index, a count
+of the world passes own terrain has drawn, and `shadingTargets().drawnFrame()` that
+count when the targets were last cleared and drawn; `generation()` moves only when the
+textures are made anew. The targets are cleared and drawn once in a world pass, so once
+a frame but for the game's two-colored stereo picture, which draws the world twice.
 
 **The near edge.** Behind `-Dquadrature.terrain.fade=true` the player's view gives its
 pixels up, across a band before the edge of what near terrain holds, to what is drawn
@@ -610,8 +616,6 @@ not fade. It is built and has not been exercised with distant terrain.
 - *Water and other translucent surfaces* draw after shading, reading the lit opaque color
   and the opaque depth beneath them; both are to be published as textures once shading
   writes them.
-- *A frame index*, moving by one each frame, is to be published beside the targets for
-  stages that accumulate over frames and for the fade's pattern.
 
 ## 7. Distant terrain
 

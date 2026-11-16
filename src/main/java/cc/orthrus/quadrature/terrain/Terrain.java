@@ -1196,7 +1196,7 @@ public final class Terrain
             } else {
                 // The same commands and records as the frame's own draw, into targets of Quadrature's own.
                 boolean first = layer == BlockRenderLayer.SOLID;
-                targets.begin(first);
+                targets.begin(first, frames);
                 if (first) {
                     targetDraws = 0;
                     targetFrames++;
@@ -1205,7 +1205,8 @@ public final class Terrain
                 targets.end();
                 if (layer == BlockRenderLayer.CUTOUT) {
                     shadingTargets.set(targets.framebuffer(), targets.texture(0), targets.texture(1), targets.texture(2), targets.texture(3),
-                        targets.depthTexture(), targets.width(), targets.height(), targets.bytes(), targets.generation());
+                        targets.depthTexture(), targets.width(), targets.height(), targets.bytes(), targets.generation(),
+                        targets.drawnFrame());
                     if (TARGET_IMAGES) {
                         long place = CubeKey.of((int) Math.floor(cameraX), (int) Math.floor(cameraY), (int) Math.floor(cameraZ));
                         if (place != targetStillAt || !dirty.isEmpty()) {
@@ -1264,6 +1265,24 @@ public final class Terrain
         return mesher.materials() == null ? null : mesher.materials().table();
     }
 
+    @Override
+    public long frame() {
+        return frames;
+    }
+
+    @Override
+    public int materialsBuffer() {
+        if (!TARGETS) {
+            return 0;
+        }
+        // Rows may have been filled since the frame's own upload: what is handed out holds them.
+        Materials materials = mesher.materials();
+        if (materialsSeen != materials.table().version()) {
+            materialsSeen = materials.table().version();
+            program.uploadMaterials(materials.table().bytes());
+        }
+        return program.materialBuffer();
+    }
     @Override
     public int material(net.minecraft.block.state.IBlockState state) {
         return mesher.material(state);

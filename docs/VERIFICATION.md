@@ -199,6 +199,7 @@ what was changed between them:
 At 1,158 the view fails `near.json` at 0.143% while its terrain differs by 0.019%. The
 cause is not established. The view is scored whole; a run in which it fails on the river
 alone is reported as failing, with the count inside and outside the box.
+
 ### What a view sees
 
 What is drawn is found once per view per frame by a search outward from the cube the eye
@@ -236,6 +237,7 @@ with the comparison running.
   adds nothing measurable to meshing: 1.15 ms a cube.
 - **A second view.** A view along the sun's direction holding what the player's view sees
   is found every frame and not drawn: 1,914 cubes on average, 2,315 at most, in 0.15 ms.
+
 ### Terrain memory and submission
 
 Meshes lie in an arena of pages and each layer is drawn with one indirect multi-draw per
@@ -509,6 +511,7 @@ with every switch off scored against the game's terrain in the same instance (20
 - In 111 comparisons of what is selected, no cube the game draws is missing from what
   Quadrature draws.
 - Timings are not recorded: a build on the same machine overlapped the run.
+
 ### Faces drawn from records
 
 The instance of the section above, each run scored against the game's terrain in it
@@ -552,7 +555,16 @@ against the game's terrain in the same instance (2026-11-16).
   what Quadrature draws.
 - 57,871 and 58,537 meshes were built over a tour, against 59,043 on the cube source
   before: the light this cube source sends again when it changes does not multiply meshes.
-- Timings are not recorded: builds on the same machine overlapped both runs.
+- Timings of those two runs are not recorded: builds on the same machine overlapped both.
+- Own terrain with every switch off again, with nothing else at work on the machine but a
+  build of 11 seconds two and a half minutes in: 17 of 17, view 07 at 0.023%, views 13 and
+  15 at 0.013% and 0.021%. 59,658 meshes built at 1.141 ms each, against 59,043 at 1.130 ms
+  on the cube source before: about one mesh in a hundred more, for the light sent again.
+  Stage medians at the last view: opaque terrain 0.435 ms on the CPU and 2.217 ms on the
+  GPU; in sum 0.890 and 2.521 ms, against 0.746 and 2.511 ms on another instance before.
+- Faces and the targets for shading, reversed depth: 17 of 17 against the game, view 07 at
+  0.087%. The targets measure as on the cube source before.
+
 ### Targets for shading
 
 One instance, the forest tour, the cube source at 24f5ad89 (2026-11-16). Reversed depth,
@@ -594,6 +606,7 @@ Own terrain with every switch off, the same instance: 17 of 17 against the game,
 at 0.021%. Stage medians at the last view: opaque terrain 0.375 ms on the CPU and 2.207 ms
 on the GPU; in sum 0.746 and 2.511 ms. 59,043 meshes built at 1.130 ms each. A measurement
 on the same machine began 13 seconds before the run's end.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
