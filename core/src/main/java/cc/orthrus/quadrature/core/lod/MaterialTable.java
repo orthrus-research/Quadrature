@@ -108,9 +108,13 @@ public final class MaterialTable<K> {
      * A material's image as distant terrain draws it near the join: {@link #IMAGE_SIDE} texels a
      * side, {@code 0xAARRGGBB}, taken from the nearest texels of the source. Each color is
      * multiplied by {@code by} ({@code 0xFFFFFF} for none), which is where a block's own fixed
-     * color goes; a biome's tint is applied when it is drawn. Every texel is made opaque, since
-     * distant faces are solid: a clear texel becomes black, as the game's smaller copies of a leaf
-     * image count it.
+     * color goes; a biome's tint is applied when it is drawn.
+     *
+     * <p>Every texel is made opaque, since distant faces are solid. A clear texel takes the one
+     * color that makes the image's plain mean equal {@link #seenFromAfar} of it: the image's
+     * smaller copies are plain means, so from afar the image then shows the color the flat color
+     * is, and the game's own far leaves have. Filled with black instead, an image a third leaf
+     * came out half as bright as its flat color, and crowns near the join were too dark.
      */
     public static int[] image(int[] pixels, int width, int height, int by) {
         int[] image = new int[IMAGE_SIDE * IMAGE_SIDE];
@@ -118,13 +122,43 @@ public final class MaterialTable<K> {
             java.util.Arrays.fill(image, 0xFF808080);
             return image;
         }
+        long red = 0;
+        long green = 0;
+        long blue = 0;
+        int clear = 0;
         for (int y = 0; y < IMAGE_SIDE; y++) {
             for (int x = 0; x < IMAGE_SIDE; x++) {
                 int pixel = pixels[(y * height / IMAGE_SIDE) * width + x * width / IMAGE_SIDE];
-                image[y * IMAGE_SIDE + x] = pixel >>> 24 == 0 ? 0xFF000000 : 0xFF000000 | multiply(pixel, by);
+                if (pixel >>> 24 == 0) {
+                    image[y * IMAGE_SIDE + x] = 0;
+                    clear++;
+                    continue;
+                }
+                int color = multiply(pixel, by);
+                image[y * IMAGE_SIDE + x] = 0xFF000000 | color;
+                red += color >> 16 & 0xFF;
+                green += color >> 8 & 0xFF;
+                blue += color & 0xFF;
+            }
+        }
+        if (clear == 0) {
+            return image;
+        }
+        int far = seenFromAfar(image);
+        int fill = 0xFF000000 | filling(far >> 16 & 0xFF, red, clear) << 16 | filling(far >> 8 & 0xFF, green, clear) << 8
+            | filling(far & 0xFF, blue, clear);
+        for (int i = 0; i < image.length; i++) {
+            if (image[i] == 0) {
+                image[i] = fill;
             }
         }
         return image;
+    }
+
+    /** What the clear texels must hold for the whole image's mean to be {@code mean}. */
+    private static int filling(int mean, long opaqueSum, int clear) {
+        long value = Math.round((mean * (double) (IMAGE_SIDE * IMAGE_SIDE) - opaqueSum) / clear);
+        return (int) Math.max(0, Math.min(255, value));
     }
 
     /** The most an entry's cover can be: every pixel of the image fully opaque. */

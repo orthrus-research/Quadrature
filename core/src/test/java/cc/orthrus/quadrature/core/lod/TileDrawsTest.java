@@ -188,7 +188,7 @@ class TileDrawsTest {
         assertEquals(0, MaterialTable.seenFromAfar(new int[] {0x00FFFFFF}));
         assertEquals(0, MaterialTable.seenFromAfar(new int[0]));
         // A material's image: 16 texels a side from the nearest of the source, opaque, with the
-        // block's fixed color multiplied in and clear texels black.
+        // block's fixed color multiplied in.
         int[] source = new int[32 * 32];
         for (int i = 0; i < source.length; i++) {
             source[i] = (i % 32 < 16 ? 0xFF804020 : 0x00FFFFFF);
@@ -197,7 +197,15 @@ class TileDrawsTest {
         assertEquals(256, image.length);
         assertEquals(0xFF804020, image[0]);
         assertEquals(0xFF804020, image[7]);
-        assertEquals(0xFF000000, image[8], "A clear texel is black and opaque");
+        // Half the image clear: from afar it shows 0.73 of its color, so the clear half holds what
+        // brings the plain mean to that.
+        assertEquals(0xFF3A1E0E, image[8], "A clear texel is opaque, in the color that sets the mean");
+        long sum = 0;
+        for (int texel : image) {
+            sum += texel >> 16 & 0xFF;
+        }
+        assertEquals(MaterialTable.seenFromAfar(source) >> 16 & 0xFF, Math.round(sum / 256.0),
+            "The image's mean is its color from afar");
         assertEquals(0xFF804020, image[15 * 16 + 7]);
         assertEquals(0xFF402010, MaterialTable.image(source, 32, 32, 0x808080)[0]);
         assertEquals(0xFF112233, MaterialTable.image(java.util.Collections.nCopies(256, 0xFF112233).stream()

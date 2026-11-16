@@ -4,14 +4,14 @@ Status: the part with no graphics in it is built and tested, in `core`
 (`cc.orthrus.quadrature.core.lod`): the run tile, the run mesher, the face record, the ring
 selection, the schedule and the draw list. The first frames are written and compile, in
 `cc.orthrus.quadrature.distant` (section 8): sampling, materials, an arena and the draw.
-They have run four times in a game (sections 9 to 12): tiles are sampled on Cubature's client
+They have run five times in a game (sections 9 to 13): tiles are sampled on Cubature's client
 preview pool, stored and drawn in the right places; land shows beyond near terrain to the
 horizon under one fog; distant land begins where near land ends with no band of sky; near and
-distant water meet at one level; and on land the near box does not stand open. **Untested
-still:** the near sea bed under the box, the pool's threads when a world is left, entities
-between the game's old fog distances, and the hand. The plain flaws left are looks: distant
-water is flat and too bright, distant crowns are dark solid blocks, and textured near terrain
-changes abruptly to flat colors. Section 13 is the plan for the next run, which is also the first run of blended distant water, far-leaf colors and images near the join.
+distant water meet at one level and in one color; on land and over the sea the near box does
+not stand open; an entity 150 blocks out is drawn in front of distant land. **Untested
+still:** the pool's threads when a world is left, whether images near the join show, the
+corrected color of leaf images, the hand, and everything in section 14. Section 15 is the plan
+for the next run.
 Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
@@ -401,7 +401,11 @@ the fade ends, and it ends inside ring 0's reach, so no other level needs images
   repeated a block apart, nearest texel when magnified. Two layers a material, as its colors
   are: its top and its side, each the first frame of the image the game's model shows on that
   face, resampled to 16 texels by nearest texel, with the block's own fixed color multiplied
-  in and every texel made opaque (a clear texel black). 2,048 layers, or as many as the driver
+  in and every texel made opaque. A clear texel takes the one color that makes the image's
+  plain mean equal its color from afar (the leaves' rule below), since the image's smaller
+  copies are plain means. In the fifth run clear texels were black: an acacia's image then
+  averaged 0.52 to 0.59 of its flat color, and crowns within 352 blocks came out 0.84 as
+  bright as near crowns, where they had been 1.45. 2,048 layers, or as many as the driver
   has, hold 1,024 materials in under 3 MiB; a material past that draws its flat color.
 - A face finds its texel from its place within its tile, whose corner is a block's corner: a
   top or bottom face by its two horizontal coordinates, a side face by its horizontal one and
@@ -696,63 +700,50 @@ adds 400 to 450 MiB over its own floor, and the floor moved 390 MiB between them
 counts the whole GPU. The box view added no tile at any capture. The third run's 3,189 MiB is
 taken to have been the floor.
 
-## 13. The next run
+## 13. The fifth run, 2026-11-16
 
-Not done. One GPU turn under Riven's lease, two tours on one fresh instance
-(`quadrature-distant-08`), on the current build: blended distant water, far-leaf colors,
-images near the join, the corrected box view without water. Cubature 24f5ad89 as in the
-fourth run.
+One turn under the lease, two tours on a fresh instance (`quadrature-distant-08`): the normal
+look, then the box view, with blended distant water, far-leaf colors, images near the join and
+the box view without water. Cubature 24f5ad89. The tour is
+`tools/tours/distant-fifth-2485331.json`.
 
-**Before it, without a game.** Gradle on Eclipse Adoptium 25.0.5 (`JAVA_HOME`); the Mixin
-check with `--mixinkit <orthlib-mixinkit jar>`, which reports 36 hooks on 6 targets and no
-shadowed member.
+| | |
+|---|---|
+| Both runs | Started, captured 4 of 4 views and stopped; no error; the driver took the changed shaders |
+| Tiles | Stored equal to wanted at every view (658, 658, 676, 676); failed 0, refused 0, none left in flight |
+| The pool | 4 threads; the governor's count ranged 1 to 4 and settled at 4; first tiles 30 s after sampling began, level 6 complete at 80 s, all 658 at 125 s |
+| GPU time | 2.0 to 2.4 ms mean: reading an image costs nothing that shows |
+| Driver, during distant terrain | Notifications only |
 
-**Instance**, prepared as the fourth run's: `--spawn-animals`, and `renderClouds:true` set in
-the prepared client's options before its first start.
+**What it showed.**
 
-**Tour**, `tools/tours/distant-fifth-2485331.json`: the fourth run's four views. Its first
-view summons an ender dragon that does not move, 150 blocks west of the camera: the one
-entity the game both tracks and draws at that distance, between the 144 and 192 blocks where
-the game's fog used to lie. The first view's teleport is given again as a command.
+- Water. At the join distant water is (37 to 43, 52 to 58, 175 to 182) beside near water at
+  (36, 51, 172); it had been (47, 68, 244). From above the strait the box's corner, a bright
+  angle in the fourth run, cannot be found. No dashes, no step.
+- An ender dragon 150 blocks out, between the 144 and 192 blocks where the game's fog used to
+  lie, is drawn in front of the distant range and unfogged.
+- The box view over the sea shows no magenta through near water: the near sea bed is there
+  under all near water in view, the lighter patches included. Those patches are something in
+  near terrain's own drawing of water. On land, as in the fourth run, magenta only through near
+  crowns' cut-outs.
+- Outside magenta the two runs agree to within 0.4% of pixels.
 
-**Runs**, each `play --name quadrature-distant-08 --tour <the tour>` with `JAVA_TOOL_OPTIONS`
-set, GPU memory sampled beside both, bounded from outside at 24 minutes:
+**What it showed wrong.**
 
-1. Normal look: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
-   -Dquadrature.frameLog=true -Dquadrature.distant=own -Dquadrature.distant.world=16384
-   -Dquadrature.glDebug=true`.
-2. Box view: the same, and `-Dquadrature.distant.debug=box`.
+- Crowns. From above, distant crowns were (37, 43, 26) to (41, 47, 29) beside near crowns at
+  (44, 50, 31) to (49, 58, 38): 0.84 as bright, where they had been 1.45. The far color is
+  right; the leaf images drawn within 352 blocks were too dark, their clear texels being
+  black (section 8, since corrected).
 
-While each tour ends, the client's threads are listed several times a second from outside
-(`jcmd Thread.print`), from the last capture until the client is gone: the launcher stops the
-server, which disconnects the client, and ends the client only once the server has exited.
+**What it did not show.**
 
-**Pass, run 1:**
-
-1. Starts and finishes the tour; no error; tiles on Cubature's pool, none failed, refused or
-   left in flight; arrival times beside the fourth run's (30 s, 65 to 70 s, 110 to 120 s).
-2. Water: distant water beside near water in `coast_strait` and `coast_join` differs by less
-   than the eye finds at the join; measured as the two colors a few pixels either side of it
-   (the fourth run: 36, 51, 173 against 47, 68, 244). No dashes, no step of level.
-3. Crowns: distant crowns from above within a tenth of near crowns' color in `above_west`
-   (the fourth run: 0.68).
-4. Images: in `above_west` and `ground_west` no line where near terrain's images end; distant
-   terrain past the box shows images that fade out by 352 blocks with no visible edge where
-   they end and no crawl in a still frame; no turf repeated down a cliff.
-5. The dragon is drawn, in front of distant land, as clear as its distance under the shared
-   fog makes it (about nothing at 150 blocks).
-6. The thread lists: once the client has left the world, no thread named "Cubature client
-   preview" is alive. If no list falls between the disconnect and the client's end, say so.
-7. The driver reports no error during distant terrain; its GPU time is set beside the fourth
-   run's 2.2 to 2.5 ms, since level 0 now reads a texture.
-
-**Pass, run 2:**
-
-8. On land, magenta only through near leaves' cut-outs.
-9. Over the sea, no magenta seen through near water. Where there is, the near sea bed is
-   missing there: reported with where it lies, against the lighter patches of water seen at
-   near terrain's outer edge since the second run.
-10. Where it shows no magenta, the frame equals run 1's.
+- Images near the join. From above, grass and soil average to their flat color at 200 blocks
+  and an image cannot be told from it. The seam left in `above_west` is where near terrain's
+  plants end. The next tour has a view at ground level 200 blocks from trees.
+- The pool's threads when a world is left. The client's threads were listed four times in the
+  last second of each tour, and all four fell before the disconnect, with the pool's four
+  threads alive as they should be. The launcher ends the client too soon after it stops the
+  server for this to be seen from outside.
 
 ## 14. Design: transitions and the shading targets
 
