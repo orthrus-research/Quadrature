@@ -1073,3 +1073,126 @@ set, GPU memory sampled beside both, bounded from outside at 24 minutes:
 **Still not covered by this run:** a tile arriving in view (stills are captured after a
 settle), anything in motion, the pool's threads when a world is left, and a short view
 distance.
+
+## 16. Plan: the shaded path
+
+Not built. How distant terrain comes to be shaded with near terrain, by what section 14.4
+decided. It names what distant terrain changes, what it waits for from near terrain, and the
+order.
+
+### 16.1 What exists and what does not, 2026-11-16
+
+In this branch, with near terrain merged at 052490c:
+
+| Needed | In the tree | |
+|---|---|---|
+| `TerrainHook.shadingTargets()`: the framebuffer, its size, a generation | No | Near terrain has its targets and their program written and not committed |
+| The material table: a class in core, 8 bytes a state, published by the host | No | Likewise. Near terrain numbers a state by `Block.getStateId(state) & 0xFFFF` for its light scene already (`CubeMesher`) |
+| A place in the frame for "distant opaque" between near cut-out and shading | No | Distant terrain is drawn from a Mixin before the first draw of entities; the frame graph has no stage for it |
+| The opaque color and depth under translucents, for water | No | With the targets |
+| A published frame index, for the pattern | No | The shader's history targets define it |
+| A place to publish the farthest distance drawn | No | `TerrainHook` publishes the light's depth, the light scene and the coverage map; nothing of distant terrain |
+| The pattern both terrains share | Yes | `FadePattern` |
+| The coverage map | Yes | `TerrainHook.coverage()` |
+
+So everything below but 16.2 waits on near terrain's commit of its targets and table. Their
+names may differ when they come; what is fixed is section 14.3's encodings.
+
+### 16.2 Materials: what the face record and the tile must gain
+
+**The record does not change.** Its 13 bits of material stay distant terrain's own index,
+numbered as states are met, 8,192 at most; a world's preview has met about 300. A state
+number is 16 bits and does not fit, and it need not: the index leads to it.
+
+**The material's entry gains a word.** Today two words a material: top and side, each a
+color, a tint and a cover. A third holds the state number, `Block.getStateId(state) & 0xFFFF`,
+the number near terrain's table is indexed by. In the vertex stage a face reads its entry,
+takes the state number, and passes it on flat; the fragment stage reads the shared table by
+it for roughness, reflectance, subsurface, emission, the conductor flag and the kind. The
+color, tint and cover stay distant terrain's own, since the shared table has no flat colors
+and no far-leaf color.
+
+**The tile does not change.** A run is a state already; the preview chooses the state a
+coarse cell stands for, by its footprint, and that is the dominant state. A tile holds runs,
+tints and faces as now.
+
+**Sky light, occlusion, direction:** in the record already. **Block light:** written as 0.
+**Emission:** from the shared table by state, so lava and the like glow with no change to a
+tile. Until the table exists there is nothing to read emission from; distant terrain does not
+make its own list of bright blocks.
+
+**Water's kind:** from the table by state (100, or what near terrain settles), so the shader
+tells water from other translucents by the same value on both sides.
+
+### 16.3 The opaque pass
+
+With the targets present (`shadingTargets()` not null) and the shaded path asked for:
+
+- Drawn after near terrain's cut-out layer and before shading, into near terrain's
+  framebuffer: four targets and its reversed float depth. Never cleared by distant terrain;
+  depth test greater or equal against what near terrain wrote; the fixed-function alpha test
+  off; blending off.
+- The opaque and leaf layers only. Water is not written here.
+- The fragment stage's last step changes and nothing before it: where the forward path
+  multiplies the surface by its light and mixes in the fog, the shaded path writes
+  - A: the face's direction as a world normal, n * 0.5 + 0.5; roughness from the table;
+  - B: sky light as light / 15; emission from the table; block light 0; the class 0.375;
+  - C: the square root of linear albedo, the albedo being the image or flat color with the
+    biome's tint, converted from stored values as near terrain converts; the conductor flag;
+  - D: reflectance and subsurface from the table (a conductor: its albedo); occlusion as
+    1 - 0.08 for each cell that closes the corner in.
+  No light, no fog.
+- What near terrain covers is left out as on the forward path, by the coverage map, and the
+  crossfade between levels and the fade at the near join run as there: a discard is a
+  discard in either path.
+- The far distance stays raised for the pass (section 8), so the targets' depth holds distant
+  terrain at its true depth.
+
+The forward path stays, for when the targets are absent, and is what the runs so far drew.
+
+### 16.4 Water
+
+After shading, with near terrain's translucents, forward, reading the opaque color and depth:
+distant water gives the shader a flat upward normal, the biome's water tint apart from any
+image, sky light at the surface, cover, depth, and the kind. It writes no opaque depth. The
+order against near water waits until both exist; the box or the coverage map already keeps
+them from overlapping except in a fade band.
+
+### 16.5 What distant terrain publishes
+
+- The farthest distance it draws to: the outermost ring that has tiles, `reach << level`, less
+  nothing; and the nearer of that and the world's bound where one is set. With a signal, a
+  generation that moves, when it changes: the rings' levels are fixed for a session, so in
+  practice when a world is joined or its bound is learned. The shader fades to the sky before
+  it.
+- Whether the shaded path is in use this frame.
+- Through `DistantHook`, as near terrain publishes through `TerrainHook`.
+
+### 16.6 Order of commits
+
+Those marked (wait) need near terrain's targets and table in this branch first.
+
+1. The material entry's third word, the state number, filled and unused. A core test for the
+   entry's layout. No change to what is drawn.
+2. `DistantHook` publishes the farthest distance drawn and its generation. A test of the
+   arithmetic with a bound and without.
+3. The fragment stage split so that its last step is one of two: forward (light and fog) or
+   targets. With targets absent only forward compiles in. The forward frames must not change:
+   checked against a run's frames.
+4. (wait) Read the shared table by state number in place of nothing: roughness and the rest.
+5. (wait) The opaque pass into near terrain's targets at the place the frame gives it, with
+   the encodings of 16.3. Checked first by reading the targets back at a known pixel over
+   distant ground: normal, sky light, albedo.
+6. (wait) Water after shading, as inputs.
+7. (wait) The near join's fade on both sides, with near terrain's half behind its switch.
+8. The pattern's frame from the published frame index, once there is one.
+
+### 16.7 What near terrain must expose that it does not yet
+
+- `TerrainHook.shadingTargets()`.
+- The material table and how a state's number is made, as an interface and not as
+  `CubeMesher`'s own code.
+- A call or a stage at which distant opaque is to draw, between its cut-out layer and shading,
+  with the targets bound; and one after shading for water.
+- The opaque color and depth under translucents.
+- The frame index its history targets use.
