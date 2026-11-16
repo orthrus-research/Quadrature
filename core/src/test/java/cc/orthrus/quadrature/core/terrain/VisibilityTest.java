@@ -182,4 +182,33 @@ class VisibilityTest {
         visibility.sweep(visitor -> visitor.cube(0, 0, 0), everywhere(true));
         assertEquals(125, visibility.search(world(CubeConnectivity.ALL, Map.of()), everywhere(true)));
     }
+
+    @Test
+    void aSearchSaysWhetherItCameToTheEdgeOfTheBox() {
+        // Open cubes everywhere: the search comes to every face of the box.
+        visibility.search(world(CubeConnectivity.ALL, Map.of()), everywhere(true));
+        assertEquals(0b111111, visibility.edgeFaces());
+        assertTrue(visibility.edgeSteps() >= 6 * 25);
+        assertEquals(0, visibility.unloadedEntered());
+
+        // A sealed room: the search stops at its walls and never comes to the edge.
+        Map<Long, Integer> special = new HashMap<>();
+        special.put(CubeKey.of(0, 0, 0), (int) CubeConnectivity.ALL);
+        visibility.search(world(CubeConnectivity.NONE, special), everywhere(true));
+        assertEquals(0, visibility.edgeFaces());
+        assertEquals(0, visibility.edgeSteps());
+
+        // A tunnel running east and west: only those two faces of the box are come to.
+        visibility.search(world(WEST_EAST, Map.of()), everywhere(true));
+        assertEquals(1 << CubeConnectivity.WEST | 1 << CubeConnectivity.EAST, visibility.edgeFaces());
+        assertEquals(2, visibility.edgeSteps());
+
+        // Cubes that are not loaded are passed through and counted.
+        Map<Long, Integer> missing = new HashMap<>();
+        missing.put(CubeKey.of(1, 0, 0), -1);
+        missing.put(CubeKey.of(2, 0, 0), -1);
+        visibility.search(world(WEST_EAST, missing), everywhere(true));
+        assertEquals(2, visibility.unloadedEntered());
+        assertEquals(1 << CubeConnectivity.WEST | 1 << CubeConnectivity.EAST, visibility.edgeFaces());
+    }
 }

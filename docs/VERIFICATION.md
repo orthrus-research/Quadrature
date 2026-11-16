@@ -469,6 +469,32 @@ scene (`-Dquadrature.scene.check=true`). On a further instance, the same four ru
 - **Meshing a cube** took 0.05 ms longer with the scene in this pair of runs and 0.01 ms
   in the pair before; meshing time varies by about that between runs.
 
+### Coverage, the search's edge and the walk
+
+One instance, the forest tour, each run scored against the game's terrain in the same
+instance (2026-11-16).
+
+| Run | Passing views | Worst view | Against the run with every switch off |
+|---|---|---|---|
+| Every switch off | 17 of 17 | 07 | |
+| Coverage and the walk's check | 17 of 17 | 07, 0.0374% | 17 of 17, 12 views identical, 193 pixels changed |
+| Faces | 17 of 17 | 07, 0.0379% | no pixel changed |
+
+- **Coverage.** Of 625 columns at a settled frame, 552 have their surface meshed and 73
+  have it waiting: the outermost columns, whose cubes lack a neighbor. None reads as
+  having no surface or as not loaded. The map was worked out 1,146 times, in 0.46 ms on
+  average and 2.5 ms at most; 166,481 cubes that cannot be meshed were asked whether they
+  are empty.
+- **The edge.** At the last view the search came to four of the box's six faces in 729
+  steps, through no cube that is not loaded.
+- **The walk.** 58,018 cubes were meshed by the walk and by the game's dispatcher and no
+  layer of any differs by a byte; of 201 million blocks none was left to the dispatcher.
+  The check doubles meshing, 2.1 ms a cube.
+- **Faces.** The run draws through the walk and is identical to the default, but of 28.6
+  million quads none became a record: 26.4 million whole faces were refused because their
+  texture coordinates are not the sprite's own corners. Drawing from records, and a
+  vertex array with no attributes, are not exercised by it.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
@@ -488,6 +514,10 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.write=copy` | A frame's meshes are staged in one buffer and copied into their pages on the GPU |
 | `quadrature.terrain.touch=true` | A page is written once, whole, when it is made |
 | `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
+| `quadrature.coverage=true` | Works out the coverage map and adds its counts and cost to the terrain summary |
+| `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
+| `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
+| `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 
 A settled frame is one with no cube waiting to be meshed.

@@ -217,6 +217,27 @@ authors can dedicate: their own expression of ideas, never copied code.
   its callback, message control and debug groups).
 - Added: 2026-11-15
 
+### Coverage of chunk columns and the search's edge
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/terrain/CoverageMap.java`,
+  `SearchEdge.java`, `SurfaceBand.java`, the edge counts in `Visibility.java`;
+  `src/main/java/cc/orthrus/quadrature/terrain/SurfaceHeights.java`
+- Source: original. Facts used: the cube source's public methods for surface heights,
+  surface version and cube content, looked up by name and used only where present.
+- Added: 2026-11-16
+
+### The walk over a model's quads, and face records
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/QuadWalk.java`, `FaceBuilder.java`;
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/FaceRecord.java`; the record
+  pages in `TerrainArena.java` and the stages that draw from records in
+  `TerrainProgram.java`
+- Source: original. Facts used: the public interfaces of the game and Forge for a baked
+  model's quads, the order the game's block model renderer takes them in, and Forge's
+  vertex lighters and buffer consumer, which are called and not reproduced; the OpenGL 4.6
+  and GLSL 4.60 specifications (shader storage blocks, `gl_VertexID`, `gl_BaseInstance`).
+- Taken: the idea of building a face's vertices in the vertex stage from a record indexed
+  by vertex number, as described in research R2. No code from another renderer.
+- Added: 2026-11-16
+
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`

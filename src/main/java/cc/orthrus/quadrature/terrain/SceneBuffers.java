@@ -55,6 +55,7 @@ final class SceneBuffers {
     private long bricksCopied;
     private long entriesCopied;
     private long wholeLookups;
+    private String worst = "none";
 
     /** Cubes taken from the scene in a frame at most, so that a jump of the box is spread over frames. */
     private static final int CUBES_A_FRAME = 512;
@@ -172,7 +173,9 @@ final class SceneBuffers {
         if (across != this.across || upward != this.upward) {
             create(across, upward);
         }
+        long made = System.nanoTime();
         bricks.update(originCubeX, originCubeY, originCubeZ, CUBES_A_FRAME);
+        long updated = System.nanoTime();
         published.beginFrame(originCubeX, originCubeY, originCubeZ, scene.version());
         if (states && statesSeen != scene.statesDefined()) {
             // A state was first seen: the table is small and changes rarely, so it is sent whole.
@@ -185,6 +188,7 @@ final class SceneBuffers {
             stateTables++;
         }
 
+        long tabled = System.nanoTime();
         int[] lookup = bricks.lookup();
         int taken = bricks.takeBricks(slots, BRICKS_A_FRAME);
         long[] words = bricks.bricks();
@@ -199,6 +203,7 @@ final class SceneBuffers {
             }
         }
         bricksCopied += taken;
+        long bricked = System.nanoTime();
 
         int entries = bricks.takeEntries(indices, indices.length);
         for (int i = 0; i < entries; i++) {
@@ -237,14 +242,22 @@ final class SceneBuffers {
         entriesCopied += entries;
         published.slots(bricks.bricksHeld(), bricks.mostBricksHeld());
         published.endFrame();
-        if (check && frames % CHECK_FRAMES == CHECK_FRAMES - 1) {
+
+        long done = System.nanoTime();
+        lastNanos = done - start;
+        nanos += lastNanos;
+        if (lastNanos > mostNanos) {
+            mostNanos = lastNanos;
+            worst = String.format("frame %d: making buffers %.3f ms, taking cubes from the scene %.3f ms, the state "
+                    + "table %.3f ms, %d bricks %.3f ms, %d entries %.3f ms", frames, (made - start) / 1e6,
+                (updated - made) / 1e6, (tabled - updated) / 1e6, taken, (bricked - tabled) / 1e6, entries,
+                (done - bricked) / 1e6);
+        }
+        frames++;
+        // The check is a diagnostic and is not part of the time a frame's copying takes.
+        if (check && frames % CHECK_FRAMES == 0) {
             check();
         }
-
-        lastNanos = System.nanoTime() - start;
-        nanos += lastNanos;
-        mostNanos = Math.max(mostNanos, lastNanos);
-        frames++;
     }
 
     /**
@@ -358,6 +371,7 @@ final class SceneBuffers {
         if (check) {
             line += String.format("; %d checks of %d bricks, %d differences", checks, checkedBricks, mismatches);
         }
+        line += "; the frame that copied longest, " + worst;
         return line;
     }
 }

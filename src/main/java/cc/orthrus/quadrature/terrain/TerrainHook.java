@@ -1,6 +1,8 @@
 package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.core.scene.LightScene;
+import cc.orthrus.quadrature.core.terrain.CoverageMap;
+import cc.orthrus.quadrature.core.terrain.SearchEdge;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
@@ -34,6 +36,12 @@ public final class TerrainHook {
 
         /** The light scene as a shader reads it, or null when it is not copied to the GPU. */
         PublishedScene publishedScene();
+
+        /** For each chunk column of the box, whether its surface is loaded and meshed; null when not worked out. */
+        CoverageMap coverage();
+
+        /** Whether the player's view's search came to the edge of the box. */
+        SearchEdge searchEdge();
 
         /** One line for the timing log. */
         String summary();
@@ -84,6 +92,22 @@ public final class TerrainHook {
      */
     public static PublishedScene publishedScene() {
         return drawer == null ? null : drawer.publishedScene();
+    }
+
+    /**
+     * For each chunk column of the box near terrain holds cubes in, whether its surface is loaded and
+     * meshed. Null when own terrain is off or coverage is not worked out.
+     */
+    public static CoverageMap coverage() {
+        return drawer == null ? null : drawer.coverage();
+    }
+
+    /**
+     * Whether the last search for what the player's view sees came to the edge of the box, and through
+     * which of its faces. Null when own terrain is off.
+     */
+    public static SearchEdge searchEdge() {
+        return drawer == null ? null : drawer.searchEdge();
     }
 
     /** The timing log's line, or null when own terrain is off. */
