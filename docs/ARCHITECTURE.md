@@ -199,6 +199,13 @@ with it on.
   holds cubes in, so every cube held is inside it at any hour and whichever way the player
   faces. It is moved to a whole texel along the light's own axes, measured from the
   world's origin, so that the map does not shift by part of a texel as the player moves.
+- **The light's direction** is the sun's while it is above the horizon and the moon's
+  otherwise. `-Dquadrature.sun.tilt=<degrees>`, 0 unless set, leans their path toward the
+  south: with east +x, up +y, south +z, `a` the game's celestial angle as an angle (0 at
+  noon, a quarter turn at sunset) and `t` the tilt, the sun stands at
+  `(-sin a, cos a * cos t, cos a * sin t)` and the moon opposite. It leans the directions
+  published and the box the map is drawn in; the game draws its own sky without it.
+  `SunPath` in `core`.
 - **The target** is an array texture of 24-bit depth, 4,096 texels a side, one layer,
   64 MiB, counted in the shading pool. A texel is 0.13 of a block. Further layers with
   boxes of other sizes can be added; none is built. It can be sampled through either of
@@ -579,6 +586,19 @@ textures, their size and a generation that moves each frame they are drawn.
 `TerrainHook.materials()` gives the table and `TerrainHook.material(state)` a state's
 number, filling its row if near terrain has not met the state.
 
+**The near edge.** Behind `-Dquadrature.terrain.fade=true` the player's view gives its
+pixels up, across a band before the edge of what near terrain holds, to what is drawn
+beyond: by the pattern of `FadePattern`, near terrain the complement side, frame 0. The
+measure is the fragment's horizontal distance from the view's position, the greater of
+that along x and that along z, in blocks; the band is set with `TerrainHook.fadeBand` and
+is otherwise the last 16 blocks before the last chunk of the view distance. The depth
+drawn along the light takes no part. Off, the stages are unchanged to the character.
+`TerrainHook.fadeBandInUse()` gives the band a frame was drawn with and
+`TerrainHook.fadeOrigin()` the place its distance was measured from, the camera's, which in
+a view from behind is not the player's; both are null where no fade was drawn. The sums
+are `NearFade`'s, in `core`. Near translucent terrain is still drawn by the game and does
+not fade. It is built and has not been exercised with distant terrain.
+
 **Not built**, and where each belongs in the frame:
 
 - *Distant opaque terrain* draws into the targets after near terrain's last cutout layer
@@ -591,7 +611,7 @@ number, filling its row if near terrain has not met the state.
   and the opaque depth beneath them; both are to be published as textures once shading
   writes them.
 - *A frame index*, moving by one each frame, is to be published beside the targets for
-  stages that accumulate over frames.
+  stages that accumulate over frames and for the fade's pattern.
 
 ## 7. Distant terrain
 
