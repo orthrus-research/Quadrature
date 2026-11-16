@@ -25,6 +25,12 @@ public final class Rings {
 
     /** Whether each ring keeps the tiles just inside its hole, for a crossfade with the ring below. */
     private boolean overlap;
+    /** Whether each ring above the lowest also takes the tiles inside its hole, to stand in for finer ones. */
+    private boolean fill;
+    /** Each level's square at the last selection: its lowest tile position along x and along z. */
+    private final int[] squareX;
+    private final int[] squareZ;
+    private boolean selected;
     private long[] keys = new long[1024];
     private long[] order = new long[1024];
     private int count;
@@ -43,6 +49,48 @@ public final class Rings {
         this.reach = reach;
         this.levels = levels;
         across = 2 * reach / RunTile.CELLS;
+        squareX = new int[levels];
+        squareZ = new int[levels];
+    }
+
+    /**
+     * Whether each ring above the lowest also takes the tiles inside its hole, past any band. Those
+     * tiles lie over ground the finer levels draw; they are there to be drawn until the finer tiles
+     * are stored, so that a hole is never open, and are listed nearest first with their level, which
+     * puts them before the ring's own. With a reach of 384 and bands they are 16 a level.
+     */
+    public void fill(boolean on) {
+        fill = on;
+    }
+
+    public boolean fill() {
+        return fill;
+    }
+
+    /** Whether a tile lies in its level's square as last selected. */
+    public boolean inSquare(long key) {
+        int level = TileKey.level(key);
+        if (!selected || level >= levels) {
+            return false;
+        }
+        int x = TileKey.x(key) - squareX[level];
+        int z = TileKey.z(key) - squareZ[level];
+        return x >= 0 && x < across && z >= 0 && z < across;
+    }
+
+    /**
+     * Whether a tile lies inside its level's hole as last selected, past any band: over ground that
+     * finer levels draw. Such a tile is selected only with {@link #fill}.
+     */
+    public boolean filling(long key) {
+        int level = TileKey.level(key);
+        if (!selected || level == 0 || level >= levels) {
+            return false;
+        }
+        int inset = overlap ? 1 : 0;
+        int x = TileKey.x(key) - (squareX[level - 1] >> 1);
+        int z = TileKey.z(key) - (squareZ[level - 1] >> 1);
+        return x >= inset && x < across / 2 - inset && z >= inset && z < across / 2 - inset;
     }
 
     public int reach() {
@@ -94,6 +142,11 @@ public final class Rings {
      */
     public void select(long cameraX, long cameraZ, long minX, long minZ, long maxX, long maxZ) {
         count = 0;
+        for (int level = 0; level < levels; level++) {
+            squareX[level] = squareStart(level, cameraX);
+            squareZ[level] = squareStart(level, cameraZ);
+        }
+        selected = true;
         for (int level = levels - 1; level >= 0; level--) {
             long side = TileKey.side(level);
             int startX = squareStart(level, cameraX);
@@ -106,8 +159,8 @@ public final class Rings {
             int inset = overlap ? 1 : 0;
             for (int z = startZ; z < startZ + across; z++) {
                 for (int x = startX; x < startX + across; x++) {
-                    if (level > 0 && x >= holeX + inset && x < holeX + across / 2 - inset && z >= holeZ + inset
-                            && z < holeZ + across / 2 - inset) {
+                    if (!fill && level > 0 && x >= holeX + inset && x < holeX + across / 2 - inset
+                            && z >= holeZ + inset && z < holeZ + across / 2 - inset) {
                         continue;
                     }
                     if (x * side >= maxX || (x + 1) * side <= minX || z * side >= maxZ || (z + 1) * side <= minZ) {

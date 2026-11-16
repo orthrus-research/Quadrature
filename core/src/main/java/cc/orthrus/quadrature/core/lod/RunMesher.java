@@ -23,7 +23,8 @@ import java.util.Arrays;
  *   <li><b>A closed tile.</b> On the tile's four outer sides, what the neighbor hides of each
  *       stretch of opaque runs becomes skirt faces, one for each hidden piece, so the sides are
  *       covered from floor to surface and no gap can show beside a tile of another level or one
- *       not yet there.
+ *       not yet there. A skirt face has the material at its top and the light over the column
+ *       beside it, since it is seen whenever that neighbor is missing.
  *   <li><b>Exposure</b>, off unless asked for: space counts only if it can be reached from the
  *       tile's open top or its sides through neighboring space that overlaps in height. Space
  *       that cannot is treated as solid, so sealed caves under a built-over area make no face.
@@ -252,7 +253,7 @@ public final class RunMesher {
             int from = Math.max(bottom, low[m]);
             int to = Math.min(top, high[m]);
             if (skirt && from > cursor) {
-                skirt(x, z, direction, cursor, from, floor);
+                skirt(x, z, c, n, direction, cursor, from, floor);
             }
             cursor = to;
             mesh.add(TileMesh.group(TileMesh.OPAQUE, direction), FaceRecord.side(x, z, from - floor, to - from,
@@ -260,13 +261,20 @@ public final class RunMesher {
             mesh.span(from, to);
         }
         if (skirt && cursor < top) {
-            skirt(x, z, direction, cursor, top, floor);
+            skirt(x, z, c, n, direction, cursor, top, floor);
         }
     }
 
-    private void skirt(int x, int z, int direction, int from, int to, int floor) {
+    /**
+     * A skirt face: what the column beside hides of a solid stretch on the tile's outer side. It
+     * is there to close a gap beside a tile of another level, and is seen whenever the tile beside
+     * is not there, so it carries the material at its top and the light the column beside it lets
+     * in above it, as the side face over it does. With no material and no light it stood as a dark
+     * wall from the surface to the floor wherever a tile's neighbor had not arrived.
+     */
+    private void skirt(int x, int z, int c, int n, int direction, int from, int to, int floor) {
         mesh.add(TileMesh.group(TileMesh.SKIRT, direction),
-                FaceRecord.side(x, z, from - floor, to - from, direction, 0, 0, 0));
+                FaceRecord.side(x, z, from - floor, to - from, direction, materialAt(c, to - 1), light(n, to), 0));
         mesh.span(from, to);
     }
 

@@ -51,7 +51,8 @@ import org.lwjgl.opengl.GL45;
  * <p>Where two levels meet both are drawn over a band, one tile of the coarser wide, and each pixel
  * keeps one of them by {@link FadePattern}, the coarser showing more toward the edge of its hole. A
  * tile gives pixels up only to a partner that is stored: the coarser to its four children, the finer
- * to the tile over it, so a level that is still arriving leaves no hole. A tile that has just been
+ * to the tile over it, so a level that is still arriving leaves no hole. Inside a level's hole its
+ * fill tiles are drawn until finer tiles show, a quarter of a tile at a time ({@code Cover}). A tile that has just been
  * stored comes in by the same pattern over a few frames. A tile kept past
  * its ring takes no part. See {@code Rings.overlap} and docs/DISTANT.md, section 14.
  *
@@ -137,7 +138,11 @@ final class DistantProgram {
         "flat out int faceLevel;",
         "flat out float faceShows;",
         "// Which of the tile's partners in a crossfade are stored: 1 its children, 2 the tile over it.",
+        "// 4: a fill tile, whose quarters finer tiles draw are the four bits from 16 up.",
         "flat out int facePartners;",
+        "// Where in its tile a fragment lies, 0 to 1 along x and z, a hair's breadth into the block",
+        "// a side face belongs to.",
+        "out vec2 faceQuarter;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
@@ -188,6 +193,7 @@ final class DistantProgram {
         "        faceInto = direction == 2u ? vec2(0.0, 0.01) : direction == 3u ? vec2(0.0, -0.01)",
         "            : direction == 4u ? vec2(0.01, 0.0) : vec2(-0.01, 0.0);",
         "    }",
+        "    faceQuarter = (place.xz + faceInto) / (64.0 * tile.cell);",
         "    faceLevel = int(tile.level);",
         "    faceShows = tile.shows;",
         "    facePartners = int(tile.partners);",
@@ -284,6 +290,7 @@ final class DistantProgram {
         "flat in int faceLevel;",
         "flat in float faceShows;",
         "flat in int facePartners;",
+        "in vec2 faceQuarter;",
         FadePattern.glsl(),
         "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
         "float within(vec4 hole, vec2 place) {",
@@ -315,6 +322,13 @@ final class DistantProgram {
         "    }",
         "    if (inside) {",
         "        discard;",
+        "    }",
+        "    // A fill tile stands in for finer tiles and leaves each quarter to them once they show.",
+        "    if ((facePartners & " + TileDraws.FILL + ") != 0) {",
+        "        int quarter = (faceQuarter.x >= 0.5 ? 1 : 0) + (faceQuarter.y >= 0.5 ? 2 : 0);",
+        "        if (((facePartners >> (" + TileDraws.GIVEN_SHIFT + " + quarter)) & 1) != 0) {",
+        "            discard;",
+        "        }",
         "    }",
         "    if (faceShows >= 0.0) {",
         "        // A tile that has just arrived comes in over a few frames.",

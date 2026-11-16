@@ -2,6 +2,7 @@ package cc.orthrus.quadrature.distant;
 
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.BuiltTile;
+import cc.orthrus.quadrature.core.lod.Cover;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
 import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.Rings;
@@ -22,6 +23,7 @@ import io.github.opencubicchunks.cubicchunks.api.worldgen.ICubicTerrainPreview;
 import io.github.opencubicchunks.cubicchunks.core.CubicChunksConfig;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
@@ -91,6 +93,20 @@ final class Distant {
     private final float[] nearBox = new float[6];
     private final DistantCover cover = new DistantCover();
     private final TravelCapture travel = new TravelCapture();
+    /** Which stored tile draws what while tiles arrive: see {@link Cover}. */
+    private final Cover arrival = new Cover(rings, new Cover.Tiles() {
+        @Override
+        public boolean wanted(long key) {
+            return schedule.wanted(key);
+        }
+
+        @Override
+        public boolean shown(long key) {
+            return Distant.this.shown(key);
+        }
+    });
+    private final LongArrayList spared = new LongArrayList();
+    private long tilesSpared;
     /** Near terrain's coverage map this frame, or null when the box is used in its place. */
     private CoverageMap covered;
     private float[] imageFade = {DistantSettings.DETAIL_START, DistantSettings.DETAIL_END};
@@ -144,6 +160,7 @@ final class Distant {
     private Distant(ICubeSource source) {
         this.source = source;
         rings.overlap(DistantSettings.CROSSFADE);
+        rings.fill(DistantSettings.FILL);
     }
 
     /** Starts distant terrain if a cube source exists. */
@@ -205,7 +222,9 @@ final class Distant {
         DistantHook.drawnTo(drawnTo);
         release();
         while (true) {
-            long key = schedule.next(workers.threads() * 2);
+            // A fill tile whose ground finer tiles draw already is not built.
+            long key = DistantSettings.FILL ? schedule.next(workers.threads() * 2, arrival::spare)
+                : schedule.next(workers.threads() * 2);
             if (key == -1) {
                 break;
             }
@@ -471,6 +490,23 @@ final class Distant {
             if (tile.faces == 0 || !schedule.drawn(key)) {
                 continue;
             }
+            // While tiles arrive: a tile under ground a coarser one still draws waits, and a fill
+            // tile draws the quarters finer tiles have not taken. A tile kept past its ring is
+            // outside that rule.
+            int fill = 0;
+            if (DistantSettings.FILL && !schedule.kept(key)) {
+                if (arrival.hidden(key)) {
+                    continue;
+                }
+                if (rings.filling(key)) {
+                    int given = arrival.given(key);
+                    if (given == Cover.ALL) {
+                        spared.add(key);
+                        continue;
+                    }
+                    fill = TileDraws.FILL | given << TileDraws.GIVEN_SHIFT;
+                }
+            }
             long tileSide = TileKey.side(TileKey.level(key));
             boolean hidden = covered == null
                 ? TileCulling.inside(key, tile.minimumY, tile.maximumY, boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY,
@@ -496,7 +532,8 @@ final class Distant {
             float shows = schedule.kept(key) ? -1f : !DistantSettings.CROSSFADE ? 1f
                 : Math.min(1f, (frame - tile.placedFrame + 1) / (float) DistantSettings.ARRIVAL_FRAMES);
             int record = draws.record(originX - view.originX(), floorY - view.originY(), originZ - view.originZ(),
-                TileKey.level(key), tile.tintWord, shows, DistantSettings.CROSSFADE ? partners(key) : 0);
+                TileKey.level(key), tile.tintWord, shows,
+                fill | (DistantSettings.CROSSFADE && fill == 0 ? partners(key) : 0));
             for (int layer = 0; layer < TileMesh.LAYERS; layer++) {
                 for (int direction = 0; direction < FaceRecord.DIRECTIONS; direction++) {
                     if ((facing & 1 << direction) != 0) {
@@ -509,6 +546,17 @@ final class Distant {
             drawn++;
         }
         draws.finish();
+        // Fill tiles that have given all their ground up are let go: their storage is free again.
+        for (int i = 0; i < spared.size(); i++) {
+            long key = spared.getLong(i);
+            Resident resident = residents.remove(key);
+            if (resident != null) {
+                schedule.retire(key);
+                arena.free(resident.block, resident.bytes, frame);
+                tilesSpared++;
+            }
+        }
+        spared.clear();
         lastTilesDrawn = drawn;
         lastTilesInBox = inBox;
     }
@@ -599,6 +647,10 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(DistantSettings.FILL
+            ? String.format("%n  fill tiles: on, each level's hole is drawn from that level until finer tiles are stored; "
+                + "%d let go once covered", tilesSpared)
+            : String.format("%n  fill tiles: off"));
         line.append(DistantSettings.CROSSFADE
             ? String.format("%n  crossfade between levels: on, a band one coarser tile wide; tiles fade in over %d frames",
                 DistantSettings.ARRIVAL_FRAMES)

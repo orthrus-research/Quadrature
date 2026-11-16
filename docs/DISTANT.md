@@ -276,6 +276,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.fogEnd` | the outermost ring's reach (24,576) | Where the shared fog is complete |
 | `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
 | `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
+| `quadrature.distant.fill` | `on` | `on`: every level also takes the tiles inside its own hole and draws them until finer tiles are stored, so no hole is open while distant terrain arrives (section 18). `off`: each level its ring only |
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
@@ -1350,3 +1351,75 @@ sides are in plain view: a dark wall from the surface to the world's floor, from
 make the wall less strange. What is wanted is no open hole: a coarser tile drawn over ground
 whose finer tiles are not stored yet, giving way to them as they arrive, which the crossfade's
 partner flags already describe for the band.
+
+## 18. Arrival: no hole and no wall
+
+Built and tested without a game; not run in one. What the seventh run showed is in 17.1: for
+two minutes after a join the ground between near terrain and the coarse levels was sky or the
+dark side of a skirt.
+
+### 18.1 The rule
+
+A level's ring has a hole, which is the square of the level below. Until now nothing of that
+level was wanted inside the hole, so the ground there was empty until every finer level had
+arrived, the finest last.
+
+**Fill tiles.** With `quadrature.distant.fill` on, a level takes its whole square: its ring,
+its band, and the tiles inside its hole past the band, 16 a level at a reach of 384
+(`Rings.fill`, `Rings.filling`). A fill tile lies over ground the finer levels draw and is
+drawn only until they do.
+
+**Giving ground up.** A fill tile gives its ground up a quarter at a time: a quarter when the
+finer tile under it is shown (stored, wanted and past its fading in), or when that tile, being
+a fill tile itself and not stored, has all four of its own quarters given up. The quarters
+are four bits in the tile's draw record beside the crossfade's two (`TileDraws.FILL`,
+`GIVEN_SHIFT`), and the fragment stage discards a fill tile's fragments in a quarter that is
+given. A tile's quarter is found from where the fragment lies in its tile.
+
+**Waiting.** A finer tile is not drawn while a coarser stored tile still draws its ground:
+under a fill tile that has not given that quarter up, and, in a band, under a band tile whose
+four finer tiles are not all shown, since the band fades only when they are. Before this the
+band's finer tiles were drawn whole under a whole band tile until the fourth came.
+
+**So** of the stored tiles over any column exactly one draws it, or the two of a fading band;
+and a column under any stored tile is drawn. `Cover` holds the rule and `CoverTest` the
+proof by enumeration: four levels from four cameras with tiles stored one at a time in the
+schedule's order, thirty random subsets in bounded and unbounded worlds, also after spare fill
+tiles are let go, and seven levels in the lab's world.
+
+**Letting go, and not building.** A fill tile whose four quarters are given is of no use: if
+stored, its storage is freed (`TileSchedule.retire`); if not yet built, it is not built
+(`TileSchedule.next` with `Cover.spare`). Either way it stays wanted and is marked spared,
+which holds no other tile back and is asked about again at the next selection. So in steady
+travel, where the finer levels are already stored when a hole moves, fill tiles are neither
+sampled nor stored.
+
+**Order.** A level's tiles are built nearest first, so its fill tiles come before its ring:
+the first tiles of all are the coarsest level's over the ground around the viewer.
+
+### 18.2 What it costs
+
+On a cold join, 96 more tiles at seven levels (92 in the lab's world from the tour's place)
+beside 764: an eighth more sampling, spread over the levels, the coarse ones first. In the
+arena, at the worst moment all of them at once, about 5 MiB beside 42, and none once the view
+is whole. Each frame, the rule is asked for every stored tile: a walk up at most six levels,
+and for a fill tile down through the fill tiles under it, of which there are 16 a level.
+
+### 18.3 Skirts
+
+A skirt face closes the gap beside a tile of another level. It had no material and no light,
+which was the dark wall. It cannot count on being hidden, so it now has the material at its
+top and the light the column beside it lets in above it, as the side face over it has
+(`RunMesher.skirt`). With fill tiles a hole's sides are covered as soon as that level's fill
+tiles are stored, which is before its ring's.
+
+### 18.4 Open
+
+- A quarter changes hands in one frame: the fill tile's quarter goes and the finer tile, whose
+  own fading in ran while it waited, is there whole. A fade between them would need the finer
+  tile's fade to start when it is let through.
+- Where a fill tile has given a quarter up, its remaining ground ends on a line inside the
+  tile with no side face of its own. Where it stands higher than the finer tile beside it, a
+  sliver may show under its edge until the next quarter goes.
+- Tiles kept past their ring are still drawn whole over whatever replaces them, as before.
+- How long the first tile takes is not changed by any of this: section 19.

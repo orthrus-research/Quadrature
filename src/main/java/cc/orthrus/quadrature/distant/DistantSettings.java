@@ -61,6 +61,14 @@ final class DistantSettings {
      */
     static final boolean CROSSFADE = !"off".equals(System.getProperty("quadrature.distant.crossfade", "on"));
 
+    /**
+     * {@code quadrature.distant.fill}: {@code on} (the default) has every level also take the tiles
+     * inside its own hole and draw them until finer tiles are stored, so that no hole is open
+     * while distant terrain arrives; {@code off} leaves each level its ring, as the first seven runs
+     * drew.
+     */
+    static final boolean FILL = !"off".equals(System.getProperty("quadrature.distant.fill", "on"));
+
     /** Frames over which a newly stored tile fades in. */
     static final int ARRIVAL_FRAMES = 24;
 

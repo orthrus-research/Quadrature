@@ -75,6 +75,12 @@ public final class TileDraws {
     public static final int FINER_STORED = 1;
     /** Over the band at its ring's edge, the coarser tile over this one is stored. */
     public static final int COARSER_STORED = 2;
+    /**
+     * A fill tile: it stands in for finer tiles, and the four bits from {@link #GIVEN_SHIFT} say
+     * which of its quarters finer tiles draw, numbered as {@link TileKey#child}. See {@link Cover}.
+     */
+    public static final int FILL = 4;
+    public static final int GIVEN_SHIFT = 4;
 
     /**
      * Adds a tile's record, with which of its partners in a crossfade are stored:

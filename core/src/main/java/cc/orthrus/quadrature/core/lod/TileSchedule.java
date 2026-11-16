@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.LongPredicate;
 
 /**
  * What becomes of each distant tile: which to build next, which results to keep, which tiles to
@@ -27,6 +28,8 @@ import java.util.Map;
 public final class TileSchedule {
 
     private static final int QUEUED = 0, BUILDING = 1, BUILT = 2, PLACED = 3, FAILED = 4, LEAVING = 5;
+    /** Wanted, and not built because its ground is drawn by finer tiles: it holds nothing back. */
+    private static final int SPARED = 6;
 
     private final Map<Long, int[]> states = new HashMap<>();
     private long[] wanted = new long[1024];
@@ -77,6 +80,9 @@ public final class TileSchedule {
                 state[1] = 1;
                 if (state[0] == LEAVING) {
                     state[0] = PLACED;
+                } else if (state[0] == SPARED) {
+                    // A new selection may have taken its cover away: it is asked about again.
+                    state[0] = QUEUED;
                 }
             }
         }
@@ -89,7 +95,7 @@ public final class TileSchedule {
             }
             if (state[0] == PLACED) {
                 state[0] = LEAVING;
-            } else if (state[0] == QUEUED || state[0] == FAILED || state[0] == BUILT) {
+            } else if (state[0] == QUEUED || state[0] == FAILED || state[0] == BUILT || state[0] == SPARED) {
                 it.remove();
             }
             // A tile being built stays until its result arrives and is refused.
@@ -102,6 +108,15 @@ public final class TileSchedule {
      * The tile counts as being built until {@link #built} or {@link #failed} is told of it.
      */
     public long next(int limit) {
+        return next(limit, null);
+    }
+
+    /**
+     * As {@link #next(int)}, but a waiting tile that {@code spare} accepts is not built: it stays
+     * wanted, holds no other tile back, and is asked about again only after the next selection.
+     * That is for a tile that stands in for finer ones which are stored already.
+     */
+    public long next(int limit, LongPredicate spare) {
         if (building >= limit) {
             return -1;
         }
@@ -109,6 +124,11 @@ public final class TileSchedule {
             long key = wanted[cursor++];
             int[] state = states.get(key);
             if (state != null && state[0] == QUEUED) {
+                if (spare != null && spare.test(key)) {
+                    state[0] = SPARED;
+                    leavingStale = true;
+                    continue;
+                }
                 state[0] = BUILDING;
                 building++;
                 return key;
@@ -186,6 +206,19 @@ public final class TileSchedule {
         }
     }
 
+    /**
+     * A stored tile is no longer needed though the selection holds it: finer tiles draw all its
+     * ground. The caller lets its storage go. It is not built again before the next selection.
+     */
+    public void retire(long key) {
+        int[] state = states.get(key);
+        if (state == null || state[0] != PLACED) {
+            throw new IllegalStateException("Tile " + key + " is not stored and wanted");
+        }
+        state[0] = SPARED;
+        leavingStale = true;
+    }
+
     /** Whether a stored tile has left the selection and is kept only until its replacement is stored. */
     public boolean kept(long key) {
         int[] state = states.get(key);
@@ -223,8 +256,9 @@ public final class TileSchedule {
             long key = wanted[i];
             if (TileKey.covers(leaving, key) || TileKey.covers(key, leaving)) {
                 int[] state = states.get(key);
-                // A tile that failed will not arrive: it holds nothing back.
-                if (state != null && state[0] != PLACED && state[0] != FAILED) {
+                // A tile that failed will not arrive, and one that is spared is not coming: neither
+                // holds anything back.
+                if (state != null && state[0] != PLACED && state[0] != FAILED && state[0] != SPARED) {
                     return true;
                 }
             }
@@ -237,14 +271,20 @@ public final class TileSchedule {
         return building;
     }
 
-    /** Tiles of the selection, and of them those placed, of one level: {@code [wanted, placed]}. */
+    /**
+     * Tiles of the selection, and of them those placed, of one level: {@code [wanted, placed]}. A
+     * spared tile is counted as neither.
+     */
     public void count(int level, int[] into) {
         into[0] = 0;
         into[1] = 0;
         for (int i = 0; i < wantedCount; i++) {
             if (TileKey.level(wanted[i]) == level) {
-                into[0]++;
                 int[] state = states.get(wanted[i]);
+                if (state != null && state[0] == SPARED) {
+                    continue;
+                }
+                into[0]++;
                 if (state != null && state[0] == PLACED) {
                     into[1]++;
                 }

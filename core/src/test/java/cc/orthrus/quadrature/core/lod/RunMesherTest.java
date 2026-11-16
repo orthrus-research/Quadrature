@@ -135,6 +135,10 @@ class RunMesherTest {
         long rim = mesh.record(TileMesh.group(TileMesh.SKIRT, FaceRecord.WEST), 0);
         assertEquals(0, FaceRecord.y(rim));
         assertEquals(10 - FLOOR, FaceRecord.height(rim));
+        // A skirt is seen when the tile beside it is missing: it has the ground's material and
+        // the light over the column beside it, not none of either.
+        assertEquals(FaceRecord.material(top), FaceRecord.material(rim));
+        assertEquals(15, FaceRecord.light(rim));
         assertEquals(FLOOR, mesh.minimumY());
         assertEquals(10, mesh.maximumY());
 
