@@ -474,8 +474,9 @@ final class Distant {
         }
         line.append(String.format("; all %d/%d, being built %d, kept past the rings %d, resident %d", wanted, stored,
             schedule.building(), schedule.leaving(), residents.size()));
-        line.append(String.format("%n  drawn: %d tiles, %d faces, %d draws; GPU %.3f ms mean, %.3f most (%d samples); "
-                + "client thread %.3f ms mean", lastTilesDrawn, lastFaces, lastDraws,
+        line.append(String.format("%n  drawn: %d tiles, %d faces, %d draws; GPU %.3f ms mean, %.3f most (%d samples, "
+                + "its own timer; the stage times count it under entities); client thread %.3f ms mean",
+            lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
         line.append(String.format("%n  built %d (sample %.1f ms, mesh %.2f ms a tile), stored %d, abandoned %d, "

@@ -28,6 +28,15 @@ import org.lwjgl.opengl.GL45;
  */
 final class DistantProgram {
 
+    /**
+     * How much darker a corner is for each of the up to three cells that close it in. The game's own
+     * smooth lighting darkens by about a fifth a cell, which suits a block seen from near by; drawn
+     * at every one-block step of ground seen from hundreds of blocks away it outlined every contour
+     * in the first frame. 0.08 keeps a fully closed corner at three quarters of its light: enough
+     * to read a step, not enough to draw a line.
+     */
+    static final float OCCLUSION_STEP = 0.08f;
+
     private static final int TILES_BINDING = 0;
     private static final int PAGE_BINDING = 1;
     private static final int MATERIALS_BINDING = 2;
@@ -94,7 +103,7 @@ final class DistantProgram {
         "    }",
         "    float closed = float((occlusion >> (2 * corner)) & 3u);",
         "    float lit = 0.2 + 0.8 * (float(light) / 15.0) * daylight;",
-        "    faceColor = color * lit * (1.0 - 0.2 * closed) * SHADE[direction];",
+        "    faceColor = color * lit * (1.0 - " + OCCLUSION_STEP + " * closed) * SHADE[direction];",
         "}");
     private static final String FRAGMENT = String.join("\n",
         "#version 460 compatibility",

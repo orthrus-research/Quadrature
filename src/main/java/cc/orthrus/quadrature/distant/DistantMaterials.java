@@ -204,6 +204,9 @@ final class DistantMaterials {
             tints.putInt(grass & 0xFFFFFF).putInt(foliage & 0xFFFFFF).putInt(water & 0xFFFFFF);
         }
         tints.flip();
-        GL45.glNamedBufferData(biomeBuffer, tints, GL15.GL_STATIC_DRAW);
+        // Written once and never again: immutable storage, which carries no usage hint. Given as
+        // data with a static-draw hint, the driver warned that the hint did not fit a buffer only
+        // the GPU reads.
+        GL45.glNamedBufferStorage(biomeBuffer, tints, 0);
     }
 }
