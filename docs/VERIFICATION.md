@@ -407,6 +407,94 @@ stage, in which the light's view is drawn.
 - **The driver** reported no error. While the light's view is drawn it repeats its warning
   that texture object 0 is bound to texture units 1 to 3; the depth program reads unit 0.
 
+### The light's depth kept, and the scene for lighting
+
+Measured 2026-11-16 on a fresh instance: the game's terrain twice, own terrain, and own
+terrain with the light's view, the scene for lighting and its buffers all on
+(`-Dquadrature.shadow=true -Dquadrature.scene=true -Dquadrature.scene.gpu=true`).
+
+| | Game | Own terrain | Own terrain, all three on |
+|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 17 of 17 |
+| Worst changed fraction | | 0.0214% (`15-temperate_rainforest`) | 0.0536% (`07-boreal_forest`) |
+| Changed pixels, all 17 views, and outside the river | | 1,295 and 1,236 | 1,599 and 1,234 |
+| CPU, median | 0.64 ms | 0.45 ms | 0.17 ms |
+| GPU, median and most | 1.68 and 2.27 ms | 1.71 and 2.28 ms | 1.72 and 4.00 ms |
+| Meshing a cube | | 1.112 ms | 1.122 ms |
+| Frames per second at the captures, least | 120 | 120 | 112 |
+
+- **The player's image is unchanged:** 13 of 17 views are identical byte for byte with and
+  without the three; 829 pixels differ, 789 on the river and 40 elsewhere.
+- **The light's depth** was drawn in 14,047 frames and kept in 29,510. Nearly every draw
+  was for a mesh placed or released while terrain arrived after a teleport; 42 were for
+  another texel and none for the light turning, since the tour holds the hour still. Over
+  all frames the draw took 0.58 ms of GPU time a frame, 1.80 ms in a frame that drew.
+  Client-thread time fell below own terrain's without it, because a frame that keeps the
+  map neither searches the light's view nor writes its commands.
+- **The scene** held 13,179 of the 15,625 cubes loaded at the last view; the 2,446 others
+  are loaded and not meshed. 5,617 cubes had cells of their own, 46.6 MiB, and at most
+  6,406, 53.2 MiB; the rest held one state.
+- **The buffers:** 5,617 bricks in use at the end, none waiting; 43,829 bricks and 210,137
+  entries copied over the tour, the whole lookup 19 times; 0.019 ms a frame on the client
+  thread on average and 17.5 ms in the worst, a jump of the box.
+- **The driver** reported no error.
+
+Each cell's state was then published as well (`-Dquadrature.scene.states=true`), cubes
+taken from the scene 512 a frame, and what the buffers hold read back and set beside the
+scene (`-Dquadrature.scene.check=true`). On a further instance, the same four runs:
+
+| | Game | Own terrain | Own terrain, scene with states, and the light's view |
+|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 16 of 17 |
+| Worst changed fraction | | 0.0550% (`07-boreal_forest`) | 0.1434% (`07-boreal_forest`) |
+| Changed pixels, all 17 views, and outside the river | | 1,611 and 1,230 | 2,427 and 1,269 |
+| CPU, median | 0.56 ms | 0.48 ms | 0.19 ms |
+| GPU, median and most | 1.73 and 2.28 ms | 1.41 and 2.22 ms | 1.70 and 4.01 ms |
+| Meshing a cube | | 1.120 ms | 1.166 ms |
+| Frames per second at the captures, least | 120 | 119 | 119 |
+
+- **The frame that fails does so on the river**, 1,158 of its pixels in the river's box.
+  The two own-terrain runs differ in no view by more than 0.0387%: 12 of 17 are identical
+  byte for byte, and of 358 changed pixels 351 are on the river.
+- **What the buffers hold is what the scene holds.** 72 times over the tour the lookup
+  and 16 bricks were read back, 1,136 bricks in all, each cell followed through its
+  cube's list to its state number: no difference.
+- **No cube was clamped,** and no state failed to fit 16 bits. The state table was sent
+  289 times, once for each time a state was first met.
+- **Slots in use:** 6,406 at most, 5,617 at the end, of the 15,625 there is room for.
+- **Copying** took 0.027 ms a frame on the client thread on average. The worst frame took
+  13.1 ms, where the jump of the box took 17.5 ms before cubes were taken a bounded
+  number a frame; what that frame holds is not established, and the first frame makes
+  78 MiB of buffers.
+- **Meshing a cube** took 0.05 ms longer with the scene in this pair of runs and 0.01 ms
+  in the pair before; meshing time varies by about that between runs.
+
+### Coverage, the search's edge and the walk
+
+One instance, the forest tour, each run scored against the game's terrain in the same
+instance (2026-11-16).
+
+| Run | Passing views | Worst view | Against the run with every switch off |
+|---|---|---|---|
+| Every switch off | 17 of 17 | 07 | |
+| Coverage and the walk's check | 17 of 17 | 07, 0.0374% | 17 of 17, 12 views identical, 193 pixels changed |
+| Faces | 17 of 17 | 07, 0.0379% | no pixel changed |
+
+- **Coverage.** Of 625 columns at a settled frame, 552 have their surface meshed and 73
+  have it waiting: the outermost columns, whose cubes lack a neighbor. None reads as
+  having no surface or as not loaded. The map was worked out 1,146 times, in 0.46 ms on
+  average and 2.5 ms at most; 166,481 cubes that cannot be meshed were asked whether they
+  are empty.
+- **The edge.** At the last view the search came to four of the box's six faces in 729
+  steps, through no cube that is not loaded.
+- **The walk.** 58,018 cubes were meshed by the walk and by the game's dispatcher and no
+  layer of any differs by a byte; of 201 million blocks none was left to the dispatcher.
+  The check doubles meshing, 2.1 ms a cube.
+- **Faces.** The run draws through the walk and is identical to the default, but of 28.6
+  million quads none became a record: 26.4 million whole faces were refused because their
+  texture coordinates are not the sprite's own corners. Drawing from records, and a
+  vertex array with no attributes, are not exercised by it.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
@@ -426,6 +514,10 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.write=copy` | A frame's meshes are staged in one buffer and copied into their pages on the GPU |
 | `quadrature.terrain.touch=true` | A page is written once, whole, when it is made |
 | `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
+| `quadrature.coverage=true` | Works out the coverage map and adds its counts and cost to the terrain summary |
+| `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
+| `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
+| `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 
 A settled frame is one with no cube waiting to be meshed.

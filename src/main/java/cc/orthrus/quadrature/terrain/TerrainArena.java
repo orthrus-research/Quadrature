@@ -63,10 +63,66 @@ import java.util.ArrayDeque;
     private static final long SLOW_WRITE_NANOS = 500_000L;
     private static final int SLOW_WRITE_LINES = 400;
 
-    private final ArenaAllocator allocator = new ArenaAllocator(PAGE_BYTES, GRANULE_BYTES, MAX_PAGES, JOINING);
+    /** The granule of pages that hold face records: 128 records of 32 bytes. */
+    static final int RECORD_GRANULE_BYTES = 4096;
+    static final long RECORD_PAGE_BYTES = 16_384L * RECORD_GRANULE_BYTES;
+
+    private final ArenaAllocator allocator;
+    private final long pageBytes;
+
+    /** An arena of pages for the game's vertices. */
+    TerrainArena() {
+        this(PAGE_BYTES, GRANULE_BYTES);
+    }
+
+    /** An arena of pages of another size and granule, as for face records. */
+    TerrainArena(long pageBytes, int granuleBytes) {
+        this.pageBytes = pageBytes;
+        allocator = new ArenaAllocator(pageBytes, granuleBytes, MAX_PAGES, JOINING);
+    }
+
+    /**
+     * Finds room for a number of bytes and writes them there, through the driver.
+     *
+     * @param data  what to write, from its position
+     * @return the block, to free and to ask {@link #pageOf} and {@link #offsetOf} about, or -1 when there is no room
+     */
+    long placeBytes(java.nio.ByteBuffer data, int bytes, long frame) {
+        long block = allocator.allocate(bytes);
+        if (block < 0) {
+            return -1;
+        }
+        while (pages < allocator.pages()) {
+            create();
+            pagesInTheWay++;
+        }
+        int page = ArenaAllocator.page(block);
+        java.nio.ByteBuffer part = data.duplicate();
+        part.limit(data.position() + bytes);
+        long start = System.nanoTime();
+        GL45.glNamedBufferSubData(buffers[page], allocator.offset(block), part);
+        slow(System.nanoTime() - start, page, (int) allocator.offset(block), bytes, frame);
+        written[page] = true;
+        return block;
+    }
+
+    int pageOf(long block) {
+        return ArenaAllocator.page(block);
+    }
+
+    long offsetOf(long block) {
+        return allocator.offset(block);
+    }
+
+    /** Gives back a block got from {@link #placeBytes}. */
+    void freeBytes(long block, int bytes, long frame) {
+        allocator.free(block, bytes, frame);
+    }
     private final boolean[] written = new boolean[MAX_PAGES];
     private final long[] drawnFrame = new long[MAX_PAGES];
     private int slowWrites;
+    private long lastAllocateNanos;
+    private long lastWriteNanos;
     private int staging;
     private ByteBuffer staged = ByteBuffer.allocateDirect(1 << 20);
     private int copies;
@@ -93,11 +149,32 @@ import java.util.ArrayDeque;
      * @return the mesh, or null when the arena has no room for it
      */
     CubeMesh place(int x, int y, int z, CubeMesher mesher, long frame) {
+        for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
+            layerData[layer] = mesher.count(layer) == 0 ? null : mesher.data(layer);
+            layerCounts[layer] = mesher.count(layer);
+        }
+        return place(x, y, z, layerData, layerCounts, frame);
+    }
+
+    private final ByteBuffer[] layerData = new ByteBuffer[CubeMesh.LAYERS];
+    private final int[] layerCounts = new int[CubeMesh.LAYERS];
+
+    /**
+     * Copies three layers of vertices into the arena.
+     *
+     * @param data   each layer's vertices from its buffer's position, or null where the layer has none
+     * @param counts how many vertices each layer has
+     * @return the mesh, or null when the arena has no room for it
+     */
+    CubeMesh place(int x, int y, int z, ByteBuffer[] data, int[] counts, long frame) {
         int bytes = 0;
         for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
-            bytes += mesher.count(layer) * CubeMesh.STRIDE;
+            bytes += counts[layer] * CubeMesh.STRIDE;
         }
+        long began = System.nanoTime();
         long block = allocator.allocate(bytes);
+        lastAllocateNanos = System.nanoTime() - began;
+        lastWriteNanos = 0;
         if (block < 0) {
             return null;
         }
@@ -112,27 +189,39 @@ import java.util.ArrayDeque;
         mesh.block = block;
         mesh.blockBytes = bytes;
         for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
-            int count = mesher.count(layer);
+            int count = counts[layer];
             if (count == 0) {
                 continue;
             }
-            ByteBuffer data = mesher.data(layer);
+            ByteBuffer source = data[layer];
             if (UPLOAD && COPY) {
-                stage(page, at, data, count * CubeMesh.STRIDE);
+                stage(page, at, source, count * CubeMesh.STRIDE);
             } else if (UPLOAD) {
-                ByteBuffer part = data.duplicate();
-                part.limit(data.position() + count * CubeMesh.STRIDE);
+                ByteBuffer part = source.duplicate();
+                part.limit(source.position() + count * CubeMesh.STRIDE);
                 long start = System.nanoTime();
                 GL45.glNamedBufferSubData(buffers[page], at, part);
-                slow(System.nanoTime() - start, page, at, count * CubeMesh.STRIDE, frame);
+                long wrote = System.nanoTime() - start;
+                lastWriteNanos += wrote;
+                slow(wrote, page, at, count * CubeMesh.STRIDE, frame);
                 written[page] = true;
             } else {
-                memory[page].put(at, data, data.position(), count * CubeMesh.STRIDE);
+                memory[page].put(at, source, source.position(), count * CubeMesh.STRIDE);
             }
             mesh.place(layer, buffers[page], at / CubeMesh.STRIDE, count);
             at += count * CubeMesh.STRIDE;
         }
         return mesh;
+    }
+
+    /** The time the last placement spent finding room. */
+    long lastAllocateNanos() {
+        return lastAllocateNanos;
+    }
+
+    /** The time the last placement spent in the driver's writes. */
+    long lastWriteNanos() {
+        return lastWriteNanos;
     }
 
     /** Logs a write the driver took long over, with what is known of the page it went to. */
@@ -202,10 +291,10 @@ import java.util.ArrayDeque;
         long start = System.nanoTime();
         buffers[pages] = GL45.glCreateBuffers();
         if (UPLOAD) {
-            GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, GL44.GL_DYNAMIC_STORAGE_BIT);
+            GL45.glNamedBufferStorage(buffers[pages], pageBytes, GL44.GL_DYNAMIC_STORAGE_BIT);
         } else {
-            GL45.glNamedBufferStorage(buffers[pages], PAGE_BYTES, ACCESS);
-            memory[pages] = GL45.glMapNamedBufferRange(buffers[pages], 0, PAGE_BYTES, ACCESS);
+            GL45.glNamedBufferStorage(buffers[pages], pageBytes, ACCESS);
+            memory[pages] = GL45.glMapNamedBufferRange(buffers[pages], 0, pageBytes, ACCESS);
         }
         if (TOUCH && UPLOAD) {
             // Writes the whole page once, so that whatever the driver puts off until a page is first
@@ -293,7 +382,7 @@ import java.util.ArrayDeque;
     }
 
     long capacityBytes() {
-        return pages * PAGE_BYTES;
+        return pages * pageBytes;
     }
 
     long usedBytes() {

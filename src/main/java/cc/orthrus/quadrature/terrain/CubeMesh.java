@@ -28,6 +28,12 @@ final class CubeMesh {
     long block = -1;
     /** The size the block was asked for with. */
     int blockBytes;
+    /** The mesh's block of face records in the arena that holds those, or -1 when it has none. */
+    long faceBlock = -1;
+    int faceBytes;
+    /** For each layer, the first record in its page and how many there are. */
+    final int[] faceFirsts = new int[LAYERS];
+    final int[] faceCounts = new int[LAYERS];
 
     CubeMesh(int x, int y, int z) {
         this.x = x;
@@ -80,11 +86,16 @@ final class CubeMesh {
     }
 
     int vertices() {
+        return counts[0] + counts[1] + counts[2] + 4 * (faceCounts[0] + faceCounts[1] + faceCounts[2]);
+    }
+
+    /** The mesh's vertices kept as the game wrote them. */
+    int keptVertices() {
         return counts[0] + counts[1] + counts[2];
     }
 
     long bytes() {
-        return (long) vertices() * STRIDE;
+        return (long) keptVertices() * STRIDE + faceBytes;
     }
 
     /** Whether the mesh lies in the arena. */

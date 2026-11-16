@@ -196,11 +196,47 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Taken: the ideas. No renderer's source was read.
 - Added: 2026-11-15
 
+### The scene for lighting
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/`,
+  `src/main/java/cc/orthrus/quadrature/terrain/SceneBuffers.java`, and the cells noted in
+  `CubeMesher.java`
+- Source: original. Facts used: the game's public interfaces for a block state's
+  identity, light value, light opacity and whether it is an opaque cube; the OpenGL 4.6
+  compatibility specification (buffer textures, integer formats). A coarse lookup over
+  bricks of cells is common to sparse voxel structures, as in Crassin, Neyret, Lefebvre
+  and Eisemann, "GigaVoxels", I3D 2009.
+- Taken: the idea of a lookup that names a brick or says a region is uniform. A cell's
+  state as a short index into its cube's own list of states is the palette commonly used
+  to store voxel volumes, written anew.
+- Not taken: any structure's source, and no hierarchy beyond one coarser level a brick.
+- Added: 2026-11-16
+
 ### Driver messages
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/DriverMessages.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (debug output,
   its callback, message control and debug groups).
 - Added: 2026-11-15
+
+### Coverage of chunk columns and the search's edge
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/terrain/CoverageMap.java`,
+  `SearchEdge.java`, `SurfaceBand.java`, the edge counts in `Visibility.java`;
+  `src/main/java/cc/orthrus/quadrature/terrain/SurfaceHeights.java`
+- Source: original. Facts used: the cube source's public methods for surface heights,
+  surface version and cube content, looked up by name and used only where present.
+- Added: 2026-11-16
+
+### The walk over a model's quads, and face records
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/QuadWalk.java`, `FaceBuilder.java`;
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/FaceRecord.java`; the record
+  pages in `TerrainArena.java` and the stages that draw from records in
+  `TerrainProgram.java`
+- Source: original. Facts used: the public interfaces of the game and Forge for a baked
+  model's quads, the order the game's block model renderer takes them in, and Forge's
+  vertex lighters and buffer consumer, which are called and not reproduced; the OpenGL 4.6
+  and GLSL 4.60 specifications (shader storage blocks, `gl_VertexID`, `gl_BaseInstance`).
+- Taken: the idea of building a face's vertices in the vertex stage from a record indexed
+  by vertex number, as described in research R2. No code from another renderer.
+- Added: 2026-11-16
 
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,

@@ -54,6 +54,9 @@ public final class Visibility implements CubeVisitor {
     private long[] keys = new long[256];
     private int count;
     private View sweeping;
+    private int edgeFaces;
+    private int edgeSteps;
+    private int unloadedEntered;
 
     /**
      * Finds the cubes the view can see from its eye, nearest first.
@@ -63,6 +66,9 @@ public final class Visibility implements CubeVisitor {
      */
     public int search(Cubes cubes, View view) {
         count = 0;
+        edgeFaces = 0;
+        edgeSteps = 0;
+        unloadedEntered = 0;
         int across = view.across();
         int upward = view.upward();
         int baseX = view.originCubeX() - across;
@@ -121,6 +127,11 @@ public final class Visibility implements CubeVisitor {
                 int ny = y + dy;
                 int nz = z + dz;
                 if (nx < 0 || nx >= sizeX || ny < 0 || ny >= sizeY || nz < 0 || nz >= sizeX) {
+                    // The way on leaves the box: noted where the view would still see the cube beyond.
+                    if (view.cubeVisible(nx + baseX, ny + baseY, nz + baseZ)) {
+                        edgeFaces |= 1 << face;
+                        edgeSteps++;
+                    }
                     continue;
                 }
                 int next = index(nx, ny, nz);
@@ -139,6 +150,8 @@ public final class Visibility implements CubeVisitor {
                 }
                 if (entered[next] == 0 && links[next] >= 0) {
                     add(CubeKey.of(nx + baseX, ny + baseY, nz + baseZ));
+                } else if (entered[next] == 0) {
+                    unloadedEntered++;
                 }
                 entered[next] |= (byte) way;
                 queue[tail++] = next << 3 | CubeConnectivity.opposite(face);
@@ -150,6 +163,9 @@ public final class Visibility implements CubeVisitor {
     /** Finds the cubes of a set that lie within the view's reach and volume, in the set's order. */
     public int sweep(CubeSet cubes, View view) {
         count = 0;
+        edgeFaces = 0;
+        edgeSteps = 0;
+        unloadedEntered = 0;
         sweeping = view;
         cubes.each(this);
         sweeping = null;
@@ -161,6 +177,24 @@ public final class Visibility implements CubeVisitor {
         if (sweeping.cubeWithinReach(cubeX, cubeY, cubeZ) && sweeping.cubeVisible(cubeX, cubeY, cubeZ)) {
             add(CubeKey.of(cubeX, cubeY, cubeZ));
         }
+    }
+
+    /**
+     * Through which faces of the box the last search would have gone on, had the box been larger: a bit
+     * for each face as {@link CubeConnectivity} numbers them. Nothing for a sweep.
+     */
+    public int edgeFaces() {
+        return edgeFaces;
+    }
+
+    /** How many times the last search came to the edge of the box with the view still seeing beyond it. */
+    public int edgeSteps() {
+        return edgeSteps;
+    }
+
+    /** How many cubes inside the box the last search passed through that are not loaded. */
+    public int unloadedEntered() {
+        return unloadedEntered;
     }
 
     /** How many cubes the last search or sweep found. */

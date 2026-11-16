@@ -114,7 +114,82 @@ final class TerrainProgram {
         "    }",
         "}");
 
+    /**
+     * What a vertex stage that draws from face records does before anything else: it reads the record
+     * its vertex belongs to, four vertices to a record, and builds that corner of the face. No vertex
+     * attribute is read. The values it builds are the ones the game's vertex would have held.
+     */
+    private static final String PULL = String.join("\n",
+        "struct CubeRecord { mat4 modelView; mat4 previous; };",
+        "layout(std430, binding = 0) readonly buffer CubeRecords { CubeRecord cubes[]; };",
+        "layout(std430, binding = 1) readonly buffer Faces { uint words[]; };",
+        "layout(std430, binding = 2) readonly buffer Sprites { vec4 rects[]; };",
+        "vec3 facePosition;",
+        "vec4 faceColor;",
+        "vec2 faceTexture;",
+        "vec2 faceLight;",
+        "void pull() {",
+        "    int word = (gl_VertexID >> 2) * 8;",
+        "    int vertex = gl_VertexID & 3;",
+        "    uint w0 = words[word];",
+        "    vec3 cell = vec3(float(w0 & 15u), float((w0 >> 4) & 15u), float((w0 >> 8) & 15u));",
+        "    uint face = (w0 >> 12) & 7u;",
+        "    uint corner = (w0 >> (15 + 2 * vertex)) & 3u;",
+        "    float side = float(face & 1u);",
+        "    float first = float(corner & 1u);",
+        "    float second = float(corner >> 1);",
+        "    // Up and down: x then z. North and south: x then y. West and east: z then y.",
+        "    vec3 offset = face < 2u ? vec3(first, side, second) : face < 4u ? vec3(first, second, side)",
+        "        : vec3(side, second, first);",
+        "    facePosition = cell + offset;",
+        "    uint w3 = words[word + 3];",
+        "    uint w4 = words[word + 4];",
+        "    uint w5 = words[word + 5];",
+        "    uint color = vertex == 0 ? w3 & 0xFFFFFFu : vertex == 1 ? (w3 >> 24) | ((w4 & 0xFFFFu) << 8)",
+        "        : vertex == 2 ? (w4 >> 16) | ((w5 & 0xFFu) << 16) : w5 >> 8;",
+        "    faceColor = vec4(float(color & 255u), float((color >> 8) & 255u), float((color >> 16) & 255u), 255.0) / 255.0;",
+        "    vec4 rect = rects[words[word + 1] & 0xFFFFu];",
+        "    uint showing = (w0 >> (23 + 2 * vertex)) & 3u;",
+        "    faceTexture = vec2((showing & 1u) != 0u ? rect.z : rect.x, (showing & 2u) != 0u ? rect.w : rect.y);",
+        "    uint light = (words[word + 6 + (vertex >> 1)] >> (16 * (vertex & 1))) & 0xFFFFu;",
+        "    faceLight = vec2(float(light & 255u), float(light >> 8));",
+        "}");
+
+    /** The forward vertex stage, drawn from face records. */
+    private static final String VERTEX_FACES = String.join("\n",
+        "#version 460 compatibility",
+        PULL,
+        "out vec4 vertexColor;",
+        "out vec2 textureCoordinate;",
+        "out vec2 lightCoordinate;",
+        "out float fogDistance;",
+        "void main() {",
+        "    pull();",
+        "    vec4 eye = cubes[gl_BaseInstance].modelView * vec4(facePosition, 1.0);",
+        "    gl_Position = gl_ProjectionMatrix * eye;",
+        "    vertexColor = faceColor;",
+        "    textureCoordinate = faceTexture;",
+        "    lightCoordinate = (gl_TextureMatrix[1] * vec4(faceLight, 0.0, 1.0)).xy;",
+        "    fogDistance = length(eye.xyz);",
+        "}");
+
+    /** The depth-only vertex stage, drawn from face records. */
+    private static final String VERTEX_DEPTH_FACES = String.join("\n",
+        "#version 460 compatibility",
+        PULL,
+        "uniform mat4 viewProjection;",
+        "out vec2 textureCoordinate;",
+        "out float vertexAlpha;",
+        "void main() {",
+        "    pull();",
+        "    gl_Position = viewProjection * (cubes[gl_BaseInstance].modelView * vec4(facePosition, 1.0));",
+        "    textureCoordinate = faceTexture;",
+        "    vertexAlpha = 1.0;",
+        "}");
+
     private static final int RECORDS_BINDING = 0;
+    private static final int FACES_BINDING = 1;
+    private static final int SPRITES_BINDING = 2;
 
     private int program;
     private int cubeModelViewLocation;
@@ -129,6 +204,16 @@ final class TerrainProgram {
     private int depthAlphaLocation;
     private int depthCommandBuffer;
     private int depthRecordBuffer;
+    private int facesProgram;
+    private int facesFogModeLocation;
+    private int depthFacesProgram;
+    private int depthFacesProjectionLocation;
+    private int depthFacesAlphaLocation;
+    /** A vertex array with nothing in it: a draw from face records reads no attribute. */
+    private int emptyVertexArray;
+    private int spriteBuffer;
+    private final int[] faceCommandBuffers = new int[2];
+    private final int[] faceRecordBuffers = new int[2];
     /** Which program is in use since {@link #begin}: 0 neither, 1 the direct one, 2 the indirect one. */
     private int inUse;
     private int boundBuffer;
@@ -212,6 +297,72 @@ final class TerrainProgram {
         return draws;
     }
 
+    /** Hands the driver every sprite's rectangle in the atlas, when a sprite has been met for the first time. */
+    void uploadSprites(float[] rects, int sprites) {
+        if (program == 0) {
+            create();
+        }
+        java.nio.FloatBuffer data = java.nio.ByteBuffer.allocateDirect(Math.max(1, sprites) * 16)
+            .order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer();
+        data.put(rects, 0, sprites * 4).flip();
+        GL45.glNamedBufferData(spriteBuffer, data, GL15.GL_STATIC_DRAW);
+    }
+
+    /**
+     * Hands the driver the commands and records of what a view draws from face records.
+     *
+     * @param which 0 for the player's view, 1 for a view drawn for depth alone
+     */
+    void uploadFaces(DrawCommands list, int which) {
+        if (program == 0) {
+            create();
+        }
+        GL45.glNamedBufferData(faceCommandBuffers[which], list.commands(), GL15.GL_STREAM_DRAW);
+        GL45.glNamedBufferData(faceRecordBuffers[which], list.records(), GL15.GL_STREAM_DRAW);
+    }
+
+    /**
+     * Draws one layer of a list from face records: one indirect draw for each page of the arena that
+     * holds records and has commands in that layer, four vertices to a record.
+     *
+     * @return how many draws were issued
+     */
+    int drawFaces(DrawCommands list, int layer, TerrainArena faces) {
+        GL30.glBindVertexArray(emptyVertexArray);
+        GL20.glUseProgram(facesProgram);
+        GL20.glUniform1i(facesFogModeLocation, fogMode);
+        inUse = 3;
+        int draws = pages(list, layer, faces, 0);
+        GL30.glBindVertexArray(vertexArray);
+        return draws;
+    }
+
+    /** As {@link #drawDepth}, from face records. */
+    int drawDepthFaces(DrawCommands list, int layer, TerrainArena faces, float[] projection, float alphaReference) {
+        GL30.glBindVertexArray(emptyVertexArray);
+        GL20.glUseProgram(depthFacesProgram);
+        GL20.glUniformMatrix4fv(depthFacesProjectionLocation, false, projection);
+        GL20.glUniform1f(depthFacesAlphaLocation, alphaReference);
+        return pages(list, layer, faces, 1);
+    }
+
+    private int pages(DrawCommands list, int layer, TerrainArena faces, int which) {
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, faceRecordBuffers[which]);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SPRITES_BINDING, spriteBuffer);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, faceCommandBuffers[which]);
+        int draws = 0;
+        for (int page = 0; page < list.pages(); page++) {
+            int count = list.runCount(layer, page);
+            if (count == 0) {
+                continue;
+            }
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, FACES_BINDING, faces.buffer(page));
+            GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
+            draws++;
+        }
+        return draws;
+    }
+
     /** Hands the driver the commands and records of a view drawn for depth alone. */
     void uploadDepth(DrawCommands list) {
         if (program == 0) {
@@ -251,6 +402,8 @@ final class TerrainProgram {
     void end() {
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, 0);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, FACES_BINDING, 0);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SPRITES_BINDING, 0);
         StateEnvelopeAccess.leave();
     }
 
@@ -267,6 +420,17 @@ final class TerrainProgram {
         depthAlphaLocation = GL20.glGetUniformLocation(depthProgram, "alphaReference");
         depthCommandBuffer = GL45.glCreateBuffers();
         depthRecordBuffer = GL45.glCreateBuffers();
+        facesProgram = link(VERTEX_FACES);
+        facesFogModeLocation = GL20.glGetUniformLocation(facesProgram, "fogMode");
+        depthFacesProgram = link(VERTEX_DEPTH_FACES, FRAGMENT_DEPTH);
+        depthFacesProjectionLocation = GL20.glGetUniformLocation(depthFacesProgram, "viewProjection");
+        depthFacesAlphaLocation = GL20.glGetUniformLocation(depthFacesProgram, "alphaReference");
+        emptyVertexArray = GL45.glCreateVertexArrays();
+        spriteBuffer = GL45.glCreateBuffers();
+        for (int which = 0; which < 2; which++) {
+            faceCommandBuffers[which] = GL45.glCreateBuffers();
+            faceRecordBuffers[which] = GL45.glCreateBuffers();
+        }
 
         vertexArray = GL45.glCreateVertexArrays();
         attribute(0, 3, GL11.GL_FLOAT, false, 0);

@@ -9,6 +9,12 @@ import cc.orthrus.quadrature.core.terrain.CubeSlots;
 import cc.orthrus.quadrature.core.terrain.CubeVisitor;
 import cc.orthrus.quadrature.core.terrain.DrawCommands;
 import cc.orthrus.quadrature.core.terrain.Visibility;
+import cc.orthrus.quadrature.core.scene.LightScene;
+import cc.orthrus.quadrature.core.terrain.CoverageMap;
+import cc.orthrus.quadrature.core.terrain.FaceRecord;
+import cc.orthrus.quadrature.core.terrain.SearchEdge;
+import cc.orthrus.quadrature.core.terrain.SurfaceBand;
+import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
@@ -81,13 +87,76 @@ public final class Terrain
     private final ICubeSource source;
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
-    private final CubeMesher mesher = new CubeMesher();
+    /**
+     * Off unless {@code -Dquadrature.scene=true}: the cells of every cube that is meshed are kept for
+     * lighting, with what each block state does to light.
+     */
+    private static final boolean SCENE = Boolean.getBoolean("quadrature.scene");
+    private final LightScene scene = SCENE ? new LightScene() : null;
+    /**
+     * Off unless {@code -Dquadrature.coverage=true}: for every chunk column of the box, whether its
+     * surface is loaded and meshed, worked out when what is held changes and no oftener than every
+     * twenty frames.
+     */
+    private static final boolean COVERAGE = Boolean.getBoolean("quadrature.coverage");
+    /**
+     * A diagnostic, off unless {@code -Dquadrature.faces.count=true}: counts over every cube meshed the
+     * quads that a record for a whole face could hold.
+     */
+    private static final boolean FACE_CENSUS = Boolean.getBoolean("quadrature.faces.count");
+    private final long[] faceCensus = new long[3];
+    private static final int COVERAGE_FRAMES = 20;
+    private final CoverageMap coverage = COVERAGE ? new CoverageMap() : null;
+    private final SearchEdge searchEdge = new SearchEdge();
+    /** Cubes meshed as they now stand, whether or not they draw anything. */
+    private final LongOpenHashSet settled = new LongOpenHashSet();
+    private long settledVersion;
+    private long coverageStamp = -1;
+    private long coverageFrame = -COVERAGE_FRAMES;
+    private long coverageNanos;
+    private long lastCoverageNanos;
+    private long mostCoverageNanos;
+    private long coverages;
+    private long emptinessAsked;
+    private static final int HEIGHT_COLUMNS_A_PASS = 16;
+    private SurfaceHeights surfaceHeights;
+    /**
+     * Off unless {@code -Dquadrature.scene.gpu=true}, which needs the scene: the scene is copied to
+     * buffers a shader can read, a bounded amount a frame.
+     */
+    private static final boolean SCENE_GPU = SCENE && Boolean.getBoolean("quadrature.scene.gpu");
+    /**
+     * Off unless {@code -Dquadrature.scene.states=true}, which needs the scene's buffers: each cell's
+     * block state is copied there too, and what each state does to light.
+     */
+    private static final boolean SCENE_STATES = SCENE_GPU && Boolean.getBoolean("quadrature.scene.states");
+    /** A diagnostic, off unless {@code -Dquadrature.scene.check=true}: the buffers are read back and set beside the scene. */
+    private static final boolean SCENE_CHECK = SCENE_GPU && Boolean.getBoolean("quadrature.scene.check");
+    private final SceneBuffers sceneBuffers = SCENE_GPU ? new SceneBuffers(scene, SCENE_STATES, SCENE_CHECK) : null;
+    private final CubeMesher mesher = new CubeMesher(scene);
     private final TerrainProgram program = new TerrainProgram();
     private final TerrainArena arena = OWN_BUFFERS ? null : new TerrainArena();
     /** A slot for every loaded cube, holding where its mesh lies in the arena. */
     private final CubeSlots slots = new CubeSlots();
     private final DrawCommands mainList = new DrawCommands();
     private final DrawCommands lightList = new DrawCommands();
+    /**
+     * Off unless {@code -Dquadrature.faces=true}, which needs indirect draws: whole faces are held as
+     * records of 32 bytes in pages of their own and drawn by a vertex stage that builds each corner
+     * from its record; every other quad keeps the game's vertices and is drawn as before.
+     */
+    private static final boolean FACES = CubeMesher.FACES && !DIRECT;
+    private final TerrainArena faceArena = FACES
+        ? new TerrainArena(TerrainArena.RECORD_PAGE_BYTES, TerrainArena.RECORD_GRANULE_BYTES) : null;
+    private final CubeSlots faceSlots = new CubeSlots();
+    private final DrawCommands mainFaceList = new DrawCommands();
+    private final DrawCommands lightFaceList = new DrawCommands();
+    private final java.nio.ByteBuffer[] keptData = new java.nio.ByteBuffer[CubeMesh.LAYERS];
+    private final int[] keptCounts = new int[CubeMesh.LAYERS];
+    private java.nio.ByteBuffer faceStaging = java.nio.ByteBuffer.allocateDirect(1 << 16)
+        .order(java.nio.ByteOrder.nativeOrder());
+    private long spritesSeen = -1;
+    private int faceDrawsThisFrame;
     private final ShadowTarget shadow = SHADOW ? new ShadowTarget() : null;
     /** What is published of the depth drawn along the light, or null when it is not drawn. */
     private final ShadowMaps shadowMaps = SHADOW
@@ -97,6 +166,17 @@ public final class Terrain
     /** Counts meshes placed and released: what a view draws may differ once it has moved on. */
     private long meshVersion;
     private long shadowMeshVersion = -1;
+    /** The cosine of the angle the light may turn before its depth is drawn again; 0.1 degree unless set. */
+    private static final double SHADOW_TURN_COSINE = Math.cos(Math.toRadians(
+        Double.parseDouble(System.getProperty("quadrature.shadow.turn", "0.1"))));
+    private final View lightCandidate = new View();
+    private final double[] shadowToward = new double[3];
+    private boolean shadowContent;
+    private boolean shadowResnapped;
+    private boolean shadowTurned;
+    private long shadowKept;
+    private long shadowResnaps;
+    private long shadowTurns;
     private double shadowOriginX;
     private double shadowOriginY;
     private double shadowOriginZ;
@@ -165,6 +245,9 @@ public final class Terrain
     private long worstPlacedBytes;
     private long worstLargestPlaceNanos;
     private long stoppedByPlacing;
+    private static final long SLOW_PLACE_NANOS = 500_000L;
+    private int slowPlacings;
+    private long slotNanos;
     private long refused;
     private long lastCommandNanos;
     private long lastLightCommandNanos;
@@ -234,13 +317,31 @@ public final class Terrain
         release(meshes.remove(key));
         links.remove(key);
         slots.release(key);
+        releaseFaceSlot(key);
         tableVersion++;
+        unsettle(key);
+        if (scene != null) {
+            scene.remove(x, y, z);
+        }
+    }
+
+    private void releaseFaceSlot(long key) {
+        if (faceSlots.find(key) >= 0) {
+            faceSlots.release(key);
+        }
+    }
+
+    private void unsettle(long key) {
+        if (settled.remove(key)) {
+            settledVersion++;
+        }
     }
 
     @Override
     public void cubeChanged(int x, int y, int z, int kinds, int minX, int minY, int minZ, int maxX, int maxY,
         int maxZ) {
         dirty.add(CubeKey.of(x, y, z));
+        unsettle(CubeKey.of(x, y, z));
     }
 
     private void clear() {
@@ -249,8 +350,15 @@ public final class Terrain
         }
         meshes.clear();
         dirty.clear();
+        settled.clear();
+        settledVersion++;
+        if (scene != null) {
+            scene.clear();
+        }
         for (LongIterator it = links.keySet().iterator(); it.hasNext();) {
-            slots.release(it.nextLong());
+            long held = it.nextLong();
+            slots.release(held);
+            releaseFaceSlot(held);
         }
         links.clear();
         tableVersion++;
@@ -261,13 +369,21 @@ public final class Terrain
             meshVersion++;
             vertices -= mesh.vertices();
             bytes -= mesh.bytes();
+            if (mesh.faceBlock >= 0) {
+                int slot = faceSlots.find(CubeKey.of(mesh.x, mesh.y, mesh.z));
+                if (slot >= 0) {
+                    faceSlots.clear(slot);
+                }
+                faceArena.freeBytes(mesh.faceBlock, mesh.faceBytes, frames);
+                mesh.faceBlock = -1;
+            }
             if (mesh.inArena()) {
                 int slot = slots.find(CubeKey.of(mesh.x, mesh.y, mesh.z));
                 if (slot >= 0) {
                     slots.clear(slot);
                 }
                 arena.free(mesh, frames);
-            } else {
+            } else if (!FACES) {
                 if (arena != null) {
                     looseMeshes--;
                 }
@@ -331,11 +447,37 @@ public final class Terrain
             release(meshes.remove(key));
             links.remove(key);
             slots.release(key);
+            releaseFaceSlot(key);
+        releaseFaceSlot(key);
             tableVersion++;
+            unsettle(key);
+            if (scene != null) {
+                scene.remove(x, y, z);
+            }
             return;
         }
         if (!surrounded(x, y, z)) {
             // As in the game, a cube that cannot be meshed now keeps the mesh it has.
+            if (COVERAGE && !meshes.containsKey(key) && !settled.contains(key)) {
+                // Whether it is empty can still be known, and coverage needs it: the highest cubes held
+                // never have a cube above them, and are the air over the ground.
+                if (surfaceHeights == null) {
+                    surfaceHeights = new SurfaceHeights(source);
+                }
+                boolean empty;
+                if (surfaceHeights.tellsContent()) {
+                    empty = surfaceHeights.empty(x, y, z);
+                } else {
+                    ICubeSnapshot held = source.snapshot(x, y, z);
+                    empty = held.centerEmpty();
+                    held.release();
+                }
+                emptinessAsked++;
+                if (empty) {
+                    settled.add(key);
+                    settledVersion++;
+                }
+            }
             return;
         }
         release(meshes.remove(key));
@@ -344,17 +486,34 @@ public final class Terrain
             emptied++;
             snapshot.release();
             setLinks(key, CubeConnectivity.ALL);
+            if (settled.add(key)) {
+                settledVersion++;
+            }
+            if (scene != null) {
+                scene.putUniform(x, y, z, LightScene.AIR);
+            }
             return;
         }
         long start = System.nanoTime();
         boolean any = mesher.build(snapshot, x, y, z);
         snapshot.release();
         setLinks(key, mesher.links());
+        if (FACE_CENSUS) {
+            mesher.census(faceCensus);
+        }
+        if (settled.add(key)) {
+            settledVersion++;
+        }
+        if (scene != null) {
+            scene.put(x, y, z, mesher.cells(), mesher.blocking());
+        }
         CubeMesh mesh = null;
         if (any) {
             long placing = System.nanoTime();
-            mesh = arena == null ? null : arena.place(x, y, z, mesher, frames);
-            if (mesh == null) {
+            mesh = FACES ? placeFaces(key, x, y, z) : arena == null ? null : arena.place(x, y, z, mesher, frames);
+            if (FACES) {
+                slotNanos = 0;
+            } else if (mesh == null) {
                 // No arena, or no room in it: the mesh keeps buffers of its own and is drawn by itself.
                 mesh = CubeMesh.owned(x, y, z, mesher);
                 if (arena != null) {
@@ -362,10 +521,24 @@ public final class Terrain
                     looseMeshes++;
                 }
             } else {
+                long slotting = System.nanoTime();
                 slots.set(slots.acquire(key), mesh.block, mesh.blockBytes, mesh.first(0), mesh.count(0),
                     mesh.first(1), mesh.count(1), mesh.first(2), mesh.count(2));
+                slotNanos = System.nanoTime() - slotting;
             }
             placing = System.nanoTime() - placing;
+            if (placing >= SLOW_PLACE_NANOS && arena != null && slowPlacings++ < 100) {
+                // Where a long placement's time went: finding room, the driver's writes, the slot, and the rest.
+                long made = arena.takeCreateNanos();
+                Quadrature.LOGGER.info("Terrain: slow placement, {} ms: mesh {} of the run, {} bytes, frame {}; finding "
+                        + "room {} ms, the driver's writes {} ms, the slot {} ms, making a page {} ms, the rest {} ms",
+                    String.format("%.3f", placing / 1e6), placed + 1, mesh.bytes(), frames,
+                    String.format("%.3f", arena.lastAllocateNanos() / 1e6), String.format("%.3f", arena.lastWriteNanos() / 1e6),
+                    String.format("%.3f", slotNanos / 1e6), String.format("%.3f", made / 1e6),
+                    String.format("%.3f", (placing - arena.lastAllocateNanos() - arena.lastWriteNanos() - slotNanos - made) / 1e6));
+                placing -= made;
+                madeInTheWayNanosThisFrame += made;
+            }
             if (arena != null) {
                 // A page made because none was ready is the driver's time, counted apart.
                 long made = arena.takeCreateNanos();
@@ -388,6 +561,101 @@ public final class Terrain
             vertices += mesh.vertices();
             bytes += mesh.bytes();
         }
+    }
+
+    /**
+     * Places the cube the mesher last built as face records and kept vertices: the records in a block
+     * of the arena that holds records, the kept vertices in a block of the arena that holds vertices.
+     */
+    private CubeMesh placeFaces(long key, int x, int y, int z) {
+        FaceBuilder built = mesher.faceBuilder();
+        int kept = 0;
+        int records = 0;
+        for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
+            keptCounts[layer] = built.vertexCount(layer);
+            keptData[layer] = null;
+            if (keptCounts[layer] > 0) {
+                keptData[layer] = built.vertices(layer).duplicate();
+                keptData[layer].flip();
+            }
+            kept += keptCounts[layer];
+            records += built.recordCount(layer);
+        }
+        CubeMesh mesh = null;
+        if (kept > 0) {
+            mesh = arena.place(x, y, z, keptData, keptCounts, frames);
+            if (mesh == null) {
+                refused++;
+            }
+        }
+        if (mesh == null) {
+            mesh = new CubeMesh(x, y, z);
+        }
+        if (mesh.inArena()) {
+            slots.set(slots.acquire(key), mesh.block, mesh.blockBytes, mesh.first(0), mesh.count(0), mesh.first(1),
+                mesh.count(1), mesh.first(2), mesh.count(2));
+        } else {
+            int slot = slots.find(key);
+            if (slot >= 0) {
+                slots.clear(slot);
+            }
+        }
+        if (records > 0) {
+            int bytes = records * FaceRecord.BYTES;
+            if (faceStaging.capacity() < bytes) {
+                faceStaging = java.nio.ByteBuffer.allocateDirect(Math.max(bytes, faceStaging.capacity() * 2))
+                    .order(java.nio.ByteOrder.nativeOrder());
+            }
+            faceStaging.clear();
+            java.nio.IntBuffer words = faceStaging.asIntBuffer();
+            for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
+                words.put(built.records(layer), 0, built.recordCount(layer) * FaceRecord.WORDS);
+            }
+            long block = faceArena.placeBytes(faceStaging, bytes, frames);
+            if (block < 0) {
+                refused++;
+            } else {
+                mesh.faceBlock = block;
+                mesh.faceBytes = bytes;
+                int first = (int) (faceArena.offsetOf(block) / FaceRecord.BYTES);
+                for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
+                    mesh.faceFirsts[layer] = first;
+                    mesh.faceCounts[layer] = built.recordCount(layer);
+                    first += built.recordCount(layer);
+                }
+                // A record is drawn as four vertices, so a slot holds vertices: four to a record.
+                faceSlots.set(faceSlots.acquire(key), block, bytes, mesh.faceFirsts[0] * 4, mesh.faceCounts[0] * 4,
+                    mesh.faceFirsts[1] * 4, mesh.faceCounts[1] * 4, mesh.faceFirsts[2] * 4, mesh.faceCounts[2] * 4);
+            }
+        }
+        return mesh;
+    }
+
+    /** Writes what a view draws from face records: a record and commands for every cube it sees that has any. */
+    private void commandFaces(DrawCommands list, Visibility seen, View view) {
+        list.begin(faceArena.pages());
+        double originX = view.originX();
+        double originY = view.originY();
+        double originZ = view.originZ();
+        float[] modelView = view.modelView();
+        for (int i = 0, count = seen.count(); i < count; i++) {
+            long key = seen.key(i);
+            int slot = faceSlots.find(key);
+            if (slot < 0 || faceSlots.block(slot) < 0) {
+                continue;
+            }
+            CubeMatrix.compose(modelView, (float) ((CubeKey.x(key) << 4) - originX),
+                (float) ((CubeKey.y(key) << 4) - originY), (float) ((CubeKey.z(key) << 4) - originZ), matrix, 0);
+            int index = list.record(matrix, 0);
+            int page = ArenaAllocator.page(faceSlots.block(slot));
+            for (int layer = 0; layer < CubeSlots.LAYERS; layer++) {
+                int vertices = faceSlots.count(slot, layer);
+                if (vertices > 0) {
+                    list.add(layer, page, faceSlots.first(slot, layer), vertices, index);
+                }
+            }
+        }
+        list.finish();
     }
 
     /**
@@ -431,6 +699,70 @@ public final class Terrain
         }
     }
 
+    /**
+     * Works the coverage map out again, if what is held has changed or the player stands in another
+     * cube, and not within twenty frames of the last time.
+     */
+    private void cover() {
+        if (surfaceHeights == null) {
+            surfaceHeights = new SurfaceHeights(source);
+        }
+        long stamp = meshVersion * 31 + tableVersion * 17 + settledVersion;
+        boolean moved = mainView.originCubeX() != coverage.originCubeX() || mainView.originCubeZ() != coverage.originCubeZ()
+            || mainView.originCubeY() != coverageOriginY;
+        if (stamp == coverageStamp && !moved || frames - coverageFrame < COVERAGE_FRAMES) {
+            return;
+        }
+        long start = System.nanoTime();
+        coverageStamp = stamp;
+        coverageFrame = frames;
+        coverageOriginY = mainView.originCubeY();
+        coverage.begin(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
+            mainView.upward());
+        for (LongIterator it = links.keySet().iterator(); it.hasNext();) {
+            long key = it.nextLong();
+            coverage.cube(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), meshes.containsKey(key) ? CoverageMap.CUBE_MESHED
+                : settled.contains(key) ? CoverageMap.CUBE_EMPTY : CoverageMap.CUBE_HELD);
+        }
+        int side = coverage.side();
+        int lowX = mainView.originCubeX() - mainView.across();
+        int lowZ = mainView.originCubeZ() - mainView.across();
+        if (surfaceHeights.present()) {
+            // Where the cube source has said where a column's surface lies, the column is judged by that.
+            for (int z = 0; z < side; z++) {
+                for (int x = 0; x < side; x++) {
+                    long band = surfaceHeights.band(lowX + x, lowZ + z);
+                    if (band != SurfaceBand.NONE) {
+                        coverage.band(lowX + x, lowZ + z, SurfaceBand.lowest(band), SurfaceBand.highest(band));
+                    }
+                }
+            }
+        }
+        coverage.finish(source.maxCubeY());
+        if (surfaceHeights.present()) {
+            // A few columns are asked about each time, and only where the scan found ground among the
+            // cubes held, so that the source need not work a height out from the generator.
+            int budget = HEIGHT_COLUMNS_A_PASS;
+            for (int z = 0; z < side && budget > 0; z++) {
+                for (int x = 0; x < side && budget > 0; x++) {
+                    // Where the source can be told not to work a height out, every column held may be asked.
+                    byte state = coverage.state(lowX + x, lowZ + z);
+                    if ((state >= CoverageMap.SURFACE_WAITING || surfaceHeights.neverPreviews() && state != CoverageMap.NOT_LOADED)
+                        && !surfaceHeights.known(lowX + x, lowZ + z)) {
+                        surfaceHeights.ask(lowX + x, lowZ + z);
+                        budget--;
+                    }
+                }
+            }
+        }
+        lastCoverageNanos = System.nanoTime() - start;
+        coverageNanos += lastCoverageNanos;
+        mostCoverageNanos = Math.max(mostCoverageNanos, lastCoverageNanos);
+        coverages++;
+    }
+
+    private int coverageOriginY;
+
     private void setLinks(long key, short joined) {
         if (links.put(key, joined) != joined) {
             tableVersion++;
@@ -449,6 +781,13 @@ public final class Terrain
         if (arena != null) {
             arena.beginFrame();
         }
+        if (FACES) {
+            faceArena.beginFrame();
+            if (faceArena.pages() == 0) {
+                faceArena.prepare();
+                faceArena.takeCreateNanos();
+            }
+        }
         if (arena != null && arena.pages() == 0) {
             arena.prepare();
             arena.takeCreateNanos();
@@ -465,6 +804,10 @@ public final class Terrain
             flushing = System.nanoTime() - flushing;
             placeNanosThisFrame += flushing;
             placeNanos += flushing;
+        }
+        if (sceneBuffers != null) {
+            sceneBuffers.update(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
+                mainView.upward());
         }
         lastPlaceNanos = placeNanosThisFrame;
         if (placeNanosThisFrame > mostPlaceNanos) {
@@ -491,15 +834,24 @@ public final class Terrain
             searchNanos += System.nanoTime() - start;
         }
         lastSearchNanos = System.nanoTime() - start;
+        searchEdge.set(!DRAW_ALL && searchedVersion >= 0, visible.edgeFaces(), visible.edgeSteps(),
+            visible.unloadedEntered());
+        if (COVERAGE) {
+            cover();
+        }
 
         // A second view, found and not yet drawn: what a shadow of the sun or moon would be drawn from.
         start = System.nanoTime();
+        boolean redraw = false;
         if (SHADOW) {
-            lightSide = MainView.alongLight(lightView, mainView, partialTicks, ShadowTarget.SIDE, towardLight);
+            redraw = shadowDue(partialTicks);
+            if (redraw) {
+                lit.sweep(this, lightView);
+            }
         } else {
             MainView.alongLight(lightView, mainView, partialTicks);
+            lit.sweep(this, lightView);
         }
-        lit.sweep(this, lightView);
         lastLightNanos = System.nanoTime() - start;
 
         if (selectedCubes != null) {
@@ -518,10 +870,28 @@ public final class Terrain
             }
             // The second view's commands are written as the first's are, and not handed to the driver.
             start = System.nanoTime();
-            command(lightList, lit, lightView, false);
+            if (!SHADOW || redraw) {
+                command(lightList, lit, lightView, false);
+            }
+            if (FACES) {
+                commandFaces(mainFaceList, visible, mainView);
+                program.uploadFaces(mainFaceList, 0);
+                FaceBuilder built = mesher.faceBuilder();
+                if (spritesSeen != built.spritesVersion()) {
+                    spritesSeen = built.spritesVersion();
+                    program.uploadSprites(built.spriteRects(), built.sprites());
+                }
+                if (redraw) {
+                    commandFaces(lightFaceList, lit, lightView);
+                }
+            }
             lastLightCommandNanos = System.nanoTime() - start;
-            if (SHADOW) {
+            if (redraw) {
                 drawShadow();
+            } else if (SHADOW) {
+                shadowMaps.hold(towardLight[0], towardLight[1], towardLight[2]);
+                shadowKept++;
+                image();
             }
         }
         return mainView;
@@ -533,6 +903,55 @@ public final class Terrain
      * the same matrix composition. The cutout layers are tested against the block texture's alpha.
      * Entities are not drawn into it.
      */
+    /**
+     * Whether the light's depth must be drawn again this frame: a mesh was placed, replaced or released
+     * since it was drawn, the player has moved into another texel of it, or the light has turned more
+     * than a set angle. If so the view along the light is made for this frame; if not, the view the
+     * depth was drawn through stands.
+     */
+    private boolean shadowDue(double partialTicks) {
+        lightSide = MainView.alongLight(lightCandidate, mainView, partialTicks, ShadowTarget.SIDE, towardLight);
+        boolean due = shadowMeshVersion != meshVersion;
+        shadowResnapped = false;
+        if (shadowMeshVersion >= 0) {
+            // Another texel, along the axes the depth was drawn with.
+            float[] axes = lightView.modelView();
+            double texel = lightSide / ShadowTarget.SIDE;
+            for (int axis = 0; axis < 3 && !shadowResnapped; axis++) {
+                double now = axes[axis] * mainView.originX() + axes[4 + axis] * mainView.originY()
+                    + axes[8 + axis] * mainView.originZ();
+                double before = axes[axis] * shadowOriginX + axes[4 + axis] * shadowOriginY + axes[8 + axis] * shadowOriginZ;
+                shadowResnapped = Math.rint(now / texel) != Math.rint(before / texel);
+            }
+            double cosine = towardLight[0] * shadowToward[0] + towardLight[1] * shadowToward[1]
+                + towardLight[2] * shadowToward[2];
+            shadowTurned = cosine < SHADOW_TURN_COSINE;
+        }
+        shadowContent = due || shadowResnapped;
+        due |= shadowResnapped || shadowTurned || shadowMeshVersion < 0;
+        if (due) {
+            lightView.copy(lightCandidate);
+        }
+        return due;
+    }
+
+    /** The diagnostic image, once for each place the player stands still at with nothing waiting. */
+    private void image() {
+        if (!SHADOW_IMAGE) {
+            return;
+        }
+        long place = CubeKey.of((int) Math.floor(mainView.originX()), (int) Math.floor(mainView.originY()),
+            (int) Math.floor(mainView.originZ()));
+        if (place != stillAt || !dirty.isEmpty()) {
+            stillAt = place;
+            stillFrames = 0;
+        } else if (++stillFrames == STILL_FRAMES && imagedAt != place) {
+            imagedAt = place;
+            shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
+                + (int) Math.floor(mainView.originZ()));
+        }
+    }
+
     private void drawShadow() {
         long start = System.nanoTime();
         DriverMessages.enter("shadow");
@@ -542,27 +961,32 @@ public final class Terrain
         shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
         shadowMaps.beginFrame(mainView.originX(), mainView.originY(), mainView.originZ(), towardLight[0],
             towardLight[1], towardLight[2]);
-        // The box moved to another texel if the player's old and new positions fall in different
-        // texels along the light's axes as they stand now.
-        float[] axes = lightView.modelView();
-        double texel = lightSide / ShadowTarget.SIDE;
-        boolean resnapped = false;
-        for (int axis = 0; axis < 3 && !resnapped; axis++) {
-            double now = axes[axis] * mainView.originX() + axes[4 + axis] * mainView.originY()
-                + axes[8 + axis] * mainView.originZ();
-            double before = axes[axis] * shadowOriginX + axes[4 + axis] * shadowOriginY + axes[8 + axis] * shadowOriginZ;
-            resnapped = Math.rint(now / texel) != Math.rint(before / texel);
-        }
         shadowOriginX = mainView.originX();
         shadowOriginY = mainView.originY();
         shadowOriginZ = mainView.originZ();
-        shadowMaps.layer(0, lightView, lightSide, shadowMeshVersion != meshVersion || resnapped);
+        System.arraycopy(towardLight, 0, shadowToward, 0, 3);
+        shadowMaps.layer(0, lightView, lightSide, shadowContent);
         shadowMeshVersion = meshVersion;
+        if (shadowResnapped) {
+            shadowResnaps++;
+        }
+        if (shadowTurned) {
+            shadowTurns++;
+        }
         shadowDraws = program.drawDepth(lightList, BlockRenderLayer.SOLID.ordinal(), arena, lightView.projection(), -1f);
         shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), arena,
             lightView.projection(), cutoutReference);
         shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT.ordinal(), arena, lightView.projection(),
             cutoutReference);
+        if (FACES) {
+            program.uploadFaces(lightFaceList, 1);
+            shadowDraws += program.drawDepthFaces(lightFaceList, BlockRenderLayer.SOLID.ordinal(), faceArena,
+                lightView.projection(), -1f);
+            shadowDraws += program.drawDepthFaces(lightFaceList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), faceArena,
+                lightView.projection(), cutoutReference);
+            shadowDraws += program.drawDepthFaces(lightFaceList, BlockRenderLayer.CUTOUT.ordinal(), faceArena,
+                lightView.projection(), cutoutReference);
+        }
         shadow.end();
         program.end();
         DriverMessages.leave();
@@ -570,18 +994,7 @@ public final class Terrain
         shadowNanos += lastShadowNanos;
         mostShadowNanos = Math.max(mostShadowNanos, lastShadowNanos);
         shadowFrames++;
-        if (SHADOW_IMAGE) {
-            long place = CubeKey.of((int) Math.floor(mainView.originX()), (int) Math.floor(mainView.originY()),
-                (int) Math.floor(mainView.originZ()));
-            if (place != stillAt || !dirty.isEmpty()) {
-                stillAt = place;
-                stillFrames = 0;
-            } else if (++stillFrames == STILL_FRAMES && imagedAt != place) {
-                imagedAt = place;
-                shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
-                    + (int) Math.floor(mainView.originZ()));
-            }
-        }
+        image();
     }
 
     /**
@@ -612,6 +1025,13 @@ public final class Terrain
             long block = slots.block(slot);
             CubeMesh apart = block < 0 && looseMeshes > 0 ? meshes.get(key) : null;
             if (block < 0 && apart == null) {
+                if (record && FACES) {
+                    // A cube drawn from face records alone is drawn all the same.
+                    int faces = faceSlots.find(key);
+                    if (faces >= 0 && faceSlots.block(faces) >= 0) {
+                        drawnCubes.add(key);
+                    }
+                }
                 continue;
             }
             if (main && SelectionComparison.GAME_SELECTION != 0 && selectedCubes.contains(key)
@@ -717,6 +1137,9 @@ public final class Terrain
         } else {
             // One draw for each page that holds any of this layer, however many cubes are seen.
             drawsThisFrame += program.drawIndirect(mainList, index, arena);
+            if (FACES) {
+                drawsThisFrame += program.drawFaces(mainFaceList, index, faceArena);
+            }
             for (int i = 0, apart = loose.size(); i < apart; i++) {
                 CubeMesh mesh = loose.get(i);
                 if (mesh.count(index) > 0) {
@@ -742,6 +1165,11 @@ public final class Terrain
             // After the draws, so that making a page is never in the way of placing a mesh.
             arena.prepare();
             arena.takeCreateNanos();
+            if (FACES) {
+                faceArena.endFrame(frames);
+                faceArena.prepare();
+                faceArena.takeCreateNanos();
+            }
         }
         if (record && dirty.isEmpty()) {
             comparison.compare(drawnCubes, cameraX, cameraY, cameraZ, view.across(), view.upward(), this::explain);
@@ -750,6 +1178,26 @@ public final class Terrain
     @Override
     public ShadowMaps shadowMaps() {
         return shadowMaps;
+    }
+
+    @Override
+    public LightScene lightScene() {
+        return scene;
+    }
+
+    @Override
+    public CoverageMap coverage() {
+        return coverage;
+    }
+
+    @Override
+    public SearchEdge searchEdge() {
+        return searchEdge;
+    }
+
+    @Override
+    public PublishedScene publishedScene() {
+        return sceneBuffers == null ? null : sceneBuffers.published();
     }
 
     @Override
@@ -784,6 +1232,41 @@ public final class Terrain
             arena.pagesInUse(), arena.largestRoomBytes() / 1048576.0, arena.freeRanges(),
             TerrainArena.JOINING ? "blocks joined" : "blocks by size class");
         line += TerrainArena.COPY ? ", meshes staged and copied" : ", meshes written into their pages";
+        line += String.format("; the search %s the edge of the box: faces %s, %d steps, through %d cubes not loaded",
+            searchEdge.searched() ? searchEdge.faces() != 0 ? "came to" : "did not come to" : "was not made, so nothing is known of",
+            Integer.toBinaryString(64 | searchEdge.faces()).substring(1), searchEdge.steps(), searchEdge.unloaded());
+        if (FACE_CENSUS) {
+            line += String.format("; of %d quads meshed, %d are a whole face of a cell (%.1f%%) and %d of those have "
+                    + "rectangular texture coordinates (%.1f%%)", faceCensus[0], faceCensus[1],
+                100.0 * faceCensus[1] / Math.max(1, faceCensus[0]), faceCensus[2],
+                100.0 * faceCensus[2] / Math.max(1, faceCensus[0]));
+        }
+        if (CubeMesher.FACE_CHECK || FACES) {
+            line += "; " + mesher.faceSummary();
+        }
+        if (FACES) {
+            line += String.format("; records in %d pages, %.1f MiB capacity, %.1f MiB in use, %d commands", faceArena.pages(),
+                faceArena.capacityBytes() / 1048576.0, faceArena.usedBytes() / 1048576.0, mainFaceList.commandCount());
+        }
+        if (COVERAGE) {
+            line += String.format("; coverage of %d columns: %d surface meshed, %d surface waiting, %d no surface, "
+                    + "%d not loaded, generation %d, worked out %d times, %.3f ms last, %.3f ms mean, %.3f ms most, "
+                    + "%d cubes that cannot be meshed asked whether they are empty",
+                coverage.side() * coverage.side(), coverage.count(CoverageMap.SURFACE_MESHED),
+                coverage.count(CoverageMap.SURFACE_WAITING), coverage.count(CoverageMap.NO_SURFACE),
+                coverage.count(CoverageMap.NOT_LOADED), coverage.generation(), coverages, lastCoverageNanos / 1e6,
+                coverages == 0 ? 0.0 : coverageNanos / 1e6 / coverages, mostCoverageNanos / 1e6, emptinessAsked);
+            if (surfaceHeights != null && surfaceHeights.present()) {
+                line += "; " + surfaceHeights.summary();
+            }
+        }
+        if (SCENE) {
+            line += String.format("; scene %d cubes of %d loaded, %d with cells of their own, %.1f MiB, version %d",
+                scene.cubes(), links.size(), scene.mixedCubes(), scene.cellBytes() / 1048576.0, scene.version());
+        }
+        if (SCENE_GPU) {
+            line += sceneBuffers.summary();
+        }
         if (SHADOW) {
             float[] box = lightView.projection();
             line += String.format("; shadow %d texels a side, %d MiB, %.3f blocks a texel, %d cubes, %d commands, "
@@ -793,8 +1276,10 @@ public final class Terrain
                 lit.count(), lightList.commandCount(), shadowDraws, lastShadowNanos / 1e6,
                 shadowFrames == 0 ? 0.0 : shadowNanos / 1e6 / shadowFrames, mostShadowNanos / 1e6,
                 shadow.gpuMillisLast(), shadow.gpuMillisMean(), shadow.gpuMillisMost(), cutoutReference);
-            line += String.format(", box %.0f blocks, generation %d and content generation %d of %d frames", lightSide,
-                shadowMaps.generation(), shadowMaps.contentGeneration(), shadowFrames);
+            line += String.format(", box %.0f blocks, drawn in %d frames and kept in %d, %d for another texel, %d for "
+                    + "the light turning, generation %d, content generation %d, GPU %.3f ms a frame over all frames",
+                lightSide, shadowFrames, shadowKept, shadowResnaps, shadowTurns, shadowMaps.generation(),
+                shadowMaps.contentGeneration(), shadow.gpuMillisTotal() / Math.max(1, shadowFrames + shadowKept));
         }
         line += TerrainArena.TOUCH ? ", pages written once when made" : "";
         if (DIRECT) {
