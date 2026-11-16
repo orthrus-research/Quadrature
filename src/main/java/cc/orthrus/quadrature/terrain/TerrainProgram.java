@@ -187,7 +187,131 @@ final class TerrainProgram {
         "    vertexAlpha = 1.0;",
         "}");
 
+    /**
+     * What the targets for shading are written from, whichever way the vertex came: the block texture,
+     * the tint alone, what the game multiplied into the vertex color, the light, and the state's row
+     * of the material table. No lit color is written, and the game's shading of a face by the way it
+     * is turned is divided out with its tint to leave the game's occlusion.
+     */
+    private static final String FRAGMENT_TARGETS = String.join("\n",
+        "#version 460 compatibility",
+        "layout(std430, binding = 3) readonly buffer Materials { uvec2 materials[]; };",
+        "uniform sampler2D blocks;",
+        "uniform float alphaReference;",
+        "in vec4 vertexColor;",
+        "in vec2 textureCoordinate;",
+        "in vec2 lightValue;",
+        "in vec3 eyePosition;",
+        "flat in vec3 tint;",
+        "flat in uint state;",
+        "flat in uint flags;",
+        "flat in vec3 eyeNormal;",
+        "flat in mat3 rotation;",
+        "layout(location = 0) out vec4 targetA;",
+        "layout(location = 1) out vec4 targetB;",
+        "layout(location = 2) out vec4 targetC;",
+        "layout(location = 3) out vec4 targetD;",
+        "vec3 linear(vec3 stored) {",
+        "    return mix(stored / 12.92, pow((stored + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), stored));",
+        "}",
+        "void main() {",
+        "    vec4 texel = texture(blocks, textureCoordinate);",
+        "    if (alphaReference >= 0.0 && texel.a * vertexColor.a <= alphaReference) {",
+        "        discard;",
+        "    }",
+        "    vec3 normal = eyeNormal;",
+        "    if (dot(normal, normal) == 0.0) {",
+        "        // A quad that is no whole face: the normal of the surface as drawn, turned toward the viewer.",
+        "        normal = normalize(cross(dFdx(eyePosition), dFdy(eyePosition)));",
+        "        if (dot(normal, eyePosition) > 0.0) {",
+        "            normal = -normal;",
+        "        }",
+        "    }",
+        "    vec3 world = normalize(normal * rotation);",
+        "    uvec2 material = materials[state];",
+        "    float roughness = float(material.x & 255u) / 255.0;",
+        "    float reflectance = float((material.x >> 8) & 255u) / 255.0;",
+        "    float subsurface = float((material.x >> 16) & 255u) / 255.0;",
+        "    float emission = float(material.x >> 24) / 255.0;",
+        "    bool conductor = (material.y & 1u) != 0u;",
+        "    // The game darkens a face by the way it is turned: 0.5 down, 1 up, 0.8 north and south, 0.6 west and east.",
+        "    float shade = (flags & 4u) != 0u ? min(world.x * world.x * 0.6 + world.y * world.y * ((3.0 + world.y) / 4.0)",
+        "        + world.z * world.z * 0.8, 1.0) : 1.0;",
+        "    float most = max(max(tint.r, tint.g), tint.b) * shade;",
+        "    float occlusion = (flags & 2u) != 0u && most > 0.0",
+        "        ? clamp(max(max(vertexColor.r, vertexColor.g), vertexColor.b) / most, 0.0, 1.0) : 1.0;",
+        "    vec3 albedo = linear(texel.rgb * tint);",
+        "    targetA = vec4(world * 0.5 + 0.5, roughness);",
+        "    targetB = vec4(lightValue.y / 240.0, emission, lightValue.x / 240.0, 0.375);",
+        "    targetC = vec4(sqrt(albedo), conductor ? 1.0 : 0.0);",
+        "    targetD = conductor ? vec4(albedo, occlusion) : vec4(reflectance, subsurface, 0.0, occlusion);",
+        "}");
+
+    private static final String TARGET_OUTPUTS = String.join("\n",
+        "out vec4 vertexColor;",
+        "out vec2 textureCoordinate;",
+        "out vec2 lightValue;",
+        "out vec3 eyePosition;",
+        "flat out vec3 tint;",
+        "flat out uint state;",
+        "flat out uint flags;",
+        "flat out vec3 eyeNormal;",
+        "flat out mat3 rotation;");
+
+    /** The vertex stage for the targets, from face records: the face's own normal is known. */
+    private static final String VERTEX_TARGETS_FACES = String.join("\n",
+        "#version 460 compatibility",
+        PULL,
+        TARGET_OUTPUTS,
+        "void main() {",
+        "    pull();",
+        "    int word = (gl_VertexID >> 2) * 8;",
+        "    mat4 modelView = cubes[gl_BaseInstance].modelView;",
+        "    vec4 eye = modelView * vec4(facePosition, 1.0);",
+        "    gl_Position = gl_ProjectionMatrix * eye;",
+        "    eyePosition = eye.xyz;",
+        "    vertexColor = faceColor;",
+        "    textureCoordinate = faceTexture;",
+        "    lightValue = faceLight;",
+        "    uint w2 = words[word + 2];",
+        "    tint = vec3(float((w2 >> 16) & 255u), float((w2 >> 8) & 255u), float(w2 & 255u)) / 255.0;",
+        "    flags = w2 >> 24;",
+        "    state = words[word + 1] >> 16;",
+        "    uint face = (words[word] >> 12) & 7u;",
+        "    float side = (face & 1u) != 0u ? 1.0 : -1.0;",
+        "    vec3 normal = face < 2u ? vec3(0.0, side, 0.0) : face < 4u ? vec3(0.0, 0.0, side) : vec3(side, 0.0, 0.0);",
+        "    rotation = mat3(modelView);",
+        "    eyeNormal = rotation * normal;",
+        "}");
+
+    /** The vertex stage for the targets, from kept vertices that carry their quad's header. */
+    private static final String VERTEX_TARGETS = String.join("\n",
+        "#version 460 compatibility",
+        "layout(location = 0) in vec3 position;",
+        "layout(location = 1) in vec4 color;",
+        "layout(location = 2) in vec2 texture;",
+        "layout(location = 3) in vec2 light;",
+        "layout(location = 4) in uvec2 header;",
+        "struct CubeRecord { mat4 modelView; mat4 previous; };",
+        "layout(std430, binding = 0) readonly buffer CubeRecords { CubeRecord cubes[]; };",
+        TARGET_OUTPUTS,
+        "void main() {",
+        "    mat4 modelView = cubes[gl_BaseInstance].modelView;",
+        "    vec4 eye = modelView * vec4(position, 1.0);",
+        "    gl_Position = gl_ProjectionMatrix * eye;",
+        "    eyePosition = eye.xyz;",
+        "    vertexColor = color;",
+        "    textureCoordinate = texture;",
+        "    lightValue = light;",
+        "    tint = vec3(float((header.y >> 16) & 255u), float((header.y >> 8) & 255u), float(header.y & 255u)) / 255.0;",
+        "    flags = header.y >> 24;",
+        "    state = header.x >> 16;",
+        "    rotation = mat3(modelView);",
+        "    eyeNormal = vec3(0.0);",
+        "}");
+
     private static final int RECORDS_BINDING = 0;
+    private static final int MATERIALS_BINDING = 3;
     private static final int FACES_BINDING = 1;
     private static final int SPRITES_BINDING = 2;
 
@@ -212,9 +336,18 @@ final class TerrainProgram {
     /** A vertex array with nothing in it: a draw from face records reads no attribute. */
     private int emptyVertexArray;
     private int spriteBuffer;
+    private int targetsProgram;
+    private int targetsAlphaLocation;
+    private int targetsFacesProgram;
+    private int targetsFacesAlphaLocation;
+    private int materialBuffer;
+    /** A vertex array for vertices that carry their quad's header after the game's 28 bytes. */
+    private int wideVertexArray;
     private final int[] faceCommandBuffers = new int[2];
     private final int[] faceRecordBuffers = new int[2];
     /** Which program is in use since {@link #begin}: 0 neither, 1 the direct one, 2 the indirect one. */
+    /** The bytes from one vertex to the next in the pages drawn from. */
+    private int vertexStride = CubeMesh.STRIDE;
     private int inUse;
     private int boundBuffer;
     private int fogMode;
@@ -253,7 +386,7 @@ final class TerrainProgram {
         }
         if (boundBuffer != mesh.buffer(layer)) {
             boundBuffer = mesh.buffer(layer);
-            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, CubeMesh.STRIDE);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, vertexStride);
         }
         CubeMatrix.compose(modelView, x, y, z, cubeModelView, 0);
         GL20.glUniformMatrix4fv(cubeModelViewLocation, false, cubeModelView);
@@ -290,10 +423,78 @@ final class TerrainProgram {
                 continue;
             }
             boundBuffer = arena.buffer(page);
-            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, CubeMesh.STRIDE);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, vertexStride);
             GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
             draws++;
         }
+        return draws;
+    }
+
+    /** Says how far apart vertices lie in the pages drawn from: the game's 28 bytes, or more where a header follows. */
+    void vertexStride(int bytes) {
+        if (program == 0) {
+            create();
+        }
+        vertexStride = bytes;
+        if (bytes > CubeMesh.STRIDE && wideVertexArray == 0) {
+            // The game's four attributes where they were, and the header's two words after them.
+            int usual = vertexArray;
+            wideVertexArray = GL45.glCreateVertexArrays();
+            vertexArray = wideVertexArray;
+            attribute(0, 3, GL11.GL_FLOAT, false, 0);
+            attribute(1, 4, GL11.GL_UNSIGNED_BYTE, true, 12);
+            attribute(2, 2, GL11.GL_FLOAT, false, 16);
+            attribute(3, 2, GL11.GL_SHORT, false, 24);
+            GL45.glEnableVertexArrayAttrib(wideVertexArray, 4);
+            GL45.glVertexArrayAttribIFormat(wideVertexArray, 4, 2, GL11.GL_UNSIGNED_INT, CubeMesh.STRIDE);
+            GL45.glVertexArrayAttribBinding(wideVertexArray, 4, 0);
+            vertexArray = bytes > CubeMesh.STRIDE ? wideVertexArray : usual;
+        }
+    }
+
+    /** Hands the driver the material table: eight bytes a state. */
+    void uploadMaterials(byte[] table) {
+        if (program == 0) {
+            create();
+        }
+        java.nio.ByteBuffer data = java.nio.ByteBuffer.allocateDirect(table.length);
+        data.put(table).flip();
+        GL45.glNamedBufferData(materialBuffer, data, GL15.GL_STATIC_DRAW);
+    }
+
+    /**
+     * Draws one layer of what the player's view draws into the targets for shading, from the commands
+     * and records already handed over for that view: the kept vertices, then the face records.
+     *
+     * @param alphaReference the alpha at or below which a fragment is dropped, or negative to keep all
+     * @return how many draws were issued
+     */
+    int drawTargets(DrawCommands list, DrawCommands faceList, int layer, TerrainArena arena, TerrainArena faces,
+        float alphaReference) {
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, MATERIALS_BINDING, materialBuffer);
+        GL30.glBindVertexArray(vertexArray);
+        GL20.glUseProgram(targetsProgram);
+        GL20.glUniform1f(targetsAlphaLocation, alphaReference);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, recordBuffer);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, commandBuffer);
+        int draws = 0;
+        for (int page = 0; page < list.pages(); page++) {
+            int count = list.runCount(layer, page);
+            if (count == 0) {
+                continue;
+            }
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, arena.buffer(page), 0, vertexStride);
+            GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
+            draws++;
+        }
+        GL30.glBindVertexArray(emptyVertexArray);
+        GL20.glUseProgram(targetsFacesProgram);
+        GL20.glUniform1f(targetsFacesAlphaLocation, alphaReference);
+        draws += pages(faceList, layer, faces, 0);
+        GL30.glBindVertexArray(vertexArray);
+        inUse = 0;
+        boundBuffer = 0;
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, MATERIALS_BINDING, 0);
         return draws;
     }
 
@@ -392,7 +593,7 @@ final class TerrainProgram {
             if (count == 0) {
                 continue;
             }
-            GL45.glVertexArrayVertexBuffer(vertexArray, 0, arena.buffer(page), 0, CubeMesh.STRIDE);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, arena.buffer(page), 0, vertexStride);
             GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
             draws++;
         }
@@ -427,6 +628,11 @@ final class TerrainProgram {
         depthFacesAlphaLocation = GL20.glGetUniformLocation(depthFacesProgram, "alphaReference");
         emptyVertexArray = GL45.glCreateVertexArrays();
         spriteBuffer = GL45.glCreateBuffers();
+        targetsProgram = link(VERTEX_TARGETS, FRAGMENT_TARGETS);
+        targetsAlphaLocation = GL20.glGetUniformLocation(targetsProgram, "alphaReference");
+        targetsFacesProgram = link(VERTEX_TARGETS_FACES, FRAGMENT_TARGETS);
+        targetsFacesAlphaLocation = GL20.glGetUniformLocation(targetsFacesProgram, "alphaReference");
+        materialBuffer = GL45.glCreateBuffers();
         for (int which = 0; which < 2; which++) {
             faceCommandBuffers[which] = GL45.glCreateBuffers();
             faceRecordBuffers[which] = GL45.glCreateBuffers();

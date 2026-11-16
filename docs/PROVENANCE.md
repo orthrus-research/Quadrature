@@ -238,6 +238,29 @@ authors can dedicate: their own expression of ideas, never copied code.
   by vertex number, as described in research R2. No code from another renderer.
 - Added: 2026-11-16
 
+### The material table and the list of kinds
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/material/`,
+  `src/main/java/cc/orthrus/quadrature/terrain/Materials.java`,
+  `src/main/resources/assets/quadrature/material_kinds.properties`
+- Source: original. Facts used: the game's public interfaces for a block's material, the
+  light it gives and its states' properties; published values for the reflectance of
+  common non-metals (about 0.04) from the literature on physically based shading. The list
+  of kinds and its numbers are a data format agreed with the shading stage that reads the
+  table; the names in it are the registry names of the game's and of mods' blocks.
+- Taken: nothing from another renderer or shader pack.
+- Added: 2026-11-16
+### Targets for shading
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/GBufferTarget.java`, the stages that
+  write the targets in `TerrainProgram.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/view/ShadingTargets.java`
+- Source: original. Facts used: the OpenGL 4.6 and GLSL 4.60 specifications (framebuffers
+  with several color attachments, derivatives in a fragment stage, shader storage
+  blocks); the sRGB transfer function, IEC 61966-2-1; the game's own shading of a face by
+  the way it is turned (0.5, 0.6, 0.8, 1), read from its public behavior.
+- Taken: the idea of writing surface properties to several targets for a later shading
+  pass, which is common knowledge in rendering. The layout of the four targets is a
+  contract agreed with the shading stage that reads them.
+- Added: 2026-11-16
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`

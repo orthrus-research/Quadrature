@@ -480,9 +480,20 @@ and each four are known by sprite, face, tint, layer and block state. A block th
 would not draw by its model through its lighting pipeline is left to the dispatcher. With
 the check on every cube is meshed both ways and the two compared byte for byte. A builder
 then sorts the quads into records of 32 bytes for whole faces of a cell and kept vertices
-for the rest, expanding each record to see that it gives the game's vertices back. The
-walk is verified equal to the dispatcher; drawing from records is not yet exercised, since
-no quad has yet passed the builder's test of its texture coordinates.
+for the rest, expanding each record to see that it gives the game's vertices back.
+
+- **A record's texture is a rectangle of the atlas, the quad's own.** The game does not
+  give a quad its sprite's corners: it draws each a little toward the sprite's middle. So
+  the rectangle is taken from the quad's four coordinates, which must be two values of u
+  and two of v with each of the four corners once, and kept in a table of rectangles the
+  vertex stage reads. Quads of one sprite baked alike share a rectangle.
+- **Records are drawn with no vertex attributes.** The vertex stage finds its record by
+  vertex number and builds the vertex; the main pass and the light's depth pass both draw
+  so, with indirect multi-draw of quads from pages of records of their own.
+- **What it holds.** Over the forest tour 92.1% of quads are records. They take 165 MiB
+  and the kept vertices 44 MiB, where the game's vertices alone take 592 MiB.
+- **A guard.** Once a million quads are sorted, a share of records under half is logged
+  as a failure: a run that draws nothing from records proves nothing about them.
 
 The table serves visibility only. Light that reaches past what is seen needs more of each
 cube than fifteen bits: opacity per block, which the mesher finds on its way to those bits
@@ -512,6 +523,75 @@ Translucent faces are a separate layer, drawn after opaque geometry and hosted s
 Per-cube back-to-front order is established on the CPU from cube positions; faces within a
 cube are sorted when the camera crosses into a different octant of it. **Default.** A
 weighted blended method that needs no sorting is the alternative if sorting cost shows up.
+
+### 6.6 Targets for shading
+
+Behind `-Dquadrature.gbuffer=true`, with faces and reversed depth on, each opaque layer is
+drawn a second time into four targets of 8 bits a channel and a depth of Quadrature's own,
+the size of the window, from the commands and records the player's view already made. No
+lit color is written.
+
+| Target | Color | Alpha |
+|---|---|---|
+| A | world normal as n * 0.5 + 0.5 | perceptual roughness |
+| B | sky light, emission strength, block light, each 0 to 1 over the game's 0 to 15 | 0.375 on terrain, 0 where nothing was written |
+| C | the square root of linear albedo after tint; the texel is decoded by the exact sRGB curve | 1 for a conductor |
+| D | reflectance and subsurface, or for a metal its colored reflectance | the game's vertex occlusion |
+
+- Depth is reversed, 32-bit float: 1 nearest, 0 farthest and where nothing was written.
+- A fragment of a cutout layer is dropped where the texel's alpha is at or under 0.5.
+- A face that is a record has its own normal; a quad that is none takes the normal of the
+  surface as drawn, turned toward the viewer.
+- The game's shading of a face by the way it is turned, and its tint, are divided out of
+  the vertex color to leave the game's occlusion.
+- Only terrain is written: entities and what mods draw are not in the targets.
+
+**The material table.** What a state's surface is like where no texture says, eight bytes a
+state: roughness, reflectance, subsurface, emission, flags for a conductor and for foliage,
+and the state's kind. A state's row is at the game's own number for it, the block's
+identity and its variant in 16 bits, the number the scene for lighting uses. The kind
+comes from a list, `block.<kind>=` followed by block names, a name
+taking `:property=value` once or more for the states that have every value named. The
+list is the one the build ships, or the file `material_kinds.properties` of the folder
+named by `-Dquadrature.stage.dir` where that is set and holds one, so that a new revision
+of the list needs no new build; which was read, its revision line and its hash are logged.
+A block
+the list does not name is given a kind by what the game says of it: leaves, plants, glass
+and ice by material, the game's own water, lava, and anything else that gives light as an
+emitter. That rule never calls a block a metal, and a block of the game's iron or anvil
+material that the list does not name has no kind and no emission.
+
+| Kind | Meaning | What it sets |
+|---|---|---|
+| 100, 101 | water, lava | lava: emission 0.10, low since it is also lit by the light it gives |
+| 110 to 117 | leaves; single, tall (lower, upper), hanging, floating, stiff and submerged plants | subsurface 0.55, foliage |
+| 118 | ground cover | the defaults |
+| 120, 121 | dim and bright emitters | nothing of their own |
+| 130, 131 | glass, ice | roughness 0.12 |
+| 140 | metals | roughness 0.32, conductor |
+| 199 | plain | the defaults, and no emission whatever light is given |
+
+The defaults are roughness 0.85 and reflectance 0.04. Emission is the light a state gives
+over 15, whatever its kind, but for lava and plain states.
+
+**What is published.** `TerrainHook.shadingTargets()` gives the framebuffer, the five
+textures, their size and a generation that moves each frame they are drawn.
+`TerrainHook.materials()` gives the table and `TerrainHook.material(state)` a state's
+number, filling its row if near terrain has not met the state.
+
+**Not built**, and where each belongs in the frame:
+
+- *Distant opaque terrain* draws into the targets after near terrain's last cutout layer
+  and before anything reads them, through the published framebuffer, with the depth test
+  nearer-or-equal in reversed depth, writing the same four targets by the same contract
+  and the same table.
+- *Shading* reads the targets and the depth and writes lit color. Until it exists the
+  player's picture is the forward one and the targets are a second, unused image.
+- *Water and other translucent surfaces* draw after shading, reading the lit opaque color
+  and the opaque depth beneath them; both are to be published as textures once shading
+  writes them.
+- *A frame index*, moving by one each frame, is to be published beside the targets for
+  stages that accumulate over frames.
 
 ## 7. Distant terrain
 

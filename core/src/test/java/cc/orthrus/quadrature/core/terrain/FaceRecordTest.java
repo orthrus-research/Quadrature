@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.core.terrain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -101,18 +102,39 @@ class FaceRecordTest {
     }
 
     @Test
-    void textureCoordinatesAreTheSpritesOwnCornersOrTheQuadIsNotAWholeSprite() {
+    void theRectangleOfTextureIsTheQuadsOwn() {
+        // As the game bakes a quad: each corner of the sprite drawn a little toward its middle.
         float minU = 0.25f;
         float maxU = 0.28125f;
         float minV = 0.5f;
         float maxV = 0.53125f;
-        int corners = FaceRecord.corners(new float[] {maxU, minV, maxU, maxV, minU, maxV, minU, minV}, minU, maxU, minV, maxV);
+        float midU = (minU + maxU) / 2;
+        float midV = (minV + maxV) / 2;
+        float lowU = minU + (midU - minU) * 0.001f;
+        float highU = maxU + (midU - maxU) * 0.001f;
+        float lowV = minV + (midV - minV) * 0.001f;
+        float highV = maxV + (midV - maxV) * 0.001f;
+        assertTrue(lowU != minU && highU != maxU && lowV != minV && highV != maxV);
+        float[] rectangle = new float[4];
+        int corners = FaceRecord.rectangle(new float[] {highU, lowV, highU, highV, lowU, highV, lowU, lowV}, rectangle);
         assertEquals(1, corners & 3);
         assertEquals(3, corners >> 2 & 3);
         assertEquals(2, corners >> 4 & 3);
         assertEquals(0, corners >> 6 & 3);
-        // Half the sprite.
-        assertEquals(-1, FaceRecord.corners(new float[] {maxU, minV, maxU, 0.515625f, minU, 0.515625f, minU, minV}, minU,
-            maxU, minV, maxV));
+        assertEquals(Float.floatToRawIntBits(lowU), Float.floatToRawIntBits(rectangle[0]));
+        assertEquals(Float.floatToRawIntBits(lowV), Float.floatToRawIntBits(rectangle[1]));
+        assertEquals(Float.floatToRawIntBits(highU), Float.floatToRawIntBits(rectangle[2]));
+        assertEquals(Float.floatToRawIntBits(highV), Float.floatToRawIntBits(rectangle[3]));
+    }
+
+    @Test
+    void coordinatesThatAreNotARectanglesFourCornersAreRefused() {
+        float[] rectangle = new float[4];
+        // A third value of v.
+        assertEquals(-1, FaceRecord.rectangle(new float[] {0.3f, 0.5f, 0.3f, 0.52f, 0.25f, 0.53f, 0.25f, 0.5f}, rectangle));
+        // A corner twice.
+        assertEquals(-1, FaceRecord.rectangle(new float[] {0.3f, 0.5f, 0.3f, 0.5f, 0.25f, 0.53f, 0.25f, 0.5f}, rectangle));
+        // No width.
+        assertEquals(-1, FaceRecord.rectangle(new float[] {0.3f, 0.5f, 0.3f, 0.53f, 0.3f, 0.53f, 0.3f, 0.5f}, rectangle));
     }
 }

@@ -187,22 +187,46 @@ public final class FaceRecord {
     }
 
     /**
-     * Finds which corner of a sprite each of four texture coordinates is.
+     * Finds the rectangle of texture four texture coordinates span, and which corner of it each is.
+     * The game does not give a quad its sprite's own corners: it draws each a little toward the
+     * sprite's middle. So the rectangle is taken from the quad itself.
      *
      * @param coordinates eight numbers, u v for each vertex
-     * @return the four sprite corners, two bits each, the first vertex lowest; or -1 when a coordinate
-     *         is not exactly one of the sprite's own
+     * @param rectangle   receives the least u, the least v, the greatest u and the greatest v
+     * @return the four corners, two bits each, the first vertex lowest; or -1 when the coordinates are
+     *         not the four corners of one rectangle, each once
      */
-    public static int corners(float[] coordinates, float minU, float maxU, float minV, float maxV) {
+    public static int rectangle(float[] coordinates, float[] rectangle) {
+        float minU = coordinates[0];
+        float maxU = minU;
+        float minV = coordinates[1];
+        float maxV = minV;
+        for (int vertex = 1; vertex < 4; vertex++) {
+            minU = Math.min(minU, coordinates[vertex * 2]);
+            maxU = Math.max(maxU, coordinates[vertex * 2]);
+            minV = Math.min(minV, coordinates[vertex * 2 + 1]);
+            maxV = Math.max(maxV, coordinates[vertex * 2 + 1]);
+        }
         int corners = 0;
+        int met = 0;
         for (int vertex = 0; vertex < 4; vertex++) {
             float u = coordinates[vertex * 2];
             float v = coordinates[vertex * 2 + 1];
             if (u != minU && u != maxU || v != minV && v != maxV) {
                 return -1;
             }
-            corners |= ((u == maxU ? 1 : 0) | (v == maxV ? 2 : 0)) << vertex * 2;
+            int corner = (u == maxU ? 1 : 0) | (v == maxV ? 2 : 0);
+            corners |= corner << vertex * 2;
+            met |= 1 << corner;
         }
+        // All four met also means the rectangle has a width and a height.
+        if (met != 15) {
+            return -1;
+        }
+        rectangle[0] = minU;
+        rectangle[1] = minV;
+        rectangle[2] = maxU;
+        rectangle[3] = maxV;
         return corners;
     }
 }

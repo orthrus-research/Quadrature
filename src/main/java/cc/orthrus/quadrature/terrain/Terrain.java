@@ -15,6 +15,7 @@ import cc.orthrus.quadrature.core.terrain.FaceRecord;
 import cc.orthrus.quadrature.core.terrain.SearchEdge;
 import cc.orthrus.quadrature.core.terrain.SurfaceBand;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
+import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
@@ -106,6 +107,9 @@ public final class Terrain
     private static final boolean FACE_CENSUS = Boolean.getBoolean("quadrature.faces.count");
     private final long[] faceCensus = new long[3];
     private static final int COVERAGE_FRAMES = 20;
+    /** Once this many quads are sorted, fewer than this part of them as records is logged as a failure. */
+    private static final long FACE_SHARE_QUADS = 1_000_000;
+    private static final double FACE_SHARE_LEAST = 0.5;
     private final CoverageMap coverage = COVERAGE ? new CoverageMap() : null;
     private final SearchEdge searchEdge = new SearchEdge();
     /** Cubes meshed as they now stand, whether or not they draw anything. */
@@ -135,7 +139,9 @@ public final class Terrain
     private final SceneBuffers sceneBuffers = SCENE_GPU ? new SceneBuffers(scene, SCENE_STATES, SCENE_CHECK) : null;
     private final CubeMesher mesher = new CubeMesher(scene);
     private final TerrainProgram program = new TerrainProgram();
-    private final TerrainArena arena = OWN_BUFFERS ? null : new TerrainArena();
+    private final TerrainArena arena = OWN_BUFFERS ? null : CubeMesher.TARGETS && !"direct".equals(
+        System.getProperty("quadrature.terrain.draw")) ? new TerrainArena(TerrainArena.WIDE_PAGE_BYTES,
+        TerrainArena.WIDE_GRANULE_BYTES, FaceBuilder.WIDE_STRIDE) : new TerrainArena();
     /** A slot for every loaded cube, holding where its mesh lies in the arena. */
     private final CubeSlots slots = new CubeSlots();
     private final DrawCommands mainList = new DrawCommands();
@@ -157,6 +163,23 @@ public final class Terrain
         .order(java.nio.ByteOrder.nativeOrder());
     private long spritesSeen = -1;
     private int faceDrawsThisFrame;
+    /**
+     * Off unless {@code -Dquadrature.gbuffer=true}, which needs the face stream and reversed depth: the
+     * opaque layers are also drawn into four targets and a depth of Quadrature's own, for a shading
+     * stage to read. The frame the player sees is drawn as before.
+     */
+    private static final boolean TARGETS = FACES && CubeMesher.TARGETS;
+    /** A diagnostic, off unless {@code -Dquadrature.gbuffer.image=true}: the targets are written as images where the player stands still. */
+    private static final boolean TARGET_IMAGES = TARGETS && Boolean.getBoolean("quadrature.gbuffer.image");
+    private final GBufferTarget targets = TARGETS ? new GBufferTarget() : null;
+    private final ShadingTargets shadingTargets = TARGETS ? new ShadingTargets() : null;
+    private long materialsSeen = -1;
+    private boolean targetsRefused;
+    private long targetFrames;
+    private int targetDraws;
+    private long targetStill;
+    private long targetStillAt = Long.MIN_VALUE;
+    private long targetImagedAt = Long.MIN_VALUE;
     private final ShadowTarget shadow = SHADOW ? new ShadowTarget() : null;
     /** What is published of the depth drawn along the light, or null when it is not drawn. */
     private final ShadowMaps shadowMaps = SHADOW
@@ -885,6 +908,14 @@ public final class Terrain
                     commandFaces(lightFaceList, lit, lightView);
                 }
             }
+            if (TARGETS) {
+                program.vertexStride(FaceBuilder.WIDE_STRIDE);
+                Materials materials = mesher.materials();
+                if (materialsSeen != materials.table().version()) {
+                    materialsSeen = materials.table().version();
+                    program.uploadMaterials(materials.table().bytes());
+                }
+            }
             lastLightCommandNanos = System.nanoTime() - start;
             if (redraw) {
                 drawShadow();
@@ -1156,6 +1187,39 @@ public final class Terrain
         if (ScreenProbe.INSTANCE != null) {
             ScreenProbe.INSTANCE.sample(layer.toString(), layer == BlockRenderLayer.CUTOUT);
         }
+        if (TARGETS && !DIRECT) {
+            if (!cc.orthrus.quadrature.depth.DepthCalls.active()) {
+                if (!targetsRefused) {
+                    targetsRefused = true;
+                    Quadrature.LOGGER.warn("The shading targets need reversed depth, which is off: they are not drawn.");
+                }
+            } else {
+                // The same commands and records as the frame's own draw, into targets of Quadrature's own.
+                boolean first = layer == BlockRenderLayer.SOLID;
+                targets.begin(first);
+                if (first) {
+                    targetDraws = 0;
+                    targetFrames++;
+                }
+                targetDraws += program.drawTargets(mainList, mainFaceList, index, arena, faceArena, first ? -1f : 0.5f);
+                targets.end();
+                if (layer == BlockRenderLayer.CUTOUT) {
+                    shadingTargets.set(targets.framebuffer(), targets.texture(0), targets.texture(1), targets.texture(2), targets.texture(3),
+                        targets.depthTexture(), targets.width(), targets.height(), targets.bytes(), targets.generation());
+                    if (TARGET_IMAGES) {
+                        long place = CubeKey.of((int) Math.floor(cameraX), (int) Math.floor(cameraY), (int) Math.floor(cameraZ));
+                        if (place != targetStillAt || !dirty.isEmpty()) {
+                            targetStillAt = place;
+                            targetStill = 0;
+                        } else if (++targetStill == STILL_FRAMES + 240 && targetImagedAt != place) {
+                            targetImagedAt = place;
+                            targets.writeImages((int) Math.floor(cameraX) + "_" + (int) Math.floor(cameraY) + "_"
+                                + (int) Math.floor(cameraZ));
+                        }
+                    }
+                }
+            }
+        }
         program.end();
         DriverMessages.leave();
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
@@ -1188,6 +1252,21 @@ public final class Terrain
     @Override
     public CoverageMap coverage() {
         return coverage;
+    }
+
+    @Override
+    public ShadingTargets shadingTargets() {
+        return shadingTargets;
+    }
+
+    @Override
+    public cc.orthrus.quadrature.core.material.MaterialTable materials() {
+        return mesher.materials() == null ? null : mesher.materials().table();
+    }
+
+    @Override
+    public int material(net.minecraft.block.state.IBlockState state) {
+        return mesher.material(state);
     }
 
     @Override
@@ -1243,6 +1322,18 @@ public final class Terrain
         }
         if (CubeMesher.FACE_CHECK || FACES) {
             line += "; " + mesher.faceSummary();
+            FaceBuilder built = mesher.faceBuilder();
+            if (built != null && built.quads() >= FACE_SHARE_QUADS && built.recordShare() < FACE_SHARE_LEAST) {
+                // Terrain is mostly whole faces: so few records means the builder refuses what it should take.
+                Quadrature.LOGGER.error("FACE RECORDS FAILED: {} of quads became records where at least {} is "
+                    + "expected; what is drawn is the game's vertices, and drawing from records is not exercised.",
+                    String.format("%.1f%%", 100 * built.recordShare()), String.format("%.0f%%", 100 * FACE_SHARE_LEAST));
+            }
+        }
+        if (TARGETS) {
+            line += String.format("; shading targets %d by %d, %.1f MiB, drawn in %d frames, %d draws last frame%s",
+                targets.width(), targets.height(), targets.bytes() / 1048576.0, targetFrames, targetDraws,
+                targetsRefused ? ", refused for want of reversed depth" : "");
         }
         if (FACES) {
             line += String.format("; records in %d pages, %.1f MiB capacity, %.1f MiB in use, %d commands", faceArena.pages(),

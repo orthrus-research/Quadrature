@@ -69,6 +69,7 @@ import java.util.ArrayDeque;
 
     private final ArenaAllocator allocator;
     private final long pageBytes;
+    private final int stride;
 
     /** An arena of pages for the game's vertices. */
     TerrainArena() {
@@ -77,8 +78,23 @@ import java.util.ArrayDeque;
 
     /** An arena of pages of another size and granule, as for face records. */
     TerrainArena(long pageBytes, int granuleBytes) {
+        this(pageBytes, granuleBytes, CubeMesh.STRIDE);
+    }
+
+    /** The granule of pages that hold vertices followed by their quad's header: 114 vertices of 36 bytes. */
+    static final int WIDE_GRANULE_BYTES = 114 * 36;
+    static final long WIDE_PAGE_BYTES = 16_352L * WIDE_GRANULE_BYTES;
+
+    /** An arena whose vertices are of another size than the game's. */
+    TerrainArena(long pageBytes, int granuleBytes, int stride) {
         this.pageBytes = pageBytes;
+        this.stride = stride;
         allocator = new ArenaAllocator(pageBytes, granuleBytes, MAX_PAGES, JOINING);
+    }
+
+    /** The bytes of a vertex in this arena's pages. */
+    int stride() {
+        return stride;
     }
 
     /**
@@ -169,7 +185,7 @@ import java.util.ArrayDeque;
     CubeMesh place(int x, int y, int z, ByteBuffer[] data, int[] counts, long frame) {
         int bytes = 0;
         for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
-            bytes += counts[layer] * CubeMesh.STRIDE;
+            bytes += counts[layer] * stride;
         }
         long began = System.nanoTime();
         long block = allocator.allocate(bytes);
@@ -195,21 +211,21 @@ import java.util.ArrayDeque;
             }
             ByteBuffer source = data[layer];
             if (UPLOAD && COPY) {
-                stage(page, at, source, count * CubeMesh.STRIDE);
+                stage(page, at, source, count * stride);
             } else if (UPLOAD) {
                 ByteBuffer part = source.duplicate();
-                part.limit(source.position() + count * CubeMesh.STRIDE);
+                part.limit(source.position() + count * stride);
                 long start = System.nanoTime();
                 GL45.glNamedBufferSubData(buffers[page], at, part);
                 long wrote = System.nanoTime() - start;
                 lastWriteNanos += wrote;
-                slow(wrote, page, at, count * CubeMesh.STRIDE, frame);
+                slow(wrote, page, at, count * stride, frame);
                 written[page] = true;
             } else {
-                memory[page].put(at, source, source.position(), count * CubeMesh.STRIDE);
+                memory[page].put(at, source, source.position(), count * stride);
             }
-            mesh.place(layer, buffers[page], at / CubeMesh.STRIDE, count);
-            at += count * CubeMesh.STRIDE;
+            mesh.place(layer, buffers[page], at / stride, count);
+            at += count * stride;
         }
         return mesh;
     }
