@@ -1124,10 +1124,13 @@ under leaves.
 near water over a wide area, entered from some 50 blocks out. In a column near terrain has
 meshed, a distant fragment within the heights of its cubes is discarded (there, Y -80 to 288),
 so what shows is in columns it has not meshed, 176 blocks out and farther, or below Y -80.
-From 33 blocks over the water a line of sight that enters it 55 blocks out is 73 blocks under
-the surface by 176 blocks: where the sea is deeper than that it meets no near bed and ends on
-distant bed beyond near terrain. The bed's height there was not read, so that is the likely
-account and not a shown one. Either way the ground is completed and not left open. In the normal look that area is lighter
+It is the first. Riven's own sampler gives the bed along the view's line (north-east from the
+camera, in the 32 km layout): a shelf from Y 54 under the camera to 41 at 120 blocks, then a
+drop to 20 at 158 blocks, -7 at 182 and -45 by 290, never near -80. A line of sight steeper
+than about 27 degrees below level meets the shelf, which near terrain draws; a flatter one
+passes over the shelf's edge and comes down on the deep bed 180 to 400 blocks out, beyond near
+terrain. In the frame the edge between the two lies at about 28 degrees. So near terrain's bed
+is not missing and nothing lies below its cubes: the ground past it is completed. In the normal look that area is lighter
 by about 2 of 255 (37, 52, 173 against 35, 49, 170), which makes it a candidate for the
 lighter patches in near water; that it is their cause is not shown.
 
@@ -1283,8 +1286,8 @@ the jumps, so a tour needs nothing more; where it lowers the player in steps eac
 jump of its own, and the log says where each jump went. The runner copies those frames beside
 the tour's.
 
-**The tour**, `tools/tours/distant-travel-2485331.json`, on an instance prepared with a
-settle of 300 ticks, so that all four delays fall before the settled capture:
+**The tour**, `tools/tours/distant-travel-2485331.json`, on an instance prepared with the
+launcher's least settle, 400 ticks, so that all four delays fall before the settled capture:
 
 1. `arrive_ground`: the join, at the place of `ground_west`. Nothing is stored yet.
 2. `arrive_above`: 2 km east and 160 high, looking west and down. Near terrain and every
