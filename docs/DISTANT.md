@@ -9,8 +9,8 @@ preview pool, stored and drawn in the right places; land shows beyond near terra
 horizon under one fog; distant land begins where near land ends with no band of sky; near and
 distant water meet at one level and in one color; on land and over the sea the near box does
 not stand open; an entity 150 blocks out is drawn in front of distant land; near terrain's
-coverage map stands in for the box with no hole; levels fade into each other with no line.
-Distant crowns are still darker than near ones, 0.88 of their brightness. **Untested still:**
+coverage map stands in for the box with no hole; levels fade into each other with no line;
+distant crowns have near crowns' color. **Untested still:**
 the pool's threads when a world is left, whether images near the join show, a tile arriving
 in view, anything in motion, the hand, a short view distance, and the rest of section 14;
 the first three steps of section 16.6 are built and have not run in a game.
@@ -1087,7 +1087,7 @@ Both tours ran to the end with no error, on the build at bc6ba14.
 | 2 | Pass: no hole and no band of sky at the near join in any view |
 | 3 | Meshed columns rise after a teleport (the coast: 0, 355, 529 of 625; `ground_join`: 264, 284, 562). The tiles drawn beside them were not read off |
 | 4 | Pass: the rows near terrain fills are identical to the fifth run's in `ground_west` and `above_west`. In `coast_join` near water differs by about 1.5 of 255 on a sixth to a quarter of its pixels; not traced |
-| 5 | Missed: distant crowns are 0.88 of near crowns' brightness where images show (the fifth run: 0.83 by the same measure) and 0.86 beyond. What is left is the flat far color, not the images |
+| 5 | Pass, once measured rightly: 0.94 of near crowns' brightness where images show (the fifth run: 0.88) and 0.92 beyond. See below |
 | 6 | Pass by eye in `above_west` and `coast_join` |
 | 7 | Pass: 764 to 788 tiles wanted and stored (the fifth run: 658 and 676), failed 0, refused 0. Arena 42.4 MiB (35.6); GPU 2.6 ms mean, 3.1 at most (2.0 to 2.4); 386 tiles and 1.9 million faces in 3 draws |
 | 8 | The join cannot be found by eye; trunks and crowns go on past near terrain. At 4 to 5 pixels a block an image cannot be told from a flat color |
@@ -1098,11 +1098,33 @@ Both tours ran to the end with no error, on the build at bc6ba14.
 At rest the coverage map read 529 of 625 columns meshed and 96 waiting, the 96 being its outer
 ring, which near terrain never meshes; after a short move, 562 and 63.
 
-**Seen in the level view at the coast.** From some 50 blocks out distant sea bed shows through
-near water over a wide area: near terrain has no bed there, most likely because the bed lies
-below its lowest meshed cube. In the normal look that area is lighter by about 2 of 255
-(37, 52, 173 against 35, 49, 170). It may be what the lighter patches in near water are; that
-is not shown.
+**Crowns.** The first measure gave 0.88 and 0.86, and 0.83 for the fifth run. It counted every
+dark green pixel as crown, and near terrain's rows hold small blue-green plants that distant
+terrain does not draw, which are brighter than leaves. With those left out (blue below red)
+the figures are 0.94 and 0.92, and 0.88 for the fifth run, so the filled leaf images moved the
+band where they show from 0.88 to 0.94. What is left is not a color:
+
+- A distant crown's pixels are three colors and no others in number: (55, 64, 39), and 0.8 and
+  0.6 of it. Those are the top face and the two shades the game gives side faces, which near
+  terrain gives too. The top color is near crowns' commonest, (56, 64, 38) and (54, 63, 38).
+  So the far color is right, and corner occlusion, which would show as steps of 0.08, is not
+  what darkens them.
+- Farther crowns are seen at a flatter angle and show more of their sides: the darkest class
+  is 26 % of near crown pixels, 37 % where images show and 45 % beyond. The view looks west,
+  at east faces, which have the darker of the two shades.
+- Grass, as a control: (108.5, 103.8, 48.3) near against (109.3, 104.5, 48.8) and
+  (109.2, 104.8, 50.4) distant, so the light on top faces and the biome's tint agree.
+
+Nothing was changed. Seen beside it and not looked into: distant trunks under a crown are
+nearly black where near trunks are brown, which would be the sky light the preview gives
+under leaves.
+
+**Seen in the level view at the coast.** With the coverage map, distant sea bed shows through
+near water wherever near terrain holds no bed, from some 50 blocks out over a wide area; most
+likely the bed there lies below near terrain's lowest meshed cube. That is the map doing what
+it is for: the ground is completed and not left open. In the normal look that area is lighter
+by about 2 of 255 (37, 52, 173 against 35, 49, 170), which makes it a candidate for the
+lighter patches in near water; that it is their cause is not shown.
 
 ## 16. Plan: the shaded path
 
