@@ -187,6 +187,22 @@ class TileDrawsTest {
         assertEquals(0x3B, acacia >> 8 & 0xFF);
         assertEquals(0, MaterialTable.seenFromAfar(new int[] {0x00FFFFFF}));
         assertEquals(0, MaterialTable.seenFromAfar(new int[0]));
+        // A material's image: 16 texels a side from the nearest of the source, opaque, with the
+        // block's fixed color multiplied in and clear texels black.
+        int[] source = new int[32 * 32];
+        for (int i = 0; i < source.length; i++) {
+            source[i] = (i % 32 < 16 ? 0xFF804020 : 0x00FFFFFF);
+        }
+        int[] image = MaterialTable.image(source, 32, 32, 0xFFFFFF);
+        assertEquals(256, image.length);
+        assertEquals(0xFF804020, image[0]);
+        assertEquals(0xFF804020, image[7]);
+        assertEquals(0xFF000000, image[8], "A clear texel is black and opaque");
+        assertEquals(0xFF804020, image[15 * 16 + 7]);
+        assertEquals(0xFF402010, MaterialTable.image(source, 32, 32, 0x808080)[0]);
+        assertEquals(0xFF112233, MaterialTable.image(java.util.Collections.nCopies(256, 0xFF112233).stream()
+            .mapToInt(Integer::intValue).toArray(), 16, 16, 0xFFFFFF)[200], "A 16 by 16 source is kept as it is");
+        assertEquals(0xFF808080, MaterialTable.image(new int[0], 0, 0, 0xFFFFFF)[3], "No source: gray");
         assertEquals(0x7F3F00, MaterialTable.multiply(0xFF7F00, 0x7F7FFF));
         assertEquals(0x02ABCDEF | MaterialTable.FULL_COVER << 26, MaterialTable.entry(0xFFABCDEF, MaterialTable.FOLIAGE));
     }

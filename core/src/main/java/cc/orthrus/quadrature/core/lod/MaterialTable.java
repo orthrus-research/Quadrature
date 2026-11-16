@@ -101,6 +101,32 @@ public final class MaterialTable<K> {
         return red << 16 | green << 8 | blue;
     }
 
+    /** The side of a material's image as distant terrain keeps it, in texels. */
+    public static final int IMAGE_SIDE = 16;
+
+    /**
+     * A material's image as distant terrain draws it near the join: {@link #IMAGE_SIDE} texels a
+     * side, {@code 0xAARRGGBB}, taken from the nearest texels of the source. Each color is
+     * multiplied by {@code by} ({@code 0xFFFFFF} for none), which is where a block's own fixed
+     * color goes; a biome's tint is applied when it is drawn. Every texel is made opaque, since
+     * distant faces are solid: a clear texel becomes black, as the game's smaller copies of a leaf
+     * image count it.
+     */
+    public static int[] image(int[] pixels, int width, int height, int by) {
+        int[] image = new int[IMAGE_SIDE * IMAGE_SIDE];
+        if (width <= 0 || height <= 0 || pixels.length < width * height) {
+            java.util.Arrays.fill(image, 0xFF808080);
+            return image;
+        }
+        for (int y = 0; y < IMAGE_SIDE; y++) {
+            for (int x = 0; x < IMAGE_SIDE; x++) {
+                int pixel = pixels[(y * height / IMAGE_SIDE) * width + x * width / IMAGE_SIDE];
+                image[y * IMAGE_SIDE + x] = pixel >>> 24 == 0 ? 0xFF000000 : 0xFF000000 | multiply(pixel, by);
+            }
+        }
+        return image;
+    }
+
     /** The most an entry's cover can be: every pixel of the image fully opaque. */
     public static final int FULL_COVER = 63;
 

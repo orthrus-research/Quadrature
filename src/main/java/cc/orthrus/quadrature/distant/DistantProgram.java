@@ -37,6 +37,15 @@ import org.lwjgl.opengl.GL45;
  * opaque stood out far brighter (47, 68, 244 against 36, 51, 173 in the fourth run). Color, cover
  * and fog are worked out apart, so a later stage can light the surface itself.
  *
+ * <p>Near the join a face of level 0 shows its material's image, not a flat color, so that near
+ * terrain's images do not end on a line. The images are layers of one array texture, sixteen texels
+ * a side with smaller copies, two a material as the colors are; a face finds its texel from its
+ * place in its tile, whose corner is a block's corner. From {@code quadrature.distant.detailStart}
+ * to {@code detailEnd} blocks the image fades into the flat color, which is its mean, so nothing
+ * changes at the end and farther levels need no images. Water has none. The fragment stage works out
+ * the surface (image or flat color, with the biome's tint), then its light, then the fog, each apart,
+ * so that a later stage can take the surface and light it by other means.
+ *
  * <p>Leaves are drawn solid. Distant terrain begins some 180 blocks out, where a leaf image's texel
  * is a third of a pixel or less: the game's own leaves are solid there, since its smaller copies of
  * the image average the clear texels in and the alpha test passes what is left. A cut-out at that
@@ -96,9 +105,20 @@ final class DistantProgram {
         "uniform int debugMode;",
         "uniform int overlay;",
         "uniform mat4 projection;",
+        "uniform int imageLayers;",
+        "uniform int imaged;",
         "out vec3 fromOrigin;",
         "out vec3 fromEye;",
-        "out vec3 faceColor;",
+        "// What the surface is, apart from how it is lit: its flat color with the biome's tint, the",
+        "// tint alone for its image, and where its image lies.",
+        "out vec3 faceAlbedo;",
+        "out vec3 faceTint;",
+        "out vec2 faceTexel;",
+        "flat out float faceLayer;",
+        "// How far below its top a side face's fragment lies, in blocks; 0 on a top or bottom face.",
+        "out float faceBelow;",
+        "// How it is lit: sky light, the day, corner occlusion and the shade of its direction.",
+        "out float faceLight;",
         "out float faceCover;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
@@ -130,6 +150,9 @@ final class DistantProgram {
         "        place = vec3((float(x) + across * width) * tile.cell,",
         "            float(y) - (direction == 0u ? topDrop : 0.0),",
         "            (float(z) + along * depth) * tile.cell);",
+        "        // A tile's corner is a block's corner, so a block's image repeats a block apart.",
+        "        faceTexel = place.xz;",
+        "        faceBelow = 0.0;",
         "    } else {",
         "        // A side face's corners run lower left, lower right, upper left, upper right as seen",
         "        // from outside it: north and east faces have their left at the higher coordinate.",
@@ -140,6 +163,9 @@ final class DistantProgram {
         "        else if (direction == 4u) { pz += across; }",
         "        else { px += 1.0; pz += 1.0 - across; }",
         "        place = vec3(px * tile.cell, float(y) + along * float(extent + 1u), pz * tile.cell);",
+        "        // Along the face and down it; a mirrored image is not told from one that is not.",
+        "        faceTexel = vec2(direction < 4u ? place.x : place.z, -place.y);",
+        "        faceBelow = float(y) + float(extent + 1u) - place.y;",
         "    }",
         "    fromOrigin = tile.origin + place;",
         "    fromEye = (modelView * vec4(fromOrigin, 1.0)).xyz;",
@@ -148,20 +174,26 @@ final class DistantProgram {
         "        // Straight away from the eye: the same place on the screen, a little deeper.",
         "        gl_Position = projection * vec4(fromEye * " + (1f + BOX_VIEW_PUSH) + ", 1.0);",
         "    }",
-        "    uint entry = materials[2u * material + (direction < 2u ? 0u : 1u)];",
-        "    vec3 color = rgb(entry);",
+        "    uint slot = 2u * material + (direction < 2u ? 0u : 1u);",
+        "    uint entry = materials[slot];",
         "    uint tint = (entry >> 24) & 3u;",
         "    faceCover = float(entry >> 26) / 63.0;",
+        "    faceTint = vec3(1.0);",
         "    if (tint != 0u) {",
         "        uint column = z * 64u + x;",
         "        uint biome = (words[tile.tintWord + (column >> 2)] >> (8u * (column & 3u))) & 255u;",
-        "        color *= rgb(biomes[3u * biome + tint - 1u]);",
+        "        faceTint = rgb(biomes[3u * biome + tint - 1u]);",
         "    }",
+        "    faceAlbedo = rgb(entry) * faceTint;",
+        "    // Images are for level 0, whose cells are blocks, and not for water; -1 is none.",
+        "    faceLayer = imaged == 1 && tile.level == 0u && int(slot) < imageLayers ? float(slot) : -1.0;",
         "    float closed = float((occlusion >> (2 * corner)) & 3u);",
         "    float lit = 0.2 + 0.8 * (float(light) / 15.0) * daylight;",
-        "    faceColor = color * lit * (1.0 - " + OCCLUSION_STEP + " * closed) * SHADE[direction];",
+        "    faceLight = lit * (1.0 - " + OCCLUSION_STEP + " * closed) * SHADE[direction];",
         "    if (debugMode == 2) {",
-        "        faceColor = LEVEL[min(tile.level, 7u)] * (0.55 + 0.45 * SHADE[direction]) * (1.0 - 0.1 * closed);",
+        "        faceAlbedo = LEVEL[min(tile.level, 7u)];",
+        "        faceLight = (0.55 + 0.45 * SHADE[direction]) * (1.0 - 0.1 * closed);",
+        "        faceLayer = -1.0;",
         "    }",
         "}");
     private static final String FRAGMENT = String.join("\n",
@@ -170,9 +202,17 @@ final class DistantProgram {
         "uniform vec3 nearMaximum;",
         "uniform int fogMode;",
         "uniform int overlay;",
+        "uniform sampler2DArray images;",
+        "uniform float detailStart;",
+        "uniform float detailEnd;",
         "in vec3 fromOrigin;",
         "in vec3 fromEye;",
-        "in vec3 faceColor;",
+        "in vec3 faceAlbedo;",
+        "in vec3 faceTint;",
+        "in vec2 faceTexel;",
+        "flat in float faceLayer;",
+        "in float faceBelow;",
+        "in float faceLight;",
         "in float faceCover;",
         "layout(location = 0) out vec4 result;",
         "void main() {",
@@ -189,8 +229,18 @@ final class DistantProgram {
         "    if (inside) {",
         "        discard;",
         "    }",
-        "    // The world's fog, as near terrain's program applies it.",
         "    float fogDistance = length(fromEye);",
+        "    // The surface: its image near the join, fading to its flat color, which is the image's mean.",
+        "    vec3 albedo = faceAlbedo;",
+        "    // A side face carries the material at its top, whatever it crosses below: only its top",
+        "    // block shows that image, or a cliff would repeat its turf all the way down.",
+        "    if (faceLayer >= 0.0 && fogDistance < detailEnd && faceBelow <= 1.0) {",
+        "        float shown = 1.0 - smoothstep(detailStart, detailEnd, fogDistance);",
+        "        albedo = mix(faceAlbedo, texture(images, vec3(faceTexel, faceLayer)).rgb * faceTint, shown);",
+        "    }",
+        "    // Its light, kept apart from the surface so that a later stage can light it instead.",
+        "    vec3 lit = albedo * faceLight;",
+        "    // The world's fog, as near terrain's program applies it.",
         "    float clear = 1.0;",
         "    if (fogMode == 1) {",
         "        clear = (gl_Fog.end - fogDistance) * gl_Fog.scale;",
@@ -202,8 +252,11 @@ final class DistantProgram {
         "    }",
         "    // Cover matters only to the water layer, which is blended over what was drawn before it.",
         "    // Leaves carry theirs too and are drawn solid: see the class comment.",
-        "    result = vec4(mix(gl_Fog.color.rgb, faceColor, clamp(clear, 0.0, 1.0)), faceCover);",
+        "    result = vec4(mix(gl_Fog.color.rgb, lit, clamp(clear, 0.0, 1.0)), faceCover);",
         "}");
+
+    /** The texture unit the materials' images are bound to: above any the game or near terrain uses. */
+    private static final int IMAGES_UNIT = 7;
 
     private int program;
     private int viewProjectionLocation;
@@ -216,6 +269,11 @@ final class DistantProgram {
     private int debugModeLocation;
     private int overlayLocation;
     private int projectionLocation;
+    private int imageLayersLocation;
+    private int imagedLocation;
+    private int imagesLocation;
+    private int detailStartLocation;
+    private int detailEndLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -252,6 +310,12 @@ final class DistantProgram {
         GL20.glUniformMatrix4fv(modelViewLocation, false, modelView);
         GL20.glUniform1i(debugModeLocation, DistantSettings.DEBUG);
         GL20.glUniform1i(fogModeLocation, fogMode());
+        GL20.glUniform1i(imageLayersLocation, DistantSettings.DETAIL ? materials.imageLayers() : 0);
+        GL20.glUniform1i(imagesLocation, IMAGES_UNIT);
+        GL20.glUniform1f(detailStartLocation, DistantSettings.DETAIL_START);
+        GL20.glUniform1f(detailEndLocation, DistantSettings.DETAIL_END);
+        // Bound to a unit of its own and left there: no texture unit the game draws with is touched.
+        GL45.glBindTextureUnit(IMAGES_UNIT, materials.images());
         GL30.glBindVertexArray(vertexArray);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, TILES_BINDING, recordBuffer);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, MATERIALS_BINDING, materials.materialBuffer());
@@ -312,6 +376,7 @@ final class DistantProgram {
                     continue;
                 }
                 GL20.glUniform1f(topDropLocation, NearCover.topDrop(layer));
+                GL20.glUniform1i(imagedLocation, layer == TileDraws.WATER ? 0 : 1);
                 GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, PAGE_BINDING, arena.buffer(page));
                 GL43.glMultiDrawArraysIndirect(GL11.GL_TRIANGLES, list.runOffset(layer, page), count,
                     TileDraws.COMMAND_BYTES);
@@ -378,6 +443,11 @@ final class DistantProgram {
         debugModeLocation = GL20.glGetUniformLocation(program, "debugMode");
         overlayLocation = GL20.glGetUniformLocation(program, "overlay");
         projectionLocation = GL20.glGetUniformLocation(program, "projection");
+        imageLayersLocation = GL20.glGetUniformLocation(program, "imageLayers");
+        imagedLocation = GL20.glGetUniformLocation(program, "imaged");
+        imagesLocation = GL20.glGetUniformLocation(program, "images");
+        detailStartLocation = GL20.glGetUniformLocation(program, "detailStart");
+        detailEndLocation = GL20.glGetUniformLocation(program, "detailEnd");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();

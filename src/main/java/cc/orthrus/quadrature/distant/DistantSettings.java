@@ -33,6 +33,27 @@ final class DistantSettings {
     static final float FOG_END = Math.max(FOG_START + 1f,
         number("quadrature.distant.fogEnd", (float) ((long) REACH << Math.max(0, LEVELS - 1))));
 
+    /**
+     * {@code quadrature.distant.detail}: {@code images} (the default) draws level 0's faces with
+     * their materials' images near the join; {@code flat} draws flat colors everywhere, as the
+     * first four runs did.
+     */
+    static final boolean DETAIL = !"flat".equals(System.getProperty("quadrature.distant.detail", "images"));
+
+    /**
+     * {@code quadrature.distant.detailStart}: up to this distance from the eye, in blocks, a level 0
+     * face shows its image whole. By default 224: past the near box at the usual view distances, so
+     * the change from near terrain's images is not a change to flat color.
+     */
+    static final float DETAIL_START = number("quadrature.distant.detailStart", 224f);
+
+    /**
+     * {@code quadrature.distant.detailEnd}: from this distance on, a face shows its flat color only.
+     * By default 352, inside ring 0's reach, so level 1 never needs images and no image ends on a
+     * level's edge.
+     */
+    static final float DETAIL_END = Math.max(DETAIL_START + 1f, number("quadrature.distant.detailEnd", 352f));
+
     static final int DEBUG_NONE = 0;
     /** Magenta where the near box holds distant ground and near terrain drew nothing in front of it. */
     static final int DEBUG_BOX = 1;

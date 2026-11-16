@@ -100,7 +100,7 @@ children and whether one tile lies under another.
 
 - Crossfade between levels, the coverage map that hands columns to near terrain, the light's
   view of distant tiles, a stage of its own in the frame graph.
-- The block images: materials are flat colors, and leaves are drawn solid.
+- Images beyond level 0 and below a side face's top block; rotated and mirrored images. Leaves are drawn solid.
 - Water's side faces: a water tile beside lower ground shows no wall of water.
 - Detail runs tinting the top under them.
 - The overlay of edited terrain, and with it any use of the exposure rule.
@@ -273,6 +273,9 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.fogStart` | the reach (384) | Where the shared fog begins, in blocks from the eye |
 | `quadrature.distant.fogEnd` | the outermost ring's reach (24,576) | Where the shared fog is complete |
 | `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
+| `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
+| `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
+| `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
 looked for once a frame: the source has one listener, which near terrain holds, so its
@@ -389,6 +392,33 @@ slot between them at the box's edge the unlit bed beyond showed: a third of a pi
 blocks, which the second run drew as a row of dark dashes along the join (section 10). The
 water layer's top faces are now lowered by `NearCover.WATER_SURFACE_DROP`.
 
+**Images near the join.** Near terrain's images used to end on a line, with flat colors
+beyond. A face of level 0 now shows its material's image out to `detailStart` and fades into
+its flat color by `detailEnd`. The flat color is the image's mean, so nothing changes where
+the fade ends, and it ends inside ring 0's reach, so no other level needs images.
+
+- The images are the layers of one array texture, 16 texels a side with every smaller copy,
+  repeated a block apart, nearest texel when magnified. Two layers a material, as its colors
+  are: its top and its side, each the first frame of the image the game's model shows on that
+  face, resampled to 16 texels by nearest texel, with the block's own fixed color multiplied
+  in and every texel made opaque (a clear texel black). 2,048 layers, or as many as the driver
+  has, hold 1,024 materials in under 3 MiB; a material past that draws its flat color.
+- A face finds its texel from its place within its tile, whose corner is a block's corner: a
+  top or bottom face by its two horizontal coordinates, a side face by its horizontal one and
+  its height. Images are not rotated or mirrored as some of the game's models are.
+- A side face carries the material at its top, whatever it crosses below (section 2). Only
+  its top block shows that image; below it the face is its flat color, or a cliff would
+  repeat its turf down its whole height. So a cliff near the join has one row of image over
+  flat color, and what it is made of below its top still does not show.
+- Water has no image.
+- The biome's tint multiplies the image as it multiplies the flat color.
+- In the fragment stage the surface (image or flat color, with tint), its light (sky light,
+  the day, occlusion, the shade of its direction) and the fog are worked out one after
+  another and kept apart, so that a stage that lights the frame later can take the surface
+  and its direction and light them by its own means.
+
+Cost: one texture look-up for fragments of level 0 within `detailEnd`. Not seen in a game.
+
 **Leaves.** Drawn solid, in the color the game's own far leaves have. Measured in the fourth
 run from above, near crowns were (44, 50, 31) to (49, 58, 38) and distant crowns (65, 75, 47):
 distant crowns were the lighter, near ones 0.68 as bright. The cause is how the game makes
@@ -448,7 +478,7 @@ cells that close it in. The game's own figure, about a fifth, drew a dark line a
 one-block step of the ground in the first frame.
 
 **What this simple rule will show.**
-- A hard change at the box's edge from textured, lit near terrain to flat colors.
+- A change at the box's edge from near terrain's lighting to distant terrain's simpler light.
 - Gaps where a cube inside the box is not yet loaded or meshed, and at the box's edge if
   the cube arithmetic is off by one from what near terrain meshes.
 - Empty ground wherever a tile has not arrived: on joining, most of the view for the first

@@ -17,7 +17,10 @@ import net.minecraft.world.ColorizerFoliage;
 import net.minecraft.world.ColorizerGrass;
 import net.minecraft.world.biome.Biome;
 
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL45;
 
 import java.nio.ByteBuffer;
@@ -44,6 +47,13 @@ final class DistantMaterials {
     private int materialBuffer;
     private int biomeBuffer;
     private boolean warned;
+    /** The materials' images: an array texture, layer {@code 2 * index} a top and the next a side. */
+    private int images;
+    private int imageLayers;
+    private final ByteBuffer texels = ByteBuffer.allocateDirect(MaterialTable.IMAGE_SIDE * MaterialTable.IMAGE_SIDE * 4);
+    /** Left by {@link #color}: the image the color was taken from, and the block's fixed color for it. */
+    private TextureAtlasSprite colorSprite;
+    private int colorBy;
 
     /** The index a face of this block carries. Any thread. */
     int index(IBlockState state) {
@@ -79,6 +89,16 @@ final class DistantMaterials {
         return materialBuffer;
     }
 
+    /** The array texture of the materials' images. */
+    int images() {
+        return images;
+    }
+
+    /** How many layers the array has: a material past half that draws its flat color only. */
+    int imageLayers() {
+        return imageLayers;
+    }
+
     /** The buffer of three tints a biome: grass, foliage, water. */
     int biomeBuffer() {
         return biomeBuffer;
@@ -90,6 +110,18 @@ final class DistantMaterials {
             biomeBuffer = GL45.glCreateBuffers();
             materialBuffer = GL45.glCreateBuffers();
             biomes();
+            // Sixteen texels a side with every smaller copy, repeated a block apart. 2,048 layers,
+            // or as many as the driver has, hold 1,024 materials in under 3 MiB.
+            imageLayers = Math.min(2048, GL11.glGetInteger(GL30.GL_MAX_ARRAY_TEXTURE_LAYERS));
+            images = GL45.glCreateTextures(GL30.GL_TEXTURE_2D_ARRAY);
+            GL45.glTextureStorage3D(images, 5, GL11.GL_RGBA8, MaterialTable.IMAGE_SIDE, MaterialTable.IMAGE_SIDE,
+                imageLayers);
+            GL45.glTextureParameteri(images, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR_MIPMAP_LINEAR);
+            GL45.glTextureParameteri(images, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL45.glTextureParameteri(images, GL11.GL_TEXTURE_WRAP_S, GL11.GL_REPEAT);
+            GL45.glTextureParameteri(images, GL11.GL_TEXTURE_WRAP_T, GL11.GL_REPEAT);
+            image(0, null, 0xFFFFFF);
+            image(1, null, 0xFFFFFF);
             // Index 0, no material: a color that shows if it is ever drawn.
             entries.putInt(0, MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN));
             entries.putInt(4, MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN));
@@ -112,7 +144,9 @@ final class DistantMaterials {
             int side;
             try {
                 top = color(state, EnumFacing.UP);
+                image(2 * index, colorSprite, colorBy);
                 side = color(state, EnumFacing.NORTH);
+                image(2 * index + 1, colorSprite, colorBy);
             } catch (RuntimeException failure) {
                 if (!warned) {
                     warned = true;
@@ -120,12 +154,32 @@ final class DistantMaterials {
                 }
                 top = MaterialTable.entry(0x808080, MaterialTable.PLAIN);
                 side = top;
+                image(2 * index, null, 0xFFFFFF);
+                image(2 * index + 1, null, 0xFFFFFF);
             }
             entries.putInt(index * ENTRY_INTS * 4, top);
             entries.putInt(index * ENTRY_INTS * 4 + 4, side);
         }
         colored = size;
         upload();
+        GL45.glGenerateTextureMipmap(images);
+    }
+
+    /** Writes one layer of the images: a sprite's first frame, or gray for none. */
+    private void image(int layer, TextureAtlasSprite sprite, int by) {
+        if (layer >= imageLayers) {
+            return;
+        }
+        int[] image = sprite == null || sprite.getFrameCount() == 0
+            ? MaterialTable.image(new int[0], 0, 0, by)
+            : MaterialTable.image(sprite.getFrameTextureData(0)[0], sprite.getIconWidth(), sprite.getIconHeight(), by);
+        texels.clear();
+        for (int pixel : image) {
+            texels.put((byte) (pixel >> 16)).put((byte) (pixel >> 8)).put((byte) pixel).put((byte) (pixel >>> 24));
+        }
+        texels.flip();
+        GL45.glTextureSubImage3D(images, 0, 0, 0, layer, MaterialTable.IMAGE_SIDE, MaterialTable.IMAGE_SIDE, 1,
+            GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, texels);
     }
 
     private void upload() {
@@ -134,12 +188,17 @@ final class DistantMaterials {
         GL45.glNamedBufferData(materialBuffer, part, GL15.GL_DYNAMIC_DRAW);
     }
 
-    /** A material's color on one face, and how its biome tints it. */
-    private static int color(IBlockState state, EnumFacing facing) {
+    /**
+     * A material's color on one face, and how its biome tints it. Leaves behind the image the color
+     * came from and the block's fixed color, for the face's layer of the images.
+     */
+    private int color(IBlockState state, EnumFacing facing) {
         Minecraft minecraft = Minecraft.getMinecraft();
+        colorBy = 0xFFFFFF;
         if (state.getMaterial() == Material.WATER) {
             // Water has no model; its still image, tinted by the biome.
             TextureAtlasSprite still = minecraft.getTextureMapBlocks().getAtlasSprite("minecraft:blocks/water_still");
+            colorSprite = still;
             // Its cover is the image's own alpha, so that distant water lets its bed through as near
             // water does: drawn opaque it was far brighter than near water over a dark bed.
             return MaterialTable.entry(average(still), MaterialTable.WATER_TINT, cover(still));
@@ -158,8 +217,10 @@ final class DistantMaterials {
             }
         }
         if (quad == null) {
-            return MaterialTable.entry(average(model.getParticleTexture()), MaterialTable.PLAIN);
+            colorSprite = model.getParticleTexture();
+            return MaterialTable.entry(average(colorSprite), MaterialTable.PLAIN);
         }
+        colorSprite = quad.getSprite();
         int color = average(quad.getSprite());
         int cover = MaterialTable.FULL_COVER;
         if (state.getMaterial() == Material.LEAVES) {
@@ -182,6 +243,7 @@ final class DistantMaterials {
         if (fixed == ColorizerGrass.getGrassColor(0.5, 1.0)) {
             return MaterialTable.entry(color, MaterialTable.GRASS, cover);
         }
+        colorBy = fixed & 0xFFFFFF;
         return MaterialTable.entry(MaterialTable.multiply(color, fixed), MaterialTable.PLAIN, cover);
     }
 
