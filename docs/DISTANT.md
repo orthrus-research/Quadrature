@@ -1170,15 +1170,22 @@ them from overlapping except in a fade band.
 
 ### 16.6 Order of commits
 
-Those marked (wait) need near terrain's targets and table in this branch first.
+Those marked (wait) need near terrain's targets and table in this branch first. The first three
+are built and not yet run in a game; none changes what the forward path draws.
 
-1. The material entry's third word, the state number, filled and unused. A core test for the
-   entry's layout. No change to what is drawn.
-2. `DistantHook` publishes the farthest distance drawn and its generation. A test of the
-   arithmetic with a bound and without.
-3. The fragment stage split so that its last step is one of two: forward (light and fog) or
-   targets. With targets absent only forward compiles in. The forward frames must not change:
-   checked against a run's frames.
+1. Built. The material entry's third word, the state number, filled and unused
+   (`MaterialTable.ENTRY_WORDS`, `put`). The top and side words are packed as before, which
+   `MaterialTableTest` pins beside the layout.
+2. Built. `DistantHook.farthest()` and `farthestGeneration()`: the reach of the highest ring
+   that has tiles, or the distance to the world's far edge where a bound is set and that is
+   nearer, along an axis (`Rings.drawnTo`, tested with a bound and without). The ring's
+   square is moved to even tile positions, so its edges lie within one of its tiles of that.
+3. Built. The fragment stage's last step is its own text (`FORWARD_OUTPUT` in
+   `DistantProgram`): `finish`, the surface times the face's light and then the fog, and
+   `finishFlat` for a debug color. The targets path will be a second such text. Checked
+   without a game: the vertex stage's text is unchanged, and the fragment stage holds the
+   same statements in the same order within `finish`, with only the two functions' wrappers
+   and their calls added. Its frames are still to be compared with a run's.
 4. (wait) Read the shared table by state number in place of nothing: roughness and the rest.
 5. (wait) The opaque pass into near terrain's targets at the place the frame gives it, with
    the encodings of 16.3. Checked first by reading the targets back at a known pixel over

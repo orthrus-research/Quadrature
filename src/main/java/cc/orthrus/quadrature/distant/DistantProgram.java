@@ -223,6 +223,36 @@ final class DistantProgram {
         "        faceLayer = -1.0;",
         "    }",
         "}");
+    /**
+     * The fragment stage's last step on the forward path, and its output: the surface times the
+     * face's own light, then the world's fog. Everything before it (what near terrain covers, the
+     * fades, the surface) is the same whatever comes last, so a path that hands the surface to a
+     * later stage instead of lighting it replaces this text and nothing else: two functions,
+     * {@code finish} for a surface and {@code finishFlat} for a debug color.
+     */
+    private static final String FORWARD_OUTPUT = String.join("\n",
+        "layout(location = 0) out vec4 result;",
+        "void finish(vec3 albedo, float fogDistance) {",
+        "    // Its light, kept apart from the surface so that a later stage can light it instead.",
+        "    vec3 lit = albedo * faceLight;",
+        "    // The world's fog, as near terrain's program applies it.",
+        "    float clear = 1.0;",
+        "    if (fogMode == 1) {",
+        "        clear = (gl_Fog.end - fogDistance) * gl_Fog.scale;",
+        "    } else if (fogMode == 2) {",
+        "        clear = exp(-gl_Fog.density * fogDistance);",
+        "    } else if (fogMode == 3) {",
+        "        float d = gl_Fog.density * fogDistance;",
+        "        clear = exp(-d * d);",
+        "    }",
+        "    // Cover matters only to the water layer, which is blended over what was drawn before it.",
+        "    // Leaves carry theirs too and are drawn solid: see the class comment.",
+        "    result = vec4(mix(gl_Fog.color.rgb, lit, clamp(clear, 0.0, 1.0)), faceCover);",
+        "}",
+        "void finishFlat(vec3 color) {",
+        "    result = vec4(color, 1.0);",
+        "}");
+
     private static final String FRAGMENT = String.join("\n",
         "#version 460 compatibility",
         "uniform vec3 nearMinimum;",
@@ -254,12 +284,12 @@ final class DistantProgram {
         "flat in int faceLevel;",
         "flat in float faceShows;",
         "flat in int facePartners;",
-        "layout(location = 0) out vec4 result;",
         FadePattern.glsl(),
         "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
         "float within(vec4 hole, vec2 place) {",
         "    return min(min(place.x - hole.x, hole.z - place.x), min(place.y - hole.y, hole.w - place.y));",
         "}",
+        FORWARD_OUTPUT,
         "void main() {",
         "    // What near terrain draws is left to it. With its coverage map: a chunk column whose surface",
         "    // it has meshed, over the heights its cubes span. Without: the box of cubes it meshes.",
@@ -280,7 +310,7 @@ final class DistantProgram {
         "        if (!inside) {",
         "            discard;",
         "        }",
-        "        result = vec4(1.0, 0.0, 1.0, 1.0);",
+        "        finishFlat(vec3(1.0, 0.0, 1.0));",
         "        return;",
         "    }",
         "    if (inside) {",
@@ -321,21 +351,8 @@ final class DistantProgram {
         "        float shown = 1.0 - smoothstep(detailStart, detailEnd, fogDistance);",
         "        albedo = mix(faceAlbedo, texture(images, vec3(faceTexel, faceLayer)).rgb * faceTint, shown);",
         "    }",
-        "    // Its light, kept apart from the surface so that a later stage can light it instead.",
-        "    vec3 lit = albedo * faceLight;",
-        "    // The world's fog, as near terrain's program applies it.",
-        "    float clear = 1.0;",
-        "    if (fogMode == 1) {",
-        "        clear = (gl_Fog.end - fogDistance) * gl_Fog.scale;",
-        "    } else if (fogMode == 2) {",
-        "        clear = exp(-gl_Fog.density * fogDistance);",
-        "    } else if (fogMode == 3) {",
-        "        float d = gl_Fog.density * fogDistance;",
-        "        clear = exp(-d * d);",
-        "    }",
-        "    // Cover matters only to the water layer, which is blended over what was drawn before it.",
-        "    // Leaves carry theirs too and are drawn solid: see the class comment.",
-        "    result = vec4(mix(gl_Fog.color.rgb, lit, clamp(clear, 0.0, 1.0)), faceCover);",
+        "    // The last step, which is the forward path's or another's: see FORWARD_OUTPUT.",
+        "    finish(albedo, fogDistance);",
         "}");
 
     /** The texture unit the materials' images are bound to: above any the game or near terrain uses. */
