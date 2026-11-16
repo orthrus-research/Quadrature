@@ -96,6 +96,13 @@ final class Distant {
     private final float[] modelView = new float[16];
     private final float[] projection = new float[16];
     private final float[] nearBox = new float[6];
+    /** The pass into near terrain's targets, as one piece, and what it leaves as found. */
+    private final Runnable targetWriter = this::writeTargets;
+    private final StateGuard writerGuard = new StateGuard(WriterState.all());
+    private final WriterState writerState = new WriterState(DistantProgram.COVER_UNIT, DistantProgram.IMAGES_UNIT);
+    private float writerPartialTicks;
+    private boolean writerFading;
+    private boolean wrote;
     private final long[] boxBlocks = new long[6];
     private final DistantCover cover = new DistantCover();
     private final TravelCapture travel = new TravelCapture();
@@ -118,7 +125,6 @@ final class Distant {
     });
     private final LongArrayList spared = new LongArrayList();
     private int lastShadedDraws;
-    private final java.nio.IntBuffer viewport = org.lwjgl.BufferUtils.createIntBuffer(16);
     /** The band the join fades over this frame, start then end, then where it is measured from, or null. */
     private float[] joinBand;
     private final float[] joinValues = new float[4];
@@ -280,7 +286,12 @@ final class Distant {
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
                 imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
-            DistantHook.shaded(DistantSettings.SHADED && shade(minecraft, partialTicks, fading));
+            if (DistantSettings.SHADED) {
+                writerPartialTicks = partialTicks;
+                writerFading = fading;
+                targetWriter.run();
+            }
+            DistantHook.shaded(DistantSettings.SHADED && wrote);
             if (DistantSettings.SHADED) {
                 program.water(DistantProgram.WATER_ALONE);
                 lastDraws += program.draw(draws, arena, materials, modelView, projection, nearBox,
@@ -644,56 +655,47 @@ final class Distant {
     }
 
     /**
-     * Draws the opaque layers into near terrain's targets for shading, where it made them this
-     * frame: after its last cutout layer, which is when this world pass's draw runs, and before
-     * anything reads them. Depth there is near terrain's own, reversed, and is tested as the frame's
-     * is; nothing is cleared; the alpha test and blending are off while it draws, and the
-     * framebuffer, the viewport and those two are put back.
-     *
-     * @return whether the targets were drawn into
+     * Draws the opaque layers into near terrain's targets for shading, where it made them in this
+     * world pass: after its last cutout layer and before anything reads them. One piece, to be
+     * handed to near terrain as a writer of its targets: it takes nothing but what the frame's
+     * list already holds, binds the targets itself, sets every switch it depends on (the depth
+     * test nearer-or-equal with depth written, no alpha test, no blending; the draw turns
+     * culling off), and leaves every binding and switch it touched as it found them
+     * ({@link WriterState}). Nothing is cleared. {@link #wrote} says afterwards whether it drew.
      */
-    private boolean shade(Minecraft minecraft, float partialTicks, boolean fading) {
+    private void writeTargets() {
+        wrote = false;
         ShadingTargets targets = TerrainHook.shadingTargets();
         long pass = TerrainHook.frame();
         if (!ShadedGate.draws(targets, pass)) {
             // No targets, or they are not this world pass's: nothing to add to.
-            return false;
+            return;
         }
         // Near terrain's material table, brought up to date with the rows distant terrain's
         // materials asked for; 0 where own terrain is off or the targets are not drawn.
         int table = TerrainHook.materialsBuffer();
-        if (table == 0) {
-            return false;
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (table == 0 || minecraft.world == null || draws.commandCount() == 0) {
+            return;
         }
-        int framebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
-        GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
-        boolean alpha = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
-        boolean blend = GL11.glIsEnabled(GL11.GL_BLEND);
-        if (alpha) {
-            GL11.glDisable(GL11.GL_ALPHA_TEST);
-        }
-        if (blend) {
-            GL11.glDisable(GL11.GL_BLEND);
-        }
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, targets.framebuffer());
-        GL11.glViewport(0, 0, targets.width(), targets.height());
+        writerGuard.save(writerState);
         try {
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, targets.framebuffer());
+            GL11.glViewport(0, 0, targets.width(), targets.height());
+            GL11.glEnable(GL11.GL_DEPTH_TEST);
+            GL11.glDepthFunc(DepthCalls.active() ? GL11.GL_GEQUAL : GL11.GL_LEQUAL);
+            GL11.glDepthMask(true);
+            GL11.glDisable(GL11.GL_ALPHA_TEST);
+            GL11.glDisable(GL11.GL_BLEND);
             lastShadedDraws = program.drawTargets(draws, arena, materials, modelView, projection, nearBox,
-                minecraft.world.getSunBrightness(partialTicks), cover,
+                minecraft.world.getSunBrightness(writerPartialTicks), cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand,
-                table, (int) (pass & 0x7FFFFFFF));
+                imageFade, writerFading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
+                joinBand, table, (int) (pass & 0x7FFFFFFF));
+            wrote = true;
         } finally {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer);
-            GL11.glViewport(viewport.get(0), viewport.get(1), viewport.get(2), viewport.get(3));
-            if (alpha) {
-                GL11.glEnable(GL11.GL_ALPHA_TEST);
-            }
-            if (blend) {
-                GL11.glEnable(GL11.GL_BLEND);
-            }
+            writerGuard.restore(writerState);
         }
-        return true;
     }
 
     /** Which tiles of each level's square are shown this frame, and where each square begins. */

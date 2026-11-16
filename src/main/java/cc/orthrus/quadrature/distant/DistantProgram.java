@@ -494,9 +494,9 @@ final class DistantProgram {
     private static final String FRAGMENT_TARGETS = FRAGMENT.replace(FORWARD_OUTPUT, TARGETS_OUTPUT);
 
     /** The texture unit the materials' images are bound to: above any the game or near terrain uses. */
-    private static final int IMAGES_UNIT = 7;
+    static final int IMAGES_UNIT = 7;
     /** The unit for near terrain's coverage map. */
-    private static final int COVER_UNIT = 6;
+    static final int COVER_UNIT = 6;
 
     private int program;
     private int viewProjectionLocation;

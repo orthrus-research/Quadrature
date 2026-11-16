@@ -1353,6 +1353,152 @@ ground, each with the targets written, with crowns `plain` and again with `far`;
 them that a surface has the same albedo, normal, sky light and occlusion just inside and just
 outside near terrain, which is the shader thread's test.
 
+### 16.9 The pass as a writer of near terrain's targets
+
+**Late since near terrain d574a3e.** Near terrain's shading stage now runs as a stage of its
+own when the game enters its `entities` section (`FrameHost.section`, before `StageHost.run`),
+and reads the targets there. Distant terrain draws from its Mixin at the first draw of
+entities, which is after that. So with the stage on (`-Dquadrature.stage=true`) this pass
+writes the targets after the stage has read them: distant terrain is missing from what the
+stage shades in that frame, and what the stage reads of it is the frame before's where the
+targets were not made anew. With the stage off nothing reads the targets in the frame and
+the images written beside a capture are as before. No run with the stage on is to be read
+for distant terrain until the writer point below is in this tree.
+
+**The writer point, agreed, not yet in this tree.** Near terrain will add
+`TerrainHook.addTargetWriter(Runnable)` and `removeTargetWriter(Runnable)`: writers are
+called on the client thread in the order registered, once in every world pass in which the
+targets were drawn, after its cutout layer wrote them and before the stage reads them,
+stage on or off. On entry only documented state is promised; on return the writer has put
+back what it changed.
+
+**What near terrain says of the call** (in its source, not yet in this tree):
+
+- `TerrainHook.mainView()` is this frame's at the call: it is filled when the frame's first
+  opaque layer begins, and writers are called after terrain's layers, in front of entities.
+- On entry, from its source: the game's framebuffer bound and the viewport the window's; no
+  program and no vertex array; array and element buffers none; sampler objects on units 0
+  and 1 none; shader storage points 0 to 3 unbound. From the game's sequence, to be
+  confirmed by the state audit: depth test on, depth written, depth function
+  greater-or-equal under reversed depth; culling on; blending off; alpha test on. A writer
+  therefore sets what it needs and counts on none of it.
+- A writer added or removed from inside a call takes effect from the next pass.
+- The state audit lists each writer as a stretch of its own, so what one leaves changed is
+  listed under it.
+- After the writers nothing of near terrain's trusts a binding.
+- `TerrainHook.targetsEdge(float)`, called from inside a writer: how far the targets hold
+  terrain without an edge (16.10), for that pass only; the largest of several writers'
+  stands, and near terrain's own edge where none is given.
+
+**Built toward it.** The pass is one piece, `Distant.writeTargets`, held as a `Runnable` and
+called from the present place. It asks the gate and the material table itself, binds the
+targets' framebuffer for drawing, sets the viewport to their size and every switch it
+depends on, draws, and puts back what it touched. What it sets and does not merely find:
+depth test on, nearer-or-equal (greater-or-equal in reversed depth), depth written, alpha
+test off, blending off; the draw turns face culling off.
+
+**Its whole footprint,** all of it read before the pass and written back after where it
+reads differently (`WriterState`, through `StateGuard`):
+
+| State | What the pass does with it |
+|---|---|
+| Draw framebuffer binding | Binds near terrain's targets |
+| Read framebuffer binding | Not used; the draw's leaving binds the game's framebuffer to both |
+| Viewport | The targets' size |
+| Depth test, depth function, depth mask | On, nearer-or-equal, written |
+| Blending, alpha test, face culling | Off |
+| Program | The targets' program |
+| Vertex array | Distant terrain's own, which has no attributes |
+| Element buffer and array buffer bindings | Not used; the draw's leaving sets both to none |
+| Draw-indirect buffer binding | The frame's commands |
+| Shader storage points 0 to 4, and the general binding | 0 the frame's tile records, 1 each arena page in turn, 2 distant terrain's materials, 3 biome tints, 4 near terrain's material table |
+| Texture unit 6, 2D | The cover map, an 8-bit unsigned integer texture |
+| Texture unit 7, 2D array | The materials' images |
+| Sampler objects on units 0 and 1 | Not used; the draw's leaving sets both to none |
+| Pack and unpack alignment | Not used; the draw's leaving sets both to 4 |
+| Active texture unit | Not changed: textures are bound by unit directly |
+
+It binds no uniform buffer, no transform feedback, no image unit and no atomic counter; it
+changes no color mask, stencil, scissor, polygon offset or draw-buffer list, and so draws
+with those as found. It writes two buffers of its own by name each call (commands and
+records) and uniforms of its own program. Blend functions are read and set only by the water
+layer, which this pass does not draw.
+
+Before this the pass put back the framebuffer, the viewport, the alpha test and blending
+only. It left the program, vertex array, array and element buffers and samplers 0 and 1 at
+none and the alignments at 4, which is what the frame's state envelope asks of a stage
+drawing where the game expects its own state; it left storage points 0 to 4, the general
+storage binding and the indirect binding at none, and units 6 and 7 bound; and it took the
+depth test, function and mask as it found them.
+
+**What a test holds, and what it cannot.** `StateGuardTest` holds the rule over state made
+of numbers: every listed slot reads afterwards as found, only changed ones are written, in
+the list's order where one write disturbs another, and a slot not listed is not touched.
+There is no recording stand-in for the driver in this tree, so nothing offline shows that
+each slot reads and writes the driver's state it names, or that the list is complete. The
+frame's state audit (`-Dquadrature.stateAudit=true`) reads state at stage boundaries in a
+run and is the check for that, in the next turn with the game.
+
+**When the writer point arrives.** The writer is registered and the call from the Mixin for
+the shaded path goes. Three things move with it:
+
+- *The frame's preparation.* The writer runs before the Mixin's place, so taking built
+  tiles, selecting and listing must have happened by then: they become a step done once a
+  frame by whichever of the two places comes first.
+- *The view.* At the writer's point the driver's matrices are not promised. Near terrain's
+  `TerrainHook.mainView()` gives the player's view as its terrain was drawn: projection and
+  model-view as read when its first opaque layer began, column-major, and the origin the
+  model-view is relative to, the viewer's place. Distant terrain reads the same two matrices
+  from the driver once a frame and takes the same origin from the viewer, so the values
+  should be equal today; taking them from `mainView()` makes them near terrain's by
+  construction, saves two reads that wait on the driver, and is needed at the writer's
+  point. Its one instance is filled again each frame and is to be read, not kept.
+- *The other layers.* The forward draw of the opaque layers stays at the Mixin's place,
+  before entities: where the stage shows its display it covers them, and where it does not
+  they are the picture. Water on the shaded path stays there too, after the stage and out of
+  the depth (21.2): drawn before the stage it would be covered where the display is shown.
+
+### 16.10 The far edge
+
+**Where it is.** A level's square is centered on the nearest even boundary of its tiles to
+the viewer (`Rings.squareStart`), not on the viewer, so that boundary is up to one tile from
+the viewer on each axis and the square's sides are between the level's reach less a tile and
+the reach plus a tile away. For the outermost of 7 levels at a reach of 384 that is 24,576
+blocks give or take 4,096: the nearest side can be at 20,480, five sixths of the reach, at
+any reach and number of levels.
+
+**What is published.**
+
+- `DistantHook.farthest()`, as before: the reach of the outermost level that has tiles, or
+  the distance to the world's farthest side where that is nearer, along x or z. The nominal
+  distance: sides lie within a tile of it.
+- `DistantHook.nearestEdge()`: the smallest of the distances along x or z from the viewer to
+  the four sides of the outermost selected level's square (`FarEdge.distance`). It moves with
+  the viewer from pass to pass, between the reach less a tile and the reach, without a jump,
+  and is a value of the pass with no generation. A fade into the sky complete by here hides
+  the edge. This is the number the target writer is to hand to near terrain for the stage
+  (`TerrainHook.targetsEdge`, not yet in this tree and not called).
+
+**Two choices in it.**
+
+- *Of the selection, not of what is stored.* While the outermost level arrives its edge is
+  ragged by whole tiles, and a kept tile stands in only where one was stored. The value does
+  not shrink to the next level in for that: the stage's fade then lies over sky where tiles
+  are missing, which shows nothing wrong, where a value that followed arrival would move the
+  fade inward and out again as levels fill.
+- *The world's bound is not an edge.* A side of the square at or beyond the world's bound is
+  left out, and where all four are the world's the value is the distance to the farthest of
+  them. Nothing lies beyond the bound to hide, and with the bound counted a viewer standing
+  beside it would have the whole world faded away from a few blocks on.
+
+**The forward path's fog** was complete at the nominal distance, so a side nearer than that
+showed through fog not yet complete (83 % at five sixths). `quadrature.distant.fogEnd` now
+defaults to `FarEdge.least`, the reach less a tile, 20,480: complete before any side for any
+viewer in a world without bounds. The forward picture changes a little in the far distance:
+fog is denser everywhere beyond 384 blocks by the ratio of the two spans, and the last
+4,096 blocks of the nominal reach are wholly fog. The shaded path writes no fog and is not
+changed.
+
 ## 17. A tour of distant terrain in travel
 
 Run once, 2026-11-16 (17.1). Every run so far captured stills after a settle, which never show a tile
