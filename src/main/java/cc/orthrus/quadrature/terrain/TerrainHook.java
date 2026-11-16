@@ -1,12 +1,15 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.material.MaterialTable;
 import cc.orthrus.quadrature.core.scene.LightScene;
 import cc.orthrus.quadrature.core.terrain.CoverageMap;
 import cc.orthrus.quadrature.core.terrain.SearchEdge;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
+import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.BlockRenderLayer;
 
@@ -42,6 +45,15 @@ public final class TerrainHook {
 
         /** Whether the player's view's search came to the edge of the box. */
         SearchEdge searchEdge();
+
+        /** The targets the opaque terrain pass writes for shading, or null when they are not drawn. */
+        ShadingTargets shadingTargets();
+
+        /** What every block state's surface is like, or null when no table is kept. */
+        MaterialTable materials();
+
+        /** The number of a state's row of the table, the row filled if the state was not met before. */
+        int material(IBlockState state);
 
         /** One line for the timing log. */
         String summary();
@@ -108,6 +120,34 @@ public final class TerrainHook {
      */
     public static SearchEdge searchEdge() {
         return drawer == null ? null : drawer.searchEdge();
+    }
+
+    /**
+     * The four targets and the depth the opaque terrain pass writes for a shading stage to read. Null
+     * when own terrain is off or the targets are not drawn.
+     */
+    public static ShadingTargets shadingTargets() {
+        return drawer == null ? null : drawer.shadingTargets();
+    }
+
+    /**
+     * What every block state's surface is like where no texture says: eight bytes a state. A state's
+     * row is at the number {@link #material} gives, which is the game's own number for the state, the
+     * block's identity and its variant, in 16 bits; the scene for lighting knows states by the same
+     * number. A row holds the defaults until its state is first met. Null when own terrain is off or
+     * the targets for shading are not drawn. Read and fill it on the client thread.
+     */
+    public static MaterialTable materials() {
+        return drawer == null ? null : drawer.materials();
+    }
+
+    /**
+     * The number of a state's row of {@link #materials}, the row filled from the list of kinds or the
+     * rule if this is the first time the state is met: for something that draws surfaces near terrain
+     * has not met. -1 when own terrain is off.
+     */
+    public static int material(IBlockState state) {
+        return drawer == null ? -1 : drawer.material(state);
     }
 
     /** The timing log's line, or null when own terrain is off. */

@@ -25,6 +25,13 @@ final class FaceBuilder {
 
     private static final int LAYERS = CubeMesh.LAYERS;
     private static final int STRIDE = CubeMesh.STRIDE;
+    /**
+     * The bytes of a kept vertex when its quad's header follows it: the game's 28, then the header's
+     * first two words. Every vertex of a quad carries the same two.
+     */
+    static final int WIDE_STRIDE = STRIDE + 8;
+    /** Whether kept vertices carry their quad's header, as the targets for shading need. */
+    private final boolean wide;
 
     /**
      * Every rectangle of the atlas a quad has shown, numbered in the order first met: least u, least v,
@@ -62,6 +69,12 @@ final class FaceBuilder {
     private long notGivenBack;
 
     FaceBuilder() {
+        this(false);
+    }
+
+    /** @param wide whether a kept vertex is followed by its quad's header */
+    FaceBuilder(boolean wide) {
+        this.wide = wide;
         for (int layer = 0; layer < LAYERS; layer++) {
             vertices[layer] = ByteBuffer.allocateDirect(STRIDE * 4 * 64).order(ByteOrder.nativeOrder());
         }
@@ -145,7 +158,6 @@ final class FaceBuilder {
             return false;
         }
         int corners = FaceRecord.rectangle(coordinates, rect);
-
         if (corners < 0) {
             notASprite++;
             return false;
@@ -185,7 +197,7 @@ final class FaceBuilder {
     /** Keeps a quad's four vertices as the game wrote them, with a header. */
     private void keep(ByteBuffer data, int at, int layer, QuadWalk walk, int note) {
         ByteBuffer out = vertices[layer];
-        if (out.remaining() < 4 * STRIDE) {
+        if (out.remaining() < 4 * WIDE_STRIDE) {
             ByteBuffer larger = ByteBuffer.allocateDirect(out.capacity() * 2).order(ByteOrder.nativeOrder());
             out.flip();
             larger.put(out);
@@ -193,8 +205,10 @@ final class FaceBuilder {
             out = larger;
         }
         int quad = vertexCounts[layer] / 4;
-        out.put(out.position(), data, at, 4 * STRIDE);
-        out.position(out.position() + 4 * STRIDE);
+        if (!wide) {
+            out.put(out.position(), data, at, 4 * STRIDE);
+            out.position(out.position() + 4 * STRIDE);
+        }
         vertexCounts[layer] += 4;
         if ((quad + 1) * HEADER_WORDS > headers[layer].length) {
             headers[layer] = java.util.Arrays.copyOf(headers[layer], headers[layer].length * 2);
@@ -212,6 +226,20 @@ final class FaceBuilder {
         }
         header[word + 2] = 0;
         header[word + 3] = 0;
+        if (wide) {
+            for (int vertex = 0; vertex < 4; vertex++) {
+                int to = out.position();
+                out.put(to, data, at + vertex * STRIDE, STRIDE);
+                out.putInt(to + STRIDE, header[word]);
+                out.putInt(to + STRIDE + 4, header[word + 1]);
+                out.position(to + WIDE_STRIDE);
+            }
+        }
+    }
+
+    /** The bytes of a kept vertex as this builder writes it. */
+    int keptStride() {
+        return wide ? WIDE_STRIDE : STRIDE;
     }
 
     /** The number a rectangle of the atlas goes by, given the first time it is met. */

@@ -532,6 +532,47 @@ The instance of the section above, each run scored against the game's terrain in
   as made above.
 - Timings are not recorded: builds on the same machine overlapped both runs.
 
+### Targets for shading
+
+One instance, the forest tour, the cube source at 24f5ad89 (2026-11-16). Reversed depth,
+which the targets need, changes a picture a little by itself, so each run is set beside the
+run that differs from it in one thing.
+
+| Run | Against | Passing views | Note |
+|---|---|---|---|
+| The game, reversed depth | The game | 17 of 17 | Worst 0.056%; scattered distant pixels |
+| Faces, reversed depth | The game | 16 of 17 | View 07 fails at 0.150% on the river: 1,180 in its box, 205 outside |
+| Faces, reversed depth | The game, reversed depth | 16 of 17 | View 07: 1,297 in the box, 77 outside |
+| Faces and the targets, reversed depth | Faces, reversed depth | 17 of 17 | 13 views identical to the byte; view 07 0.079%, the river |
+| Faces and the targets, reversed depth | The game | 17 of 17 | |
+
+- **The player's picture is unchanged by the targets.**
+- **The program.** Every stage compiles and links; the framebuffer is complete; no error
+  from the driver. The targets were drawn in 42,992 frames.
+- **What the targets hold,** from ten sets of images written where the tour stops, three
+  measured: B's alpha is 0.375 on every pixel of terrain and 0 on every other, with no
+  third value; normals are of unit length and lie along the axes a camera facing south
+  can see (none faces south), plants' quads between them; roughness 0.85, reflectance
+  0.04 and subsurface 0 or 0.55 as forest has them; cutout edges are sharp in all four.
+- **The forward color worked out again from the targets** (the texel and tint from C, the
+  game's shade from the normal, its occlusion from D) on pixels in full sky light, set
+  beside the captured frame: a median error of 2 levels of 255. Inside a forest every
+  pixel of an axis-aligned face is within 12 levels. In wide views 84 to 94% are; the
+  rest are distant pixels in fog and plants' quads, which the game does not shade by the
+  way they are turned.
+- **Not seen, so not verified:** glass, emitters, block light and metals. The tour shows
+  none.
+- The list of kinds in the build these runs used was revision 3, in which lamps' states
+  were named the wrong way about and lava's emission was 0.95. Neither bears on whether
+  the program writes the targets as the table says. Revision 4's two changes, and reading
+  the list from a folder named at start, are unit tested and have not been run in the game.
+- **Cost, one view, not a measurement:** opaque terrain 2.21 to 3.37 ms on the GPU and
+  0.45 to 0.67 ms on the CPU at the median, for drawing each opaque layer a second time.
+
+Own terrain with every switch off, the same instance: 17 of 17 against the game, view 07
+at 0.021%. Stage medians at the last view: opaque terrain 0.375 ms on the CPU and 2.207 ms
+on the GPU; in sum 0.746 and 2.511 ms. 59,043 meshes built at 1.130 ms each. A measurement
+on the same machine began 13 seconds before the run's end.
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
@@ -555,6 +596,9 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
 | `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
 | `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
+| `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |
+| `quadrature.gbuffer.image=true` | Writes the targets as images into the client's `quadrature-gbuffer/` where the player stands still |
+| `quadrature.materials.audit=true` | Logs each block where the list of kinds and the rule differ, each the rule gives a kind that the list does not name, and the states of blocks that hold a material in each state |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 
 A settled frame is one with no cube waiting to be meshed.

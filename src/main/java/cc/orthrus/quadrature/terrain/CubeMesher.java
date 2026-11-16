@@ -54,7 +54,15 @@ final class CubeMesher {
      */
     static final boolean FACES = Boolean.getBoolean("quadrature.faces");
     private final QuadWalk walk = FACE_CHECK || FACES ? new QuadWalk() : null;
-    private final FaceBuilder faces = FACE_CHECK || FACES ? new FaceBuilder() : null;
+    /**
+     * Off unless {@code -Dquadrature.gbuffer=true}, which needs the face stream: kept vertices carry
+     * their quad's header, and each block state's surface values are set the first time it is met.
+     */
+    static final boolean TARGETS = FACES && Boolean.getBoolean("quadrature.gbuffer");
+    private final FaceBuilder faces = FACE_CHECK || FACES ? new FaceBuilder(TARGETS) : null;
+    /** Held for the targets for shading; also where only the audit of the kinds is asked for. */
+    private final Materials materials = TARGETS || Boolean.getBoolean("quadrature.materials.audit") ? new Materials() : null;
+    private final java.util.BitSet materialsSet = new java.util.BitSet(1 << 16);
     private final java.nio.ByteBuffer[] builtData = new java.nio.ByteBuffer[LAYERS.length];
     private final BufferBuilder[] walked = new BufferBuilder[LAYERS.length];
     private final boolean[] walkedStarted = new boolean[LAYERS.length];
@@ -128,6 +136,13 @@ final class CubeMesher {
                                 builders[layer].setTranslation(-minX, -minY, -minZ);
                             }
                             try {
+                                if (materials != null) {
+                                    int number = Block.getStateId(state) & 0xFFFF;
+                                    if (!materialsSet.get(number)) {
+                                        materialsSet.set(number);
+                                        materials.define(state, number);
+                                    }
+                                }
                                 if (FACES && walk.usable() && state.getRenderType() == EnumBlockRenderType.MODEL) {
                                     // The dispatcher takes a block's actual state before it asks for the model.
                                     walk.render(dispatcher, snapshot, state.getActualState(snapshot, pos), pos, builders[layer],
@@ -246,6 +261,24 @@ final class CubeMesher {
                 walked[layer].reset();
             }
         }
+    }
+
+    /** The table of each block state's surface values, or null when it is not kept. */
+    Materials materials() {
+        return materials;
+    }
+
+    /**
+     * The number a state's row of the material table has, the row filled if this is the first time
+     * the state is met. Without a table, only the number.
+     */
+    int material(IBlockState state) {
+        int number = Block.getStateId(state) & 0xFFFF;
+        if (materials != null && !materialsSet.get(number)) {
+            materialsSet.set(number);
+            materials.define(state, number);
+        }
+        return number;
     }
 
     /** The quads of the cube last built, sorted into face records and kept vertices. */
