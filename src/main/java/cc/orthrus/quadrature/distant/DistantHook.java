@@ -3,6 +3,7 @@ package cc.orthrus.quadrature.distant;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.terrain.TerrainHook;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.fml.common.Loader;
 
@@ -54,18 +55,20 @@ public final class DistantHook {
     }
 
     /**
-     * The game has just set its fog for the world, with {@code far} as its view distance in blocks.
+     * The game has just set its fog for the world, complete at its view distance, which it takes
+     * from its settings as chunks times sixteen.
      * While distant terrain draws, the game's ordinary fog (linear, complete at the view distance)
      * is given distant terrain's two distances instead, so near terrain, everything the game draws
      * in the world and distant terrain fade by one rule. Any other fog is left alone: under water or
      * lava, in blindness, inside a cloud, or whatever another mod has set, none of which is linear
      * and ends at the view distance.
      */
-    public static void fog(float far) {
+    public static void fog() {
         if (!REQUESTED || !sampling || !DistantSettings.FOG
             || DistantSettings.DEBUG == DistantSettings.DEBUG_LEVEL) {
             return;
         }
+        float far = Minecraft.getMinecraft().gameSettings.renderDistanceChunks * 16f;
         if (GL11.glGetInteger(GL11.GL_FOG_MODE) != GL11.GL_LINEAR
             || Math.abs(GL11.glGetFloat(GL11.GL_FOG_END) - far) > 0.01f) {
             return;

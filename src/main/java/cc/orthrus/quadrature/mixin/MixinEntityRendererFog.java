@@ -5,7 +5,6 @@ import cc.orthrus.quadrature.distant.DistantHook;
 import net.minecraft.client.renderer.EntityRenderer;
 
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -20,9 +19,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(EntityRenderer.class)
 public abstract class MixinEntityRendererFog {
-
-    @Shadow
-    private float farPlaneDistance;
 
     /** Whether the game is drawing its clouds, whose fog is left as the game sets it. */
     @Unique
@@ -41,11 +37,15 @@ public abstract class MixinEntityRendererFog {
     /**
      * {@code startCoords} is -1 for the sky, whose fog shades the dome toward the horizon and stays
      * the game's; any other value is the world's fog.
+     *
+     * <p>The game's view distance is read from its settings, not from the renderer's own field: a
+     * shadowed field's name is not carried into the released jar by this build, and the first start
+     * of a game with one stopped there.
      */
     @Inject(method = "setupFog", at = @At("RETURN"))
     private void quadrature$sharedFog(int startCoords, float partialTicks, CallbackInfo ci) {
         if (startCoords != -1 && !quadrature$inClouds) {
-            DistantHook.fog(farPlaneDistance);
+            DistantHook.fog();
         }
     }
 }

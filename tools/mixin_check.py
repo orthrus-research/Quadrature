@@ -80,6 +80,20 @@ def main() -> None:
         if not built:
             sys.exit("No orthlib-mixinkit jar beside this checkout; build OrthLib's mixinkit or pass --mixinkit.")
         kit = built[-1]
+    # The check reads development names, where a shadowed member always resolves. In the released
+    # jar its name is not rewritten by this build, and the game stops when the Mixin is applied.
+    shadows = [
+        f"{source.relative_to(ROOT).as_posix()}:{number}"
+        for source in sorted((ROOT / "src" / "main" / "java").rglob("*.java"))
+        for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1)
+        if line.strip().startswith("@Shadow")
+    ]
+    if shadows:
+        sys.exit(
+            "A Mixin shadows a game member, which this build does not rename for the released jar: "
+            + ", ".join(shadows)
+            + ". Use an accessor or the game's own public state."
+        )
     classes = ROOT / "build" / "classes" / "java" / "main"
     resources = ROOT / "build" / "resources" / "main"
     if not (resources / CONFIGURATION).is_file() or not classes.is_dir():
