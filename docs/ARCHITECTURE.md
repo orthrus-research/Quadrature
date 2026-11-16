@@ -302,7 +302,8 @@ the driver and never mapped, each also the store of a buffer texture read with
   buffers take 77.8 MiB, inside the 128 MiB the shading work allows for materials and
   visibility. The buffers are to be sized to about one and a half times the most slots
   seen in use, once that has been measured in different places: forest, a cave system, a
-  built-up area, ocean. Only the forest tour has been measured: 6,406 slots at most.
+  built-up area, ocean. Only the forest tour has been measured: 6,406 slots at most. The
+  most slots in use is published and logged.
 - **Copying is bounded:** at most 64 bricks a frame, with their cells and lists, bricks
   before the entries that name them, and the whole lookup in one call when many entries
   change. Cubes are taken from the scene 512 a frame, so that a jump of the box's origin,

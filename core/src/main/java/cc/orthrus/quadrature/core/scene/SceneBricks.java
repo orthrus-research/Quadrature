@@ -54,6 +54,7 @@ public final class SceneBricks implements LightScene.Changes {
     private int freeCount;
     private int slots;
     private int bricksHeld;
+    private int mostBricksHeld;
     private int originX;
     private int originY;
     private int originZ;
@@ -257,6 +258,7 @@ public final class SceneBricks implements LightScene.Changes {
         } else {
             slot = freeCount > 0 ? freeSlots[--freeCount] : slots++;
             bricksHeld++;
+            mostBricksHeld = Math.max(mostBricksHeld, bricksHeld);
             if ((slot + 1) * BRICK_WORDS > bricks.length) {
                 bricks = java.util.Arrays.copyOf(bricks, Math.max(bricks.length * 2, (slot + 1) * BRICK_WORDS));
             }
@@ -335,6 +337,11 @@ public final class SceneBricks implements LightScene.Changes {
     /** Bricks in use. */
     public int bricksHeld() {
         return bricksHeld;
+    }
+
+    /** The most bricks ever in use at once: what room for bricks has to allow for. */
+    public int mostBricksHeld() {
+        return mostBricksHeld;
     }
 
     /** Changes whenever the lookup or a brick does. */

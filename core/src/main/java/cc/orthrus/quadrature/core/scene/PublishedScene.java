@@ -54,6 +54,8 @@ public final class PublishedScene {
     private int stateTexture;
     private long stateBytes;
     private long clampedCubes;
+    private int slotsInUse;
+    private int mostSlotsInUse;
 
     // What the host sets.
 
@@ -63,6 +65,12 @@ public final class PublishedScene {
         this.listTexture = listTexture;
         this.stateTexture = stateTexture;
         this.stateBytes = bytes;
+    }
+
+    /** Says how many brick slots are in use, and the most there have been. */
+    public void slots(int inUse, int most) {
+        slotsInUse = inUse;
+        mostSlotsInUse = most;
     }
 
     /** Notes a cube whose states were clamped to 256 when its cells were copied. */
@@ -157,6 +165,16 @@ public final class PublishedScene {
     /** The memory the three state buffers take. */
     public long stateBytes() {
         return stateBytes;
+    }
+
+    /** Brick slots in use this frame. */
+    public int slotsInUse() {
+        return slotsInUse;
+    }
+
+    /** The most brick slots ever in use at once. */
+    public int mostSlotsInUse() {
+        return mostSlotsInUse;
     }
 
     /** How many times a cube's states were clamped to 256. */

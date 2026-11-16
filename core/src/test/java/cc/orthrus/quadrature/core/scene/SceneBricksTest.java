@@ -142,6 +142,7 @@ class SceneBricksTest {
         assertEquals(SceneBricks.UNIFORM, bricks.entry(0, 0, 0));
         assertEquals(SceneBricks.NOT_AVAILABLE, bricks.entry(1, 0, 0));
         assertEquals(1, bricks.bricksHeld());
+        assertEquals(2, bricks.mostBricksHeld());
         assertEquals(2, bricks.slots());
         assertTrue((bricks.entry(0, 1, 0) & 0xFFFFFF) <= 1);
         assertTrue(freed <= 1);

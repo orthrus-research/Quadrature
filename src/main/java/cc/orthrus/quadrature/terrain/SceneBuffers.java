@@ -235,6 +235,7 @@ final class SceneBuffers {
             }
         }
         entriesCopied += entries;
+        published.slots(bricks.bricksHeld(), bricks.mostBricksHeld());
         published.endFrame();
         if (check && frames % CHECK_FRAMES == CHECK_FRAMES - 1) {
             check();
@@ -344,11 +345,11 @@ final class SceneBuffers {
         if (bricks == null) {
             return "; scene buffers not yet made";
         }
-        String line = String.format("; scene buffers %.1f MiB, %d bricks held, %d waiting, %d entries waiting, "
+        String line = String.format("; scene buffers %.1f MiB, %d bricks held, %d at most, %d waiting, %d entries waiting, "
                 + "%d cubes waiting, generation %d, %d bricks and %d entries copied, the whole lookup %d times, "
                 + "CPU %.3f ms last frame, %.3f ms mean, %.3f ms most",
-            published.bytes() / 1048576.0, bricks.bricksHeld(), bricks.bricksWaiting(), bricks.entriesWaiting(),
-            bricks.cubesWaiting(), published.generation(), bricksCopied, entriesCopied, wholeLookups, lastNanos / 1e6,
+            published.bytes() / 1048576.0, bricks.bricksHeld(), bricks.mostBricksHeld(), bricks.bricksWaiting(),
+            bricks.entriesWaiting(), bricks.cubesWaiting(), published.generation(), bricksCopied, entriesCopied, wholeLookups, lastNanos / 1e6,
             frames == 0 ? 0.0 : nanos / 1e6 / frames, mostNanos / 1e6);
         if (states) {
             line += String.format("; states %.1f MiB, table sent %d times, %d cubes clamped", published.stateBytes() / 1048576.0,
