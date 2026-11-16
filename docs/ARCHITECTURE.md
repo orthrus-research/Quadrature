@@ -218,13 +218,20 @@ with it on.
   texture and the two samplers, each layer's matrix from a position relative to the
   frame's origin to the layer's clip space, the frame before's matrix and origin, the
   box's side, the direction toward the light, and two generations. One changes whenever
-  what the texture holds may have, which while the sun moves is every frame. The other
-  changes only when the content can differ apart from the light's own motion: a mesh was
-  placed, replaced or released, or the box moved to another texel. How far the light may
-  turn before that matters is for the sampler to judge from the matrices.
-- **The map is drawn again every frame**, all the cubes held, at about 2.1 ms of GPU time.
-  Drawing it only when its content changed or the light has turned a set angle, and
-  publishing the matrix it was drawn through, would save most of that; it is not built.
+  the texture is drawn. The other changes only when its content can differ apart from the
+  light's own motion: a mesh was placed, replaced or released, or the box moved to another
+  texel.
+- **The map is kept between frames.** It is drawn again only when a mesh was placed,
+  replaced or released, when the player has moved into another texel of it, or when the
+  light has turned more than 0.1 degree since it was drawn
+  (`quadrature.shadow.turn`, in degrees). A frame that keeps it costs nothing: the light's
+  view is not searched and no commands are written for it. The matrices and origin
+  published are always the ones the map was drawn with; the direction toward the light of
+  the moment is published beside them, since shading uses that.
+- **Entities move every frame**, which a kept map does not allow for. The plan, of which
+  nothing is built: the terrain's depth stays one layer, drawn on the conditions above,
+  and entities go either on top of a copy of it made each frame or into a second layer
+  holding them alone, which a sampler compares against as well, taking the nearer.
 
 Not covered yet: entities and block entities in a light's view, which reaches into hosted
 drawing; jitter in the frame's contract.
@@ -244,6 +251,53 @@ drawing; jitter in the frame's contract.
 - Each source reports when it is settled: no build, load or refinement outstanding for
   the current view. The capture harness waits on this instead of discarding a first run
   ([VERIFICATION.md](VERIFICATION.md)). **Decided.**
+
+### 5.1 The scene for lighting
+
+Built behind `-Dquadrature.scene=true`, off otherwise: the world as lighting needs it,
+independent of any view. `LightScene` in `core`, from `TerrainHook.lightScene()`.
+
+- **A cell holds one number**, 16 bits: the game's identity for the block state there,
+  0 for air. It is taken from the snapshot the cube is meshed from, in the loop that
+  already reads every cell; that adds 0.01 ms to the 1.11 ms a cube takes.
+- **What a state does to light is kept once for the state**, not per cell: whether it
+  blocks light as an opaque whole cube does, its emission and how much light it holds
+  back, each 0 to 15. The values are the state's own; a block whose light depends on
+  where it stands is taken at those. A state past the 65,536 that 16 bits name is kept as
+  something solid and dark, and logged.
+- **Three answers for a cell:** air, a block, or not available. A cube not taken, because
+  it is not loaded or has not been meshed, is not available and never reads as empty.
+  Only meshed cubes are taken: a loaded cube without its six neighbors is not meshed, so
+  the outermost row of what the client holds is not available.
+- **A cube of one state keeps no cells.** The others keep 8 KiB of cells and a 512-byte
+  mask of the cells that block light, which is the mask the face links are found from.
+- **Change.** Every change advances one counter and the cube takes its value as its
+  generation. A consumer remembers the value it last saw and is told each cube changed
+  since, once, as updated or removed; one further behind than the 16,384 changes
+  remembered is told to take everything again. The unit of change is the cube.
+
+**For a shader**, behind `-Dquadrature.scene.gpu=true` as well: `PublishedScene`, from
+`TerrainHook.publishedScene()`. Two buffers of unsigned 32-bit integers, written through
+the driver and never mapped, each also the store of a buffer texture read with
+`texelFetch`.
+
+- **A lookup** with an entry for every cube position in the box the client holds cubes
+  in, 25 a side at a reach of twelve chunks, addressed by cube position wrapped by the
+  box's size, so that moving the box moves nothing. An entry says that nothing is known
+  of the cube, or that every cell holds the state named in it, or that the cube has a
+  brick at a slot. 61 KiB.
+- **Occupancy bricks**, one for each cube whose cells differ: a bit for each cell that
+  blocks light, cells ordered x fastest, then z, then y, and after them a bit for each
+  block of two cells a side in which any cell blocks light. 576 bytes; room is taken for
+  a brick for every cube of the box, 8.6 MiB.
+- **Copying is bounded:** at most 64 bricks a frame, bricks before the entries that name
+  them, and the whole lookup in one call when many entries change. Each frame the box's
+  origin cube, a generation and the entries copied are published.
+- **Not bounded:** when the box's origin jumps, as on a teleport, every cube of the box
+  is read again in that frame, which has taken 17.5 ms.
+
+Not built: the state of each cell on the GPU, the color of light a state emits or passes,
+shapes smaller than a cell, entities.
 
 ## 6. Near terrain
 
@@ -487,11 +541,15 @@ measurement; each line is revised when the phase that fills it measures its real
 | Left for the desktop, other programs and the driver | 2.0 GiB | |
 | Reserve: framebuffers, geometry buffer, depth pyramid, texture arrays, the game's own textures | 1.5 GiB | Phase 1 |
 | Near terrain arenas | 1.5 GiB | Phase 2 |
-| Distant terrain arenas | 2.0 GiB | Phase 4 |
+| Distant terrain arenas | 512 MiB | Phase 4 |
 | Shading: shadow maps, light volumes. The light's depth takes 64 MiB of it | 1.0 GiB | Phase 5 |
+| Not assigned | 1.5 GiB | |
 
 The first line is not arbitrary: the test machine had 2.2 GiB in use before the game
-started. The budget is computed at startup from the memory the driver reports as free, so
+started. The distant terrain line was 2.0 GiB until a survey for its design measured its
+use: 28 to 112.5 MiB at the default reach, about 123 MiB unclipped, 200 MiB at the high
+setting, and about a quarter more for crossfade. What that freed is not given to another
+line. The budget is computed at startup from the memory the driver reports as free, so
 a card with more memory, or a quieter desktop, gets larger pools in the same proportions.
 Streamed pools load freely below half their budget, evict unused data above it, and stop
 loading at nine tenths.
@@ -517,7 +575,8 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
 | A view as the input to visibility and drawing | Decided; built | |
-| The light's depth: one fixed, texel-snapped orthographic box drawn into a layer of an array texture | Built, behind a switch | Entities in it; further layers; what samples it |
+| The scene for lighting: a state number per cell, light properties per state, occupancy bricks under a wrapped lookup | Built, behind switches | States per cell on the GPU; color; the cost of a jump of the box |
+| The light's depth: one fixed, texel-snapped orthographic box drawn into a layer of an array texture, kept between frames | Built, behind a switch | Entities in it; further layers; what samples it |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |

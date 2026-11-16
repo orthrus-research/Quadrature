@@ -407,6 +407,38 @@ stage, in which the light's view is drawn.
 - **The driver** reported no error. While the light's view is drawn it repeats its warning
   that texture object 0 is bound to texture units 1 to 3; the depth program reads unit 0.
 
+### The light's depth kept, and the scene for lighting
+
+Measured 2026-11-16 on a fresh instance: the game's terrain twice, own terrain, and own
+terrain with the light's view, the scene for lighting and its buffers all on
+(`-Dquadrature.shadow=true -Dquadrature.scene=true -Dquadrature.scene.gpu=true`).
+
+| | Game | Own terrain | Own terrain, all three on |
+|---|---|---|---|
+| Frames passing | reference | 17 of 17 | 17 of 17 |
+| Worst changed fraction | | 0.0214% (`15-temperate_rainforest`) | 0.0536% (`07-boreal_forest`) |
+| Changed pixels, all 17 views, and outside the river | | 1,295 and 1,236 | 1,599 and 1,234 |
+| CPU, median | 0.64 ms | 0.45 ms | 0.17 ms |
+| GPU, median and most | 1.68 and 2.27 ms | 1.71 and 2.28 ms | 1.72 and 4.00 ms |
+| Meshing a cube | | 1.112 ms | 1.122 ms |
+| Frames per second at the captures, least | 120 | 120 | 112 |
+
+- **The player's image is unchanged:** 13 of 17 views are identical byte for byte with and
+  without the three; 829 pixels differ, 789 on the river and 40 elsewhere.
+- **The light's depth** was drawn in 14,047 frames and kept in 29,510. Nearly every draw
+  was for a mesh placed or released while terrain arrived after a teleport; 42 were for
+  another texel and none for the light turning, since the tour holds the hour still. Over
+  all frames the draw took 0.58 ms of GPU time a frame, 1.80 ms in a frame that drew.
+  Client-thread time fell below own terrain's without it, because a frame that keeps the
+  map neither searches the light's view nor writes its commands.
+- **The scene** held 13,179 of the 15,625 cubes loaded at the last view; the 2,446 others
+  are loaded and not meshed. 5,617 cubes had cells of their own, 46.6 MiB, and at most
+  6,406, 53.2 MiB; the rest held one state.
+- **The buffers:** 5,617 bricks in use at the end, none waiting; 43,829 bricks and 210,137
+  entries copied over the tour, the whole lookup 19 times; 0.019 ms a frame on the client
+  thread on average and 17.5 ms in the worst, a jump of the box.
+- **The driver** reported no error.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
