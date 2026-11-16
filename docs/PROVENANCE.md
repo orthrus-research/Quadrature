@@ -267,6 +267,14 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Source: original, on `FadePattern` in `core`. Facts used: the GLSL 4.60 specification
   (`gl_FragCoord`, `discard`).
 - Added: 2026-11-16
+### The sun's and the moon's directions
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/view/SunPath.java`, used by
+  `src/main/java/cc/orthrus/quadrature/terrain/MainView.java`
+- Source: original. Facts used: the game's celestial angle, from its public interface, and
+  spherical trigonometry. The tilt's convention, degrees toward the south at noon, is
+  agreed with the shading stage that reads the directions.
+- Added: 2026-11-16
+
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`

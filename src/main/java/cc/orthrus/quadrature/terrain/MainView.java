@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.view.SunPath;
 import cc.orthrus.quadrature.core.view.View;
 import cc.orthrus.quadrature.depth.DepthCalls;
 
@@ -17,6 +18,21 @@ import org.lwjgl.opengl.GL11;
  * to draw its first terrain layer: the matrices are the ones the game has just set for the world.
  */
 final class MainView {
+
+    /**
+     * {@code -Dquadrature.sun.tilt=<degrees>}, 0 unless set: how far toward the south the sun stands at
+     * noon. It leans the directions published toward the sun, the moon and the light, and the box the
+     * light's view is drawn in; the game's own sky is drawn as the game draws it.
+     */
+    static final double SUN_TILT = tilt();
+
+    private static double tilt() {
+        try {
+            return Double.parseDouble(System.getProperty("quadrature.sun.tilt", "0"));
+        } catch (NumberFormatException notANumber) {
+            return 0;
+        }
+    }
 
     private static final float[] MODEL_VIEW = new float[16];
     private static final float[] PROJECTION = new float[16];
@@ -51,15 +67,11 @@ final class MainView {
      * down, that holds what {@code main} sees.
      */
     static View alongLight(View view, View main, double partialTicks) {
-        // The sun circles the north-south axis: overhead at angle 0, in the east at three quarters.
-        double angle = Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks) * 2 * Math.PI;
-        double towardX = -Math.sin(angle);
-        double towardY = Math.cos(angle);
-        if (towardY < 0) {
-            towardX = -towardX;
-            towardY = -towardY;
-        }
-        return View.alongLight(view, main, towardX, towardY, 0);
+        // The sun circles the north-south axis: overhead at angle 0, in the east at three quarters;
+        // leaned toward the south where a tilt is set.
+        double[] toward = new double[3];
+        SunPath.towardLight(Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks), SUN_TILT, toward);
+        return View.alongLight(view, main, toward[0], toward[1], toward[2]);
     }
 
     /**
@@ -71,14 +83,7 @@ final class MainView {
      * @return the side of the box, in blocks
      */
     static double alongLight(View view, View main, double partialTicks, int texels, double[] toward) {
-        double angle = Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks) * 2 * Math.PI;
-        toward[0] = -Math.sin(angle);
-        toward[1] = Math.cos(angle);
-        toward[2] = 0;
-        if (toward[1] < 0) {
-            toward[0] = -toward[0];
-            toward[1] = -toward[1];
-        }
+        SunPath.towardLight(Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks), SUN_TILT, toward);
         // The cubes held lie in a square of twice the reach about the player; its diagonal is the most
         // any axis across the light can span.
         double side = Math.ceil(2 * Math.sqrt(2) * Math.max(main.across(), main.upward()) * 16);

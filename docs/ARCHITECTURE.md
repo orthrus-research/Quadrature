@@ -199,6 +199,13 @@ with it on.
   holds cubes in, so every cube held is inside it at any hour and whichever way the player
   faces. It is moved to a whole texel along the light's own axes, measured from the
   world's origin, so that the map does not shift by part of a texel as the player moves.
+- **The light's direction** is the sun's while it is above the horizon and the moon's
+  otherwise. `-Dquadrature.sun.tilt=<degrees>`, 0 unless set, leans their path toward the
+  south: with east +x, up +y, south +z, `a` the game's celestial angle as an angle (0 at
+  noon, a quarter turn at sunset) and `t` the tilt, the sun stands at
+  `(-sin a, cos a * cos t, cos a * sin t)` and the moon opposite. It leans the directions
+  published and the box the map is drawn in; the game draws its own sky without it.
+  `SunPath` in `core`.
 - **The target** is an array texture of 24-bit depth, 4,096 texels a side, one layer,
   64 MiB, counted in the shading pool. A texel is 0.13 of a block. Further layers with
   boxes of other sizes can be added; none is built. It can be sampled through either of
