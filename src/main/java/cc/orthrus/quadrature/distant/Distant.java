@@ -268,12 +268,24 @@ final class Distant {
                 bands();
             }
             squares();
+            // On the shaded path the water waits until the targets are written and then draws
+            // without writing depth. Off it, one draw holds all three layers as before.
+            program.water(DistantSettings.SHADED ? DistantProgram.WATER_LEFT : DistantProgram.WATER_WITH);
             lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
                 minecraft.world.getSunBrightness(partialTicks), cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
                 imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
             DistantHook.shaded(DistantSettings.SHADED && shade(minecraft, partialTicks, fading));
+            if (DistantSettings.SHADED) {
+                program.water(DistantProgram.WATER_ALONE);
+                lastDraws += program.draw(draws, arena, materials, modelView, projection, nearBox,
+                    minecraft.world.getSunBrightness(partialTicks), cover,
+                    (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
+                    imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
+                    joinBand);
+                program.water(DistantProgram.WATER_WITH);
+            }
             if (captured && DistantSettings.SHADED_IMAGES && DistantHook.shaded()) {
                 TargetImages.write(TerrainHook.shadingTargets(), travel.lastName());
             }

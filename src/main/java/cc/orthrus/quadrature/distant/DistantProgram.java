@@ -542,6 +542,22 @@ final class DistantProgram {
     private int recordBuffer;
     private final float[] viewProjection = new float[16];
 
+    /** The forward draw's layers: all three in order, the opaque two, or the water alone. */
+    static final int WATER_WITH = 0;
+    static final int WATER_LEFT = 1;
+    static final int WATER_ALONE = 2;
+
+    private int water = WATER_WITH;
+
+    /**
+     * Which layers the next forward draws hold. With the shaded path on, the opaque layers are
+     * drawn first and the water in a draw of its own after the targets are written, without
+     * writing depth; otherwise all three in one draw, as ever.
+     */
+    void water(int mode) {
+        water = mode;
+    }
+
     /**
      * Draws a frame's list: its three layers in turn, each with one indirect draw for each page that
      * has commands in it.
@@ -644,14 +660,25 @@ final class DistantProgram {
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, BIOMES_BINDING, materials.biomeBuffer());
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, commandBuffer);
         GL20.glUniform1i(overlayLocation, 0);
-        int draws = layers(list, arena, !targets);
-        if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX && !targets) {
+        boolean waterAlone = !targets && water == WATER_ALONE;
+        int draws;
+        if (waterAlone) {
+            // Over the opaque layers already drawn, and out of the depth: what is under water
+            // stays the bed for whatever reads the depth afterwards.
+            boolean wrote = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+            GL11.glDepthMask(false);
+            draws = layers(list, arena, false, true);
+            GL11.glDepthMask(wrote);
+        } else {
+            draws = layers(list, arena, true, !targets && water == WATER_WITH);
+        }
+        if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX && !targets && !waterAlone) {
             // The box view: the faces the box holds, in magenta, a little deeper than they lie.
             GL20.glUniform1i(overlayLocation, 1);
             GL20.glUniformMatrix4fv(projectionLocation, false, projection);
             // Not the water: its faces lie over the sea bed, and near water, which writes no depth,
             // cannot hide them. Without them, magenta seen through near water is a missing sea bed.
-            draws += layers(list, arena, false);
+            draws += layers(list, arena, true, false);
         }
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
         for (int binding = TILES_BINDING; binding <= BIOMES_BINDING; binding++) {
@@ -665,7 +692,7 @@ final class DistantProgram {
     }
 
     /** The frame's three layers, one indirect draw for each page that has commands in it. */
-    private int layers(TileDraws list, DistantArena arena, boolean water) {
+    private int layers(TileDraws list, DistantArena arena, boolean opaque, boolean water) {
         // The opaque layers are drawn unblended whatever the game left set. Water is drawn last, over
         // them, blended by its image's alpha as the game blends near water over its bed. The blend
         // state is put back as it was found.
@@ -675,7 +702,7 @@ final class DistantProgram {
         }
         int draws = 0;
         for (int layer = 0; layer < TileDraws.LAYERS; layer++) {
-            if (layer == TileDraws.WATER && !water) {
+            if (layer == TileDraws.WATER ? !water : !opaque) {
                 continue;
             }
             boolean blended = layer == TileDraws.WATER;

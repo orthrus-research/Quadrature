@@ -1824,11 +1824,11 @@ band's end is its last meshed column, and past it distant terrain is whole.
 measure from one place, so a seam would be a fault in one side's arithmetic and not a
 difference of origin.
 
-## 21. Proposal: distant water as inputs for shading
+## 21. Distant water as inputs for shading
 
-Not built. Section 14.4 and 16.4 say what the shader wants of water and that distant water
-has it; this is how it could be handed over, for near terrain and the shader thread to
-answer.
+Section 14.4 and 16.4 say what the shader wants of water and that distant water has it; this
+is how it is to be handed over. The proposal comes first as it was put; 21.1 is what near
+terrain, the shader thread and distant terrain agreed on it, and 21.2 the one step built.
 
 **Today.** Distant water is the third draw layer of the forward pass: flat top faces a ninth
 of a block under the block's top, no side faces, the biome's water tint times a flat color,
@@ -1880,29 +1880,101 @@ deliveries the first is preferred: it keeps the record layout private, costs one
 and gives near and far water one shape, which is what makes them shade alike. The second is
 kept only if the shader must have more than one water surface a pixel.
 
-**Questions for near terrain.**
+### 21.1 Agreed, 2026-11-16
 
-1. Will near terrain draw translucent terrain itself, and write water as inputs (a target)
-   or shade it forward in its own stage? Distant water should take whichever it takes.
-2. If a target: would near terrain make and publish the water set (one color, one depth,
-   window-sized, its framebuffer, a drawn-frame count) beside A to D, as it does those?
-3. Where in the frame may distant water draw once shading exists: is there to be a hook
-   after shading and before the game's translucent pass, and are the lit opaque color and
-   the opaque depth published as textures by then, as 6.6 says?
-4. Until near water fades at the join, distant water ends at near terrain's meshed columns.
-   When near terrain draws its own water, will it fade by the same band and pattern as its
-   opaque layers?
+**Who draws what.** Near terrain will in time draw translucent terrain itself, and water as
+stored inputs: a small water set written by near and distant water alike and shaded by a
+water pass of the shader's, inside the stage and before its display pass, reading the lit
+opaque radiance and the opaque depth. Other translucents stay forward. Distant terrain gets
+no second lighting path for water.
 
-**Questions for the shader thread.**
+**The water set, as drafted.** Near terrain makes and publishes it beside A to D, with the
+same drawn-frame gate, when it takes over near water.
 
-1. Is one water surface a pixel enough, the nearest, or is water behind water needed?
-2. Is tint, sky light, cover and depth, with the normal taken as up and the kind as given by
-   the target, everything wanted of distant water? In particular: is cover wanted at all
-   once the shader does its own absorption, and is 4 bits of sky light enough at a surface?
-3. Is a depth of its own for water acceptable, read beside the opaque depth, or is one depth
-   with water's distance in a color channel preferred?
-4. Distant water has no side faces and no flow, and its tops are flat at one level a column:
-   a waterfall or a step in a river is a missing wall of water at a distance. Does shading
-   need those faces, or is that left as a known difference?
-5. Should water beyond some distance stop being a translucent and be written into A to D as
-   an opaque surface of kind 100, so that the farthest rings cost nothing extra?
+| Part | Holds |
+|---|---|
+| Color, 8 bits a channel | The tint in red, green and blue. Alpha: sky light in the high 4 bits, cover in the low 4 |
+| Normal, two channels | Written by near water only; cleared means up, which is all distant water has |
+| Depth | Water's own, reversed as the others, cleared to 0 for no water |
+
+- One water surface a pixel, the nearest. The depth of water is the water depth against the
+  opaque depth.
+- Cover is the share of the pixel's cell that is water, for shores at coarse levels, and not
+  the water image's alpha: the stage works out transparency itself.
+- 4 bits of sky light are enough.
+- A flag for flowing or still water may be added by the shader thread.
+
+**Cover on this side.** Today a water material's cover is the mean alpha of the game's water
+image, one value for all water. A tile does not hold the share of a cell that is water: a
+column at any level is one column of runs from the sampler, taken as the whole cell, so a
+cell is water or it is not, and a shore at level 5 moves in steps of 32 blocks. To give the
+share, a coarse tile's build would sample each cell more than once, 2 by 2 or 4 by 4 columns
+(four or sixteen times the sampling of a coarse tile, which is most of its cost), or Riven's
+preview would answer it for a cell from what it already knows of the water's outline; and
+the face record would carry 4 more bits on water faces. Until then every distant water face
+writes full cover. Which of the two, and from which level, is open.
+
+**Far water.** Past the distance where the bed no longer reads through the water, about 512
+blocks, switched at one of the levels' boundaries so that the fade between levels covers it,
+water is written as an opaque surface into A to D: kind 100, albedo the tint undarkened,
+normal up, sky light as usual. Two conditions: the bed under it is not written there, and
+the distance is one number shared by all three, published by distant terrain beside
+`DistantHook.farthest()` for the shader to read. Not to be switched on until the stage
+shades water.
+
+**Side faces.** A waterfall's wall or a river's step missing at a distance is an accepted
+difference. Later, perhaps: side faces at level 0 where the step is more than a block.
+
+**The frame today.** Opaque and cutout terrain, the shading stage (lighting, then display
+into the game's picture), entities, the game's translucents. After the stage the picture is
+in display space: nothing of distant terrain's can refract or sample lit color against it.
+So for now distant water stays forward, after the opaque layers, writing no depth (21.2).
+
+**What waits on whom.**
+
+| What | Waits on |
+|---|---|
+| The water set made and published | Near terrain, when it draws near water |
+| Distant water written into the set | That, then distant terrain: one pass over the water layer |
+| The water pass | The shader thread, once the set exists |
+| The share of a cell that is water | Distant terrain, with Riven's preview if it is to answer it |
+| Far water into A to D, and the published distance | The stage shading water; then distant terrain |
+| Near water fading at the join by the band and pattern | Near terrain, when it draws near water |
+
+**Water at the join, until then.** Near water is the game's and runs whole to the view
+distance; distant water must not show where the game's water does. The rule here: a distant
+water fragment is dropped over a column near terrain's map calls meshed, band or no band,
+and drawn whole elsewhere. What that gives, by the state of a column:
+
+- *Meshed by near terrain, the game's water drawn:* one surface, the game's, in the band as
+  out of it. This is nearly all of the near field once it has settled.
+- *Meshed by near terrain, the game's water not yet built:* neither draws, and the bed shows
+  dry until the game builds its translucent layer there. The game builds that layer on its
+  own schedule, which near terrain's map does not see.
+- *Loaded and not meshed by near terrain:* distant water draws whole. If the game has built
+  its water there, both draw, one blended over the other at the same level. Such columns
+  are those that wait while a place arrives, and the outermost ring of loaded columns,
+  which near terrain never meshes. Whether the game draws water in that outermost ring was
+  not looked at in a run. The lighter patches of water at near terrain's outer edge in the
+  fourth and fifth runs lie where this would show; they were put down to near terrain's
+  drawing of water then, and which it is has not been shown.
+- *Not loaded:* distant water alone.
+
+So the rule gives one water surface over every meshed column the game has built, and has a
+case for both and a case for neither around it. Both follow from one thing: the game's water
+goes by what the game has built, and the map by what near terrain has meshed. A test by
+column loaded, and not meshed, would move the outermost ring from both to one, and turn
+waiting columns from both into neither wherever the game is the slower. Neither test is
+right until something says where the game's water is drawn, or near terrain draws it. Not
+changed; to be looked at in the join run, which shows that ring.
+
+### 21.2 Built: water after the targets, out of the depth
+
+On the shaded path only (`quadrature.distant.shaded=on`): the forward draw holds the opaque
+and leaf layers, the targets are written, and the water layer is then drawn alone, blended
+as before, with depth writes off and the mask put back as found. The opaque depth under
+distant water is then the bed's. This holds in every frame of the shaded path, also one in
+which the targets were not drawn. With the shaded path off, one draw holds all three layers
+with the same state as before; that code is not touched. The pass's own timer ends before
+the targets are written and so no longer counts the water on the shaded path. Not yet run in
+the game.
