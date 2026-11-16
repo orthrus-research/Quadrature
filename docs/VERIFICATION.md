@@ -498,6 +498,34 @@ instance (2026-11-16).
   vertex array with no attributes, are not exercised by it. The builder has since taken
   the rectangle from the quad; see below.
 
+### Coverage brought up to date
+
+One instance with the cube source at commit a8ebb701, which gives surface heights; the
+forest tour, own terrain, each run scored against the game's terrain in the same instance
+(2026-11-16).
+
+| Run | Passing views | Passes | Mean | Worst | Checks that differed |
+|---|---|---|---|---|---|
+| Coverage with its check | 17 of 17 | 786 | 0.606 ms, the check within it | 6.129 ms | 0 of 745 |
+| Coverage | 16 of 17 | 847 | 0.182 ms | 3.714 ms | |
+
+- **The map brought up to date is the map filled anew**: in 745 of 745 passes that
+  brought it up to date, a second map filled anew held the same state for every column.
+- **No column is left without an answer**: at every summary of both runs, no column with
+  its surface meshed lacked heights from the cube source. At the last view 552 of 625
+  columns have their surface meshed and 73 have it waiting.
+- **Cost.** Filling the map anew on every pass, with heights asked in the pass, took
+  0.558 ms on average; bringing it up to date takes 0.182 ms, of which 0.100 ms is the
+  scan and 0.078 ms asking for heights. The machine was under a load that was not
+  identified during the second run, in which meshes were built at a third of the first
+  run's rate at the slowest, so 0.182 ms is an upper bound. The mean is within 0.46 ms.
+- **The worst pass is open.** 3.714 ms came in the first 15 passes, while the world was
+  loading, and one ask of the cube source for a column's heights took up to 3.345 ms of
+  it. A worst pass under 2.5 ms depends on that call.
+- The second run's view 03 differs by 2.66%: it was captured with 11,608 meshes still
+  waiting under that load, and lacks the farthest terrain. It is not a difference of
+  coverage, which draws nothing.
+
 ### The cube source at commit 24f5ad89
 
 One instance prepared with the cube source at that commit, the forest tour, own terrain
@@ -597,8 +625,14 @@ run that differs from it in one thing.
   none.
 - The list of kinds in the build these runs used was revision 3, in which lamps' states
   were named the wrong way about and lava's emission was 0.95. Neither bears on whether
-  the program writes the targets as the table says. Revision 4's two changes, and reading
-  the list from a folder named at start, are unit tested and have not been run in the game.
+  the program writes the targets as the table says. Revision 4's two changes are unit
+  tested and have not been run in the game.
+- **The list read from a folder named at start** (2026-11-16, one instance): revision 6 of
+  the list, written over continued lines, gives 519 names, the count the list states; its
+  hash is the one the folder's manifest gives; of 1,058 blocks the list and the rule differ
+  on 179 and the rule gives no kind to a block the list does not name. A reader that took
+  each line by itself read 75 of the 519, which nothing else showed: a list read short is
+  now logged as `MATERIAL KINDS FAILED`.
 - **Cost, one view, not a measurement:** opaque terrain 2.21 to 3.37 ms on the GPU and
   0.45 to 0.67 ms on the CPU at the median, for drawing each opaque layer a second time.
 
@@ -627,6 +661,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.touch=true` | A page is written once, whole, when it is made |
 | `quadrature.terrain.storage=buffers` | No arena: each layer of each cube has a buffer of its own, drawn with a call of its own |
 | `quadrature.coverage=true` | Works out the coverage map and adds its counts and cost to the terrain summary |
+| `quadrature.coverage.check=true` | With coverage: each time the map is brought up to date, fills a second map anew and logs any column that differs; its time is counted in the pass |
 | `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
 | `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
 | `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |

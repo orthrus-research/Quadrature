@@ -148,4 +148,24 @@ class MaterialTableTest {
         // A name whose property has no value is passed over.
         assertEquals(MaterialKinds.NONE, kinds.kind("a:broken", property -> "true"));
     }
+
+    @Test
+    void aListWrittenOverSeveralLinesIsOneList() {
+        MaterialKinds kinds = MaterialKinds.parse(Arrays.asList(
+            "# a comment that ends in a backslash does not go on \\",
+            "block.110= \\",
+            "    a:oak_leaves \\",
+            "    a:birch_leaves\\",
+            "  a:lamp:inverted=true:powered=true",
+            "block.130= a:glass",
+            "block.111= a:fern \\"));
+        assertEquals(5, kinds.names());
+        assertEquals(110, kinds.kind("a:oak_leaves", property -> null));
+        assertEquals(110, kinds.kind("a:birch_leaves", property -> null));
+        assertEquals(110, kinds.kind("a:lamp", Map.of("inverted", "true", "powered", "true")::get));
+        assertEquals(MaterialKinds.NONE, kinds.kind("a:lamp", Map.of("inverted", "true", "powered", "false")::get));
+        assertEquals(130, kinds.kind("a:glass", property -> null));
+        // A list that goes on past the end of the file is taken as far as it goes.
+        assertEquals(111, kinds.kind("a:fern", property -> null));
+    }
 }

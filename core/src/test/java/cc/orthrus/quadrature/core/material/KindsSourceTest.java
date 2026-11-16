@@ -59,6 +59,32 @@ class KindsSourceTest {
         assertEquals(0, MaterialKinds.parse(source.lines()).names());
     }
 
+    @Test
+    void aListReadShortIsSaidToBeWrong() {
+        String text = "# Kinds, shared list revision 6. 5 entries.\nblock.110= \\\n  a:one a:two \\\n  a:three\nblock.130: a:four\nblock.140 a:five\n";
+        KindsSource source = KindsSource.read(null, () -> new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)));
+        assertEquals(6, source.revisionNumber());
+        assertEquals(5, source.statedEntries());
+        MaterialKinds kinds = MaterialKinds.parse(source.lines());
+        // Continued lines, and a key ended by an equals sign, a colon or space alone.
+        assertEquals(5, kinds.names());
+        assertEquals(110, kinds.kind("a:three", property -> null));
+        assertEquals(130, kinds.kind("a:four", property -> null));
+        assertEquals(140, kinds.kind("a:five", property -> null));
+        assertEquals(null, source.wrongCount(kinds.names(), -1));
+        // Read without joining its lines, as a reader that took each line by itself would.
+        assertTrue(source.wrongCount(2, -1).contains("says it has 5"));
+        // A list that states no count is judged by its revision: the sixth has hundreds of names.
+        KindsSource plain = KindsSource.read(null,
+            () -> new ByteArrayInputStream("# revision 6\nblock.130= a:glass\n".getBytes(StandardCharsets.UTF_8)));
+        assertEquals(-1, plain.statedEntries());
+        assertTrue(plain.wrongCount(75, -1).contains("revision 6"));
+        assertEquals(null, plain.wrongCount(519, -1));
+        // The revision may be stated from outside, by a manifest.
+        KindsSource old = KindsSource.read(null, SHIPS);
+        assertEquals(null, old.wrongCount(1, -1));
+        assertTrue(old.wrongCount(1, 6).contains("revision 6"));
+    }
     /** A folder of the build's own, emptied: the system's temporary folder is not always one that can be cleared. */
     private static Path folder(String name) throws Exception {
         Path folder = java.nio.file.Paths.get("build", "kinds-source-test", name);

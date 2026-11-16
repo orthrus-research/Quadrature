@@ -102,6 +102,51 @@ public final class KindsSource {
         return revision;
     }
 
+    /** The number after the word revision in the list's revision line, or -1 where it names none. */
+    public int revisionNumber() {
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile("(?i)revision\\s+(\\d+)").matcher(revision);
+        return found.find() ? Integer.parseInt(found.group(1)) : -1;
+    }
+
+    /** How many entries a comment of the list says it has, as "519 entries", or -1 where none says. */
+    public int statedEntries() {
+        java.util.regex.Pattern count = java.util.regex.Pattern.compile("(\\d[\\d,]*)\\s+entries");
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("#") || trimmed.startsWith("!")) {
+                java.util.regex.Matcher found = count.matcher(trimmed);
+                if (found.find()) {
+                    return Integer.parseInt(found.group(1).replace(",", ""));
+                }
+            }
+        }
+        return -1;
+    }
+
+    /** The fewest names a list of the sixth revision or later can hold and still have been read whole. */
+    public static final int LEAST_FROM_REVISION_6 = 400;
+
+    /**
+     * Says what is wrong with how many names were read from the list, or null where nothing is: fewer
+     * or more than the list itself says it has, or too few for its revision. A list read short draws
+     * wrong materials with no other sign.
+     *
+     * @param names    how many names were read
+     * @param revision the list's revision where something else states it, or -1 to take the list's own
+     */
+    public String wrongCount(int names, int revision) {
+        int stated = statedEntries();
+        if (stated >= 0) {
+            // The list's own count settles it either way.
+            return stated == names ? null : names + " names were read where the list says it has " + stated;
+        }
+        int number = revision >= 0 ? revision : revisionNumber();
+        if (number >= 6 && names < LEAST_FROM_REVISION_6) {
+            return names + " names were read from a list of revision " + number + ", which has at least " + LEAST_FROM_REVISION_6;
+        }
+        return null;
+    }
+
     /** The SHA-256 of the bytes read, in hexadecimal, or nothing where there was no list. */
     public String sha256() {
         return sha256;

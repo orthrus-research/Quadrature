@@ -20,7 +20,10 @@ package cc.orthrus.quadrature.core.terrain;
  * <li>{@link #SURFACE_MESHED}: the surface cube holds a mesh and the cube beneath it does not wait.</li>
  * </ul>
  *
- * <p>Filled anew each time: {@link #begin}, {@link #cube} for every cube held, {@link #finish}.
+ * <p>Filled anew: {@link #begin}, {@link #cube} for every cube held, {@link #finish}. Or, while the box
+ * stays where it is, brought up to date: {@link #update}, {@link #cube} for each cube whose state has
+ * changed, with {@link #CUBE_GONE} for one no longer held, then {@link #finish}, which works out again
+ * only the columns that were touched.
  */
 public final class CoverageMap {
 
@@ -31,6 +34,7 @@ public final class CoverageMap {
     public static final byte SURFACE_MESHED = 3;
 
     /** What is known of a cube, as {@link #cube} is told it. A cube not told of is not held. */
+    public static final byte CUBE_GONE = 0;
     public static final byte CUBE_HELD = 1;
     /** Meshed, and it draws nothing: air, or solid wholly enclosed. */
     public static final byte CUBE_EMPTY = 2;
@@ -49,7 +53,9 @@ public final class CoverageMap {
     private int sizeY;
     private byte[] cubes = new byte[0];
     private byte[] columns = new byte[0];
-    private byte[] previous = new byte[0];
+    private boolean[] touched = new boolean[0];
+    private boolean all = true;
+    private int unanswered;
     private int[] surface = new int[0];
     private int[] bandLow = new int[0];
     private int[] bandHigh = new int[0];
@@ -73,11 +79,28 @@ public final class CoverageMap {
             columns = new byte[sizeX * sizeX];
             bandLow = new int[sizeX * sizeX];
             bandHigh = new int[sizeX * sizeX];
-            previous = new byte[sizeX * sizeX];
+            touched = new boolean[sizeX * sizeX];
             surface = new int[sizeX * sizeX];
         }
         java.util.Arrays.fill(cubes, (byte) 0);
         java.util.Arrays.fill(bandLow, NONE);
+        all = true;
+    }
+
+    /** Whether the map holds the box that reaches so far about that origin: only then may it be brought up to date. */
+    public boolean holds(int originCubeX, int originCubeY, int originCubeZ, int across, int upward) {
+        return originCubeX == originX && originCubeY == originY && originCubeZ == originZ && across == this.across
+            && upward == this.upward;
+    }
+
+    /**
+     * Starts bringing the map up to date for the same box: what it knows of every cube and band stays,
+     * and only what {@link #cube}, {@link #band} and {@link #noBand} change before {@link #finish} is
+     * worked out again.
+     */
+    public void update() {
+        moved = false;
+        all = false;
     }
 
     /**
@@ -90,8 +113,22 @@ public final class CoverageMap {
         int x = cubeX - originX + across;
         int z = cubeZ - originZ + across;
         if (x >= 0 && x < sizeX && z >= 0 && z < sizeX) {
-            bandLow[z * sizeX + x] = lowestCubeY;
-            bandHigh[z * sizeX + x] = highestCubeY;
+            int column = z * sizeX + x;
+            if (bandLow[column] != lowestCubeY || bandHigh[column] != highestCubeY) {
+                bandLow[column] = lowestCubeY;
+                bandHigh[column] = highestCubeY;
+                touched[column] = true;
+            }
+        }
+    }
+
+    /** Says that nothing tells where a column's surface band lies any more: it is judged by scanning again. */
+    public void noBand(int cubeX, int cubeZ) {
+        int x = cubeX - originX + across;
+        int z = cubeZ - originZ + across;
+        if (x >= 0 && x < sizeX && z >= 0 && z < sizeX && bandLow[z * sizeX + x] != NONE) {
+            bandLow[z * sizeX + x] = NONE;
+            touched[z * sizeX + x] = true;
         }
     }
 
@@ -100,8 +137,9 @@ public final class CoverageMap {
         int x = cubeX - originX + across;
         int y = cubeY - originY + upward;
         int z = cubeZ - originZ + across;
-        if (x >= 0 && x < sizeX && y >= 0 && y < sizeY && z >= 0 && z < sizeX) {
+        if (x >= 0 && x < sizeX && y >= 0 && y < sizeY && z >= 0 && z < sizeX && cubes[(y * sizeX + z) * sizeX + x] != state) {
             cubes[(y * sizeX + z) * sizeX + x] = state;
+            touched[z * sizeX + x] = true;
         }
     }
 
@@ -111,14 +149,21 @@ public final class CoverageMap {
      * @param maxCubeY the highest cube the world has: nothing lies above it
      */
     public void finish(int maxCubeY) {
-        byte[] swap = previous;
-        previous = columns;
-        columns = swap;
         java.util.Arrays.fill(counts, 0);
+        unanswered = 0;
         boolean changed = moved;
         for (int z = 0; z < sizeX; z++) {
             for (int x = 0; x < sizeX; x++) {
                 int column = z * sizeX + x;
+                if (!all && !touched[column]) {
+                    // Nothing of this column changed: it is as it was.
+                    counts[columns[column]]++;
+                    if (columns[column] == SURFACE_MESHED && bandLow[column] == NONE) {
+                        unanswered++;
+                    }
+                    continue;
+                }
+                touched[column] = false;
                 int top = sizeY - 1;
                 while (top >= 0 && cubes[(top * sizeX + z) * sizeX + x] == 0) {
                     top--;
@@ -157,10 +202,13 @@ public final class CoverageMap {
                         state = found == CUBE_MESHED && beneath != CUBE_HELD ? SURFACE_MESHED : SURFACE_WAITING;
                     }
                 }
+                changed |= state != columns[column];
                 columns[column] = state;
                 surface[column] = at;
                 counts[state]++;
-                changed |= state != previous[column];
+                if (state == SURFACE_MESHED && bandLow[column] == NONE) {
+                    unanswered++;
+                }
             }
         }
         if (changed) {
@@ -203,6 +251,11 @@ public final class CoverageMap {
     /** How many columns are in a state. */
     public int count(byte state) {
         return counts[state];
+    }
+
+    /** How many columns have their surface meshed and no band told for them: judged by the scan alone. */
+    public int meshedWithoutBand() {
+        return unanswered;
     }
 
     /** Changes whenever a column's state does, or the box moves. */
