@@ -15,7 +15,8 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * {@code -Dquadrature.distant.travelCapture} lists delays in milliseconds
  * ({@code 500,2000,5000,12000}). Each time the viewer jumps more than 8 blocks, as a teleport
  * does, a frame is saved at every delay after the jump, at the end of that frame's world pass,
- * into the game's screenshots as {@code quadrature-travel-<jump>-<delay>ms.png}. The first frame
+ * into the game's screenshots as {@code travel-<jump>-<delay>ms.png}, a name that sorts after the
+ * lab's own {@code riven-view-} captures, which its launcher files by name. The first frame
  * of a world counts as jump 0. A jump before the last delay drops the delays not yet reached.
  *
  * <p>A still, settled capture never shows tiles arriving, a tile fading in, or the coverage map
@@ -59,7 +60,7 @@ final class TravelCapture {
         lastY = viewer.posY;
         lastZ = viewer.posZ;
         if (next < DELAYS.length && (now - jumpedAt) / 1_000_000L >= DELAYS[next]) {
-            due = String.format("quadrature-travel-%02d-%05dms.png", jump, DELAYS[next]);
+            due = String.format("travel-%02d-%05dms.png", jump, DELAYS[next]);
             Quadrature.LOGGER.info("Travel capture: {} {} ms after the jump", due, (now - jumpedAt) / 1_000_000L);
             next++;
             return true;

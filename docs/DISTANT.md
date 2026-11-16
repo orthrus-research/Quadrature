@@ -279,7 +279,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
-| `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `quadrature-travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it (section 17) |
+| `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it (section 17) |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
 looked for once a frame: the source has one listener, which near terrain holds, so its
@@ -1266,7 +1266,7 @@ are built and not yet run in a game; none changes what the forward path draws.
 
 ## 17. A tour of distant terrain in travel
 
-Built and not run. Every run so far captured stills after a settle, which never show a tile
+Run once, 2026-11-16 (17.1). Every run so far captured stills after a settle, which never show a tile
 arriving, its fade over 24 frames, the coverage map handing columns over, or a ring moving.
 
 **What the lab's tools do today.** A tour is a list of views; the launcher teleports to each
@@ -1279,7 +1279,7 @@ None of that is changed.
 **What is added, in this mod and its own runner only.**
 `-Dquadrature.distant.travelCapture=500,2000,5000,12000` (`TravelCapture`): each time the
 viewer jumps more than 8 blocks, a frame is saved at every listed delay after the jump, at the
-end of that frame's world pass, as `quadrature-travel-<jump>-<delay>ms.png` in the game's
+end of that frame's world pass, as `travel-<jump>-<delay>ms.png` in the game's
 screenshots, and the log's summary (tiles stored by level, the coverage map's counts) is
 written beside each. The first frame of a world is jump 0. The launcher's own teleports are
 the jumps, so a tour needs nothing more; where it lowers the player in steps each step is a
@@ -1304,3 +1304,49 @@ left over a finer one. The same tour in the level view shows which level each pi
 
 **Not covered still:** continuous motion, which needs a flight and a video or a run of frames
 a tick apart.
+
+### 17.1 The seventh run
+
+Two runs under one lease on the build at e4df9ef, neither with an error: the travel tour, and
+the sixth run's still tour on a twin instance with the long settle, for comparison.
+
+**The still tour against the sixth run.** Every row that should not change is identical in
+`ground_west`, `ground_join` and `above_west`; in `coast_join` only near water differs, by
+about 1 of 255, as between earlier runs. What changed is what the light under a branch was
+meant to change: in `above_west` 2,637 pixels of distant terrain, every one darker than 30
+before and none darker after; pixels darker than 22 in distant rows fell from 2,120 to 110,
+and grass at a fifth of its color from 476 to 2. So the entry's third word, the published far
+distance and the split of the fragment stage's last step left the forward look as it was.
+788 tiles of 788, arena 42.4 MiB, GPU 2.63 ms mean.
+
+**The travel tour.** Seconds after distant terrain's first frame in the world:
+
+| When | Stored of 764 | Levels | Columns meshed of 625 | The frame |
+|---|---|---|---|---|
+| 0.5 to 24 | 0 | none | 474 to 529; 0 to 529 after the far jump | Near terrain and sky |
+| 31 | 4 | 6 | 529 | A strip of far land on a dark slab |
+| 92 | 92 | 6 whole, 5 half | 552 | A tall dark wall across the view |
+| 100 | 284 | 6 to 4 whole, 3 in part | 507 | Land at the horizon, a dark wall under it down to near terrain |
+| 112 | 557 | 6 to 2 whole, 1 half | 552 | Whole but for a dark gap past near terrain and a pit at one side |
+| 121 | 709 | 1 whole, 0 in part | 506 | Whole from this view |
+| 125 | 764 | all | 552 | Whole |
+
+- **A view is whole about 125 seconds after a join.** The first tile takes 30 seconds and
+  level 6 alone 90; levels 5 to 0 then come in 35. Level 0, nearest the viewer, is last.
+- **After a step of 32 blocks** with everything stored, the frame half a second later is
+  whole. Near terrain's columns are handed over within 2 seconds: 506 meshed at half a
+  second, 552 at 2.
+- **The tour's fault.** Its far jump came 9 seconds after the join, before any tile was
+  stored, so the time to a whole view after a jump was not measured apart from the join's.
+  A travel tour must stand until all is stored before it jumps.
+- **Not seen because not captured:** a tile's fade over 24 frames, and whatever near
+  terrain's map interval of 20 frames leaves at the trailing edge; the delays are seconds.
+
+**A defect: skirts show while finer levels are missing.** A tile's skirt faces have no material
+and no light and are meant to be hidden by the tile beside them. Inside a ring's hole the
+tiles beside them are the finer level's, and until those are stored the skirts on the hole's
+sides are in plain view: a dark wall from the surface to the world's floor, from about 30 to
+120 seconds after a join. Open: how to close it. A skirt in the ground's color would only
+make the wall less strange. What is wanted is no open hole: a coarser tile drawn over ground
+whose finer tiles are not stored yet, giving way to them as they arrive, which the crossfade's
+partner flags already describe for the band.
