@@ -70,6 +70,14 @@ final class DistantSettings {
     static final boolean FILL = !"off".equals(System.getProperty("quadrature.distant.fill", "on"));
 
     /**
+     * {@code quadrature.distant.shaded}: {@code on} also draws distant terrain's opaque layers into
+     * near terrain's targets for shading, where near terrain makes them
+     * ({@code -Dquadrature.gbuffer=true}). Off by default. The forward picture is drawn either way and
+     * is not changed by it.
+     */
+    static final boolean SHADED = "on".equals(System.getProperty("quadrature.distant.shaded", "off"));
+
+    /**
      * {@code quadrature.distant.joinFade}: {@code on} lets distant terrain fade in across near
      * terrain's last blocks, where near terrain fades out, in place of ending where near terrain's
      * columns begin. Off by default, and with no effect unless near terrain says that it fades and

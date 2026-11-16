@@ -3,6 +3,8 @@ package cc.orthrus.quadrature.distant;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.BuiltTile;
 import cc.orthrus.quadrature.core.lod.Cover;
+import cc.orthrus.quadrature.core.material.MaterialTable;
+import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
 import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.Rings;
@@ -32,6 +34,7 @@ import net.minecraft.entity.Entity;
 
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL33;
 
 import java.util.ArrayList;
@@ -106,6 +109,9 @@ final class Distant {
         }
     });
     private final LongArrayList spared = new LongArrayList();
+    private long shadedGeneration = Long.MIN_VALUE;
+    private int lastShadedDraws;
+    private final java.nio.IntBuffer viewport = org.lwjgl.BufferUtils.createIntBuffer(16);
     /** The band the join fades over this frame, start then end, or null. */
     private float[] joinBand;
     /** For the draw: a bit for each tile of each level's square that is shown, and where the squares lie. */
@@ -254,6 +260,7 @@ final class Distant {
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
                 imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
+            DistantHook.shaded(DistantSettings.SHADED && shade(minecraft, partialTicks, fading));
             DriverMessageAccess.leave();
         } else {
             lastDraws = 0;
@@ -563,6 +570,54 @@ final class Distant {
         lastTilesInBox = inBox;
     }
 
+    /**
+     * Draws the opaque layers into near terrain's targets for shading, where it made them this
+     * frame: after its last cutout layer, which is when this world pass's draw runs, and before
+     * anything reads them. Depth there is near terrain's own, reversed, and is tested as the frame's
+     * is; nothing is cleared; the alpha test and blending are off while it draws, and the
+     * framebuffer, the viewport and those two are put back.
+     *
+     * @return whether the targets were drawn into
+     */
+    private boolean shade(Minecraft minecraft, float partialTicks, boolean fading) {
+        ShadingTargets targets = TerrainHook.shadingTargets();
+        MaterialTable table = TerrainHook.materials();
+        if (targets == null || table == null || targets.framebuffer() == 0 || targets.generation() == shadedGeneration) {
+            // No targets, or near terrain did not draw them this frame: nothing to add to.
+            return false;
+        }
+        shadedGeneration = targets.generation();
+        int framebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+        GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
+        boolean alpha = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
+        boolean blend = GL11.glIsEnabled(GL11.GL_BLEND);
+        if (alpha) {
+            GL11.glDisable(GL11.GL_ALPHA_TEST);
+        }
+        if (blend) {
+            GL11.glDisable(GL11.GL_BLEND);
+        }
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, targets.framebuffer());
+        GL11.glViewport(0, 0, targets.width(), targets.height());
+        try {
+            lastShadedDraws = program.drawTargets(draws, arena, materials, modelView, projection, nearBox,
+                minecraft.world.getSunBrightness(partialTicks), cover,
+                (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
+                imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand,
+                table.bytes(), table.version());
+        } finally {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer);
+            GL11.glViewport(viewport.get(0), viewport.get(1), viewport.get(2), viewport.get(3));
+            if (alpha) {
+                GL11.glEnable(GL11.GL_ALPHA_TEST);
+            }
+            if (blend) {
+                GL11.glEnable(GL11.GL_BLEND);
+            }
+        }
+        return true;
+    }
+
     /** Which tiles of each level's square are shown this frame, and where each square begins. */
     private void squares() {
         arrival.masks(shownMasks);
@@ -636,6 +691,9 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(!DistantSettings.SHADED ? String.format("%n  shaded path: off")
+            : String.format("%n  shaded path: on; opaque layers %s near terrain's targets, %d draws",
+                DistantHook.shaded() ? "drawn into" : "not drawn into (none made this frame)", lastShadedDraws));
         line.append(joinBand == null ? String.format("%n  join fade: off")
             : String.format("%n  join fade: distant terrain fades in from %.0f to %.0f blocks over near terrain's columns%s",
                 joinBand[0], joinBand[1], DistantSettings.JOIN_FADE_DEBUG != null ? " (debug band, whatever near terrain does)" : ""));

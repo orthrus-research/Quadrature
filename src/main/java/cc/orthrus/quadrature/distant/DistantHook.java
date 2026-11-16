@@ -32,6 +32,7 @@ public final class DistantHook {
     private static boolean fogSaid;
     private static float farthest;
     private static float nearFadeStart;
+    private static boolean shaded;
     private static float nearFadeEnd;
     private static final float[] JOIN_BAND = new float[2];
     private static int farthestGeneration;
@@ -125,6 +126,19 @@ public final class DistantHook {
     public static void nearFades(float start, float end) {
         nearFadeStart = start;
         nearFadeEnd = end;
+    }
+
+    /** Told by distant terrain each world pass: whether it drew into the targets for shading. */
+    static void shaded(boolean now) {
+        shaded = now;
+    }
+
+    /**
+     * Whether distant terrain's opaque layers were drawn into near terrain's targets for shading in
+     * the last world pass. Where they were not, a shading stage has only near terrain in the targets.
+     */
+    public static boolean shaded() {
+        return shaded;
     }
 
     /** The band distant terrain fades in over this frame, start then end, or null for none. */

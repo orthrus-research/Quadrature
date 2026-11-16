@@ -278,6 +278,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
 | `quadrature.distant.fill` | `on` | `on`: every level also takes the tiles inside its own hole and draws them until finer tiles are stored, so no hole is open while distant terrain arrives (section 18). `off`: each level its ring only |
 | `quadrature.distant.order` | `near` | `near`: the coarsest level's fill tiles, then every level from the finest outward. `coarse`: the coarsest level first. Needs fill tiles (sections 18, 19) |
+| `quadrature.distant.shaded` | `off` | `on`: the opaque layers are also drawn into near terrain's targets for shading, where it makes them (section 16.8). The forward picture is unchanged |
 | `quadrature.distant.joinFade` | `off` | `on`: distant terrain fades in across near terrain's last blocks. No effect unless near terrain says it fades (section 20) |
 | `quadrature.distant.joinFadeBand` | none | `start,end` in blocks: a debug view of distant terrain's half of that fade alone, whatever near terrain does |
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
@@ -1258,15 +1259,67 @@ are built and not yet run in a game; none changes what the forward path draws.
 7. (wait) The near join's fade on both sides, with near terrain's half behind its switch.
 8. The pattern's frame from the published frame index, once there is one.
 
-### 16.7 What near terrain must expose that it does not yet
+### 16.7 What near terrain exposes now, and what it does not yet
 
-- `TerrainHook.shadingTargets()`.
-- The material table and how a state's number is made, as an interface and not as
-  `CubeMesher`'s own code.
-- A call or a stage at which distant opaque is to draw, between its cut-out layer and shading,
-  with the targets bound; and one after shading for water.
-- The opaque color and depth under translucents.
-- The frame index its history targets use.
+In this branch since near terrain's merge at f78878e: `TerrainHook.shadingTargets()` (the
+framebuffer, four textures, the depth, their size, a generation that moves each frame they are
+drawn), `TerrainHook.materials()` (the table, eight bytes a state) and
+`TerrainHook.material(state)` (a state's number, filling its row). Its contract is
+[ARCHITECTURE.md](ARCHITECTURE.md), section 6.6, which is the authority for the targets'
+layout; where 16.3 differed it is corrected here:
+
+- B is sky light in red, emission in green, block light in blue; alpha 0.375.
+- D for a surface that is not a metal is reflectance in red and subsurface in green, blue 0;
+  for a metal its linear albedo. Its alpha is occlusion.
+- Albedo is made linear by the exact sRGB curve before its square root is taken.
+
+Not there yet: a stage in the frame for distant opaque terrain (it is drawn from the Mixin
+that draws the forward pass, which runs after near terrain's last cutout layer); the opaque
+color and depth under translucent surfaces; a frame index.
+
+### 16.8 Built: the opaque pass into the targets
+
+Behind `quadrature.distant.shaded`, off by default; not run in a game.
+
+After the forward draw, and only in a frame in which near terrain drew its targets (their
+generation moved), the opaque and leaf layers are drawn again through the published
+framebuffer: its viewport, the alpha test and blending off, nothing cleared, the depth test as
+the frame has it, which with reversed depth is nearer-or-equal against near terrain's own
+depth; the framebuffer, the viewport and those two states are put back. The faces, the
+coverage rule, the fades and the surface are the forward pass's; only the fragment stage's
+last step differs (`TARGETS_OUTPUT` for `FORWARD_OUTPUT`):
+
+- A: the face's direction as a world normal; roughness from the table.
+- B: the face's sky light over 15, emission from the table, block light 0, 0.375.
+- C: the square root of the linear albedo, which is the image or flat color with the biome's
+  tint; 1 for a conductor.
+- D: reflectance and subsurface from the table, or the linear albedo for a conductor; alpha,
+  1 less 0.08 for each cell that closes the corner in.
+
+The table is near terrain's, copied to a buffer of distant terrain's own when its version
+changes; a face finds its row by the state number in its material's third word, which is now
+asked of `TerrainHook.material` so that the row is filled. `DistantHook.shaded()` says whether
+the last pass drew into the targets.
+
+**Water** is not drawn into the targets and writes no depth there. Until there is a place for
+it after shading it is drawn as now, forward, into the frame; with the forward picture still
+the player's, nothing is lost.
+
+**The forward path is unchanged**, switch on or off: both of its stages hold the statements
+they held, in their order, with only the declarations and assignments of four new values the
+targets need.
+
+**Unclear, asked and not guessed:**
+
+- Occlusion's scale. Near terrain writes the game's own vertex occlusion; distant terrain's is
+  its own, 0.08 a closed cell, chosen for the forward look. Whether D's alpha should be on the
+  game's scale is the shader's to say.
+- Leaves. Distant crowns are solid and in the far color, which already holds the darkening of
+  their gaps; near leaves are cut out with their own albedo. The same crown is therefore a
+  little darker in albedo far than near, before any light.
+- Sky light under leaves and beside walls is the tile's simple column light, not the game's.
+- A tile fading in or a band fading writes the targets by the pattern, as it writes the frame:
+  a kept pixel carries one level's surface whole, never a mix.
 
 ## 17. A tour of distant terrain in travel
 
@@ -1361,6 +1414,44 @@ sides are in plain view: a dark wall from the surface to the world's floor, from
 make the wall less strange. What is wanted is no open hole: a coarser tile drawn over ground
 whose finer tiles are not stored yet, giving way to them as they arrive, which the crossfade's
 partner flags already describe for the band.
+
+### 17.2 The eighth run
+
+Two runs under one lease on the build at 9b54e86, on Cubature a8ebb701 on both sides, which
+joined and ran: the arrival tour, and the same in the level view on a twin instance. No error
+in the first; in the second one line from Netty's leak detector on the client's network
+thread at the join, not from this mod.
+
+**Cold join**, seconds after distant terrain's first frame, from the log's lines 5 seconds
+apart, beside the seventh run and the measurement without a game (section 19):
+
+| | Eighth run | Seventh run | Without a game |
+|---|---|---|---|
+| First tile | about 35 | about 31 | 19 |
+| Coarse cover: the coarsest level's 12 fill tiles | 55 | none | 34 |
+| Level 0 whole | 65 | 121 to 125 | 46 |
+| Levels 1 to 4 whole | 80, 85, 90, 90 | | 56 to 68 |
+| All | 130 | 125 | 107 |
+
+Cubature's pool gave 2 threads at once for the first 50 seconds and 4 after, which with the
+game's own loading is the difference from the measurement.
+
+**After a jump of 2 km** with everything stored: 316 tiles of the old place still applied half
+a second later; level 0 whole within 12 seconds, all within 30. After a step of 32 blocks:
+whole within 2 seconds.
+
+**No wall and no hole** in any frame. At 60 seconds after the join: near terrain, level 0
+about it, coarse ground to the horizon. Half a second after the jump, with none of near
+terrain's columns meshed, coarse ground under the whole view.
+
+**Cost.** GPU 2.3 to 2.6 ms mean at rest, as before the cover's lookup; 4.3 for a moment 12
+seconds after the jump, with 408 tiles of the old place kept and 647 drawn. 764 tiles at
+rest, arena 40 MiB. Fill tiles let go: 12 after the join, 56 by the end, most of them tiles
+of the old place that lay inside a hole at the new one.
+
+**Still drawn twice:** tiles kept past their ring. Five seconds after the jump the level view
+shows several levels' colors mixed on far ground, kept tiles over what replaces them, for up
+to 30 seconds. Not seen as a fault in the normal look.
 
 ## 18. Arrival: no hole and no wall
 

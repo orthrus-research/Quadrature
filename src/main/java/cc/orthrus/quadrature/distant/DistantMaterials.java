@@ -3,6 +3,7 @@ package cc.orthrus.quadrature.distant;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.MaterialTable;
 import cc.orthrus.quadrature.core.lod.RunTile;
+import cc.orthrus.quadrature.terrain.TerrainHook;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockLeaves;
@@ -158,8 +159,10 @@ final class DistantMaterials {
                 image(2 * index, null, 0xFFFFFF);
                 image(2 * index + 1, null, 0xFFFFFF);
             }
-            // The state's number as near terrain numbers it, for the table the two will share.
-            MaterialTable.put(entries, index, top, side, Block.getStateId(state));
+            // The state's number as near terrain numbers it, for the table the two share. Asking
+            // near terrain for it fills the state's row there if near terrain has not met the state.
+            int number = DistantSettings.SHADED ? TerrainHook.material(state) : -1;
+            MaterialTable.put(entries, index, top, side, number >= 0 ? number : Block.getStateId(state));
         }
         colored = size;
         upload();

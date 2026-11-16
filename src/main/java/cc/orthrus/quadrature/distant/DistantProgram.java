@@ -105,6 +105,8 @@ final class DistantProgram {
     private static final int PAGE_BINDING = 1;
     private static final int MATERIALS_BINDING = 2;
     private static final int BIOMES_BINDING = 3;
+    /** Near terrain's material table, a copy of distant terrain's own, for the shaded path. */
+    private static final int SHADED_BINDING = 4;
 
     private static final String VERTEX = String.join("\n",
         "#version 460 compatibility",
@@ -144,6 +146,12 @@ final class DistantProgram {
         "flat out float faceShows;",
         "// Which of the tile's partners in a crossfade are stored: 1 its children, 2 the tile over it.",
         "flat out int facePartners;",
+        "// For the targets: which way the face looks, its state's number in near terrain's table, its",
+        "// sky light as stored, 0 to 1, and its corner occlusion as a factor.",
+        "flat out int faceDirection;",
+        "flat out uint faceState;",
+        "flat out float faceSky;",
+        "out float faceOcclusion;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
@@ -223,6 +231,10 @@ final class DistantProgram {
         "    float closed = float((occlusion >> (2 * corner)) & 3u);",
         "    float lit = 0.2 + 0.8 * (float(light) / 15.0) * daylight;",
         "    faceLight = lit * (1.0 - " + OCCLUSION_STEP + " * closed) * SHADE[direction];",
+        "    faceDirection = int(direction);",
+        "    faceState = materials[" + MaterialTable.ENTRY_WORDS + "u * material + " + MaterialTable.STATE_WORD + "u];",
+        "    faceSky = float(light) / 15.0;",
+        "    faceOcclusion = 1.0 - " + OCCLUSION_STEP + " * closed;",
         "    if (debugMode == 2) {",
         "        faceAlbedo = LEVEL[min(tile.level, 7u)];",
         "        faceLight = (0.55 + 0.45 * SHADE[direction]) * (1.0 - 0.1 * closed);",
@@ -259,6 +271,43 @@ final class DistantProgram {
         "    result = vec4(color, 1.0);",
         "}");
 
+    /**
+     * The fragment stage's last step on the shaded path: the surface is not lit and not fogged but
+     * written to near terrain's four targets, by its contract (docs/ARCHITECTURE.md, 6.6): A the
+     * world normal and roughness; B sky light, emission, no block light, and the class of terrain;
+     * C the square root of linear albedo and whether it is a conductor; D reflectance and subsurface,
+     * or a metal's colored reflectance, and occlusion. Roughness and the rest come from near
+     * terrain's material table by the state's number.
+     */
+    private static final String TARGETS_OUTPUT = String.join("\n",
+        "layout(std430, binding = " + SHADED_BINDING + ") readonly buffer Shaded { uvec2 shaded[]; };",
+        "layout(location = 0) out vec4 targetA;",
+        "layout(location = 1) out vec4 targetB;",
+        "layout(location = 2) out vec4 targetC;",
+        "layout(location = 3) out vec4 targetD;",
+        "const vec3 NORMAL[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, -1.0),",
+        "    vec3(0.0, 0.0, 1.0), vec3(-1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0));",
+        "vec3 linear(vec3 stored) {",
+        "    return mix(stored / 12.92, pow((stored + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), stored));",
+        "}",
+        "void finish(vec3 albedo, float fogDistance) {",
+        "    uvec2 material = shaded[faceState];",
+        "    float roughness = float(material.x & 255u) / 255.0;",
+        "    float reflectance = float((material.x >> 8) & 255u) / 255.0;",
+        "    float subsurface = float((material.x >> 16) & 255u) / 255.0;",
+        "    float emission = float(material.x >> 24) / 255.0;",
+        "    bool conductor = (material.y & 1u) != 0u;",
+        "    vec3 light = linear(albedo);",
+        "    targetA = vec4(NORMAL[faceDirection] * 0.5 + 0.5, roughness);",
+        "    targetB = vec4(faceSky, emission, 0.0, 0.375);",
+        "    targetC = vec4(sqrt(light), conductor ? 1.0 : 0.0);",
+        "    targetD = conductor ? vec4(light, faceOcclusion) : vec4(reflectance, subsurface, 0.0, faceOcclusion);",
+        "}",
+        "void finishFlat(vec3 color) {",
+        "    // The box view's second draw has no place in the targets.",
+        "    discard;",
+        "}");
+
     private static final String FRAGMENT = String.join("\n",
         "#version 460 compatibility",
         "uniform vec3 nearMinimum;",
@@ -290,6 +339,10 @@ final class DistantProgram {
         "flat in int faceLevel;",
         "flat in float faceShows;",
         "flat in int facePartners;",
+        "flat in int faceDirection;",
+        "flat in uint faceState;",
+        "flat in float faceSky;",
+        "in float faceOcclusion;",
         "// One bit for each tile of each level's square: whether it is shown. A level's bits start at",
         "// level * maskWords; a tile's bit is its place in the square, x fastest.",
         "uniform uint shownMask[" + MASK_UINTS + "];",
@@ -398,6 +451,9 @@ final class DistantProgram {
         "    finish(albedo, fogDistance);",
         "}");
 
+    /** The fragment stage that writes the targets: the forward one with its last step exchanged. */
+    private static final String FRAGMENT_TARGETS = FRAGMENT.replace(FORWARD_OUTPUT, TARGETS_OUTPUT);
+
     /** The texture unit the materials' images are bound to: above any the game or near terrain uses. */
     private static final int IMAGES_UNIT = 7;
     /** The unit for near terrain's coverage map. */
@@ -431,6 +487,11 @@ final class DistantProgram {
     private int acrossTilesLocation;
     private int squareOriginLocation;
     private int joinBandLocation;
+    private int targetsProgram;
+    private int shadedBuffer;
+    private long shadedVersion = Long.MIN_VALUE;
+    /** Whether the draw under way writes the targets for shading and not the frame. */
+    private boolean targets;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -450,6 +511,46 @@ final class DistantProgram {
      * @param bandWidths for each level, the width of the band inside its hole
      * @return how many draws were issued
      */
+    /**
+     * Draws the opaque layers again into near terrain's targets for shading, which must be bound
+     * with their viewport: the same faces by the same rules, with the last step writing the targets.
+     * Not the water, and not a debug view's second draw.
+     *
+     * @param table near terrain's material table, eight bytes a state; {@code tableVersion} says when it changed
+     */
+    int drawTargets(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView,
+        float[] projection, float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ,
+        float[] fade, float[] holes, float[] bandWidths, int levels, int[] shownMasks, float[] squareOrigins,
+        int across, float[] joinBand, byte[] table, long tableVersion) {
+        if (program == 0) {
+            create();
+        }
+        if (shadedBuffer == 0) {
+            shadedBuffer = GL45.glCreateBuffers();
+        }
+        if (tableVersion != shadedVersion) {
+            shadedVersion = tableVersion;
+            java.nio.ByteBuffer data = java.nio.ByteBuffer.allocateDirect(table.length);
+            data.put(table).flip();
+            GL45.glNamedBufferData(shadedBuffer, data, GL15.GL_STATIC_DRAW);
+        }
+        int[] forward = locations();
+        int forwardProgram = program;
+        locate(targetsProgram);
+        program = targetsProgram;
+        targets = true;
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SHADED_BINDING, shadedBuffer);
+        try {
+            return draw(list, arena, materials, modelView, projection, nearBox, daylight, cover, coverX, coverZ, fade,
+                holes, bandWidths, levels, shownMasks, squareOrigins, across, joinBand);
+        } finally {
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SHADED_BINDING, 0);
+            targets = false;
+            program = forwardProgram;
+            locations(forward);
+        }
+    }
+
     int draw(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView, float[] projection,
         float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ, float[] fade,
         float[] holes, float[] bandWidths, int levels, int[] shownMasks, float[] squareOrigins, int across, float[] joinBand) {
@@ -502,8 +603,8 @@ final class DistantProgram {
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, BIOMES_BINDING, materials.biomeBuffer());
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, commandBuffer);
         GL20.glUniform1i(overlayLocation, 0);
-        int draws = layers(list, arena, true);
-        if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX) {
+        int draws = layers(list, arena, !targets);
+        if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX && !targets) {
             // The box view: the faces the box holds, in magenta, a little deeper than they lie.
             GL20.glUniform1i(overlayLocation, 1);
             GL20.glUniformMatrix4fv(projectionLocation, false, projection);
@@ -611,8 +712,26 @@ final class DistantProgram {
         if (GL20.glGetProgrami(program, GL20.GL_LINK_STATUS) == 0) {
             throw new IllegalStateException("Distant terrain program: " + GL20.glGetProgramInfoLog(program));
         }
-        GL20.glDeleteShader(vertex);
         GL20.glDeleteShader(fragment);
+        int targetsFragment = compile(GL20.GL_FRAGMENT_SHADER, FRAGMENT_TARGETS);
+        targetsProgram = GL20.glCreateProgram();
+        GL20.glAttachShader(targetsProgram, vertex);
+        GL20.glAttachShader(targetsProgram, targetsFragment);
+        GL20.glLinkProgram(targetsProgram);
+        if (GL20.glGetProgrami(targetsProgram, GL20.GL_LINK_STATUS) == 0) {
+            throw new IllegalStateException("Distant terrain targets program: " + GL20.glGetProgramInfoLog(targetsProgram));
+        }
+        GL20.glDeleteShader(targetsFragment);
+        GL20.glDeleteShader(vertex);
+        locate(program);
+        // No vertex attributes: every vertex comes from the page.
+        vertexArray = GL45.glCreateVertexArrays();
+        commandBuffer = GL45.glCreateBuffers();
+        recordBuffer = GL45.glCreateBuffers();
+    }
+
+    /** Every uniform's place in a program: the two programs name the same uniforms. */
+    private void locate(int program) {
         viewProjectionLocation = GL20.glGetUniformLocation(program, "viewProjection");
         daylightLocation = GL20.glGetUniformLocation(program, "daylight");
         nearMinimumLocation = GL20.glGetUniformLocation(program, "nearMinimum");
@@ -640,10 +759,47 @@ final class DistantProgram {
         acrossTilesLocation = GL20.glGetUniformLocation(program, "acrossTiles");
         squareOriginLocation = GL20.glGetUniformLocation(program, "squareOrigin");
         joinBandLocation = GL20.glGetUniformLocation(program, "joinBand");
-        // No vertex attributes: every vertex comes from the page.
-        vertexArray = GL45.glCreateVertexArrays();
-        commandBuffer = GL45.glCreateBuffers();
-        recordBuffer = GL45.glCreateBuffers();
+    }
+
+    /** The uniforms' places as they stand, to put back after the other program has drawn. */
+    private int[] locations() {
+        return new int[] {viewProjectionLocation, daylightLocation, nearMinimumLocation, nearMaximumLocation,
+            modelViewLocation, topDropLocation, fogModeLocation, debugModeLocation, overlayLocation, projectionLocation,
+            imageLayersLocation, imagedLocation, imagesLocation, detailStartLocation, detailEndLocation, coverLocation,
+            coverSideLocation, coverMinimumLocation, holesLocation, bandWidthLocation, levelCountLocation,
+            crossfadeLocation, shownMaskLocation, maskWordsLocation, acrossTilesLocation, squareOriginLocation,
+            joinBandLocation};
+    }
+
+    private void locations(int[] kept) {
+        int i = 0;
+        viewProjectionLocation = kept[i++];
+        daylightLocation = kept[i++];
+        nearMinimumLocation = kept[i++];
+        nearMaximumLocation = kept[i++];
+        modelViewLocation = kept[i++];
+        topDropLocation = kept[i++];
+        fogModeLocation = kept[i++];
+        debugModeLocation = kept[i++];
+        overlayLocation = kept[i++];
+        projectionLocation = kept[i++];
+        imageLayersLocation = kept[i++];
+        imagedLocation = kept[i++];
+        imagesLocation = kept[i++];
+        detailStartLocation = kept[i++];
+        detailEndLocation = kept[i++];
+        coverLocation = kept[i++];
+        coverSideLocation = kept[i++];
+        coverMinimumLocation = kept[i++];
+        holesLocation = kept[i++];
+        bandWidthLocation = kept[i++];
+        levelCountLocation = kept[i++];
+        crossfadeLocation = kept[i++];
+        shownMaskLocation = kept[i++];
+        maskWordsLocation = kept[i++];
+        acrossTilesLocation = kept[i++];
+        squareOriginLocation = kept[i++];
+        joinBandLocation = kept[i];
     }
 
     private static int compile(int type, String source) {
