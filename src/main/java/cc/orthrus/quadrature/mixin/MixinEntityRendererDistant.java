@@ -21,11 +21,13 @@ public abstract class MixinEntityRendererDistant {
      * Distant terrain is drawn where the game goes from its opaque terrain layers to its entities:
      * after near terrain, so that what near terrain covers is rejected by depth before it is shaded,
      * and before anything that should stand in front of it. The game has just put back the world's
-     * model-view matrix.
+     * model-view matrix. The point is the first draw of entities, not the profiler section before
+     * it: the section call's argument is already rewritten by the Mixin that reads section names,
+     * and an injection that looks for the name beside the call no longer finds it.
      */
-    @Inject(method = "renderWorldPass", at = @At(value = "INVOKE_STRING",
-        target = "Lnet/minecraft/profiler/Profiler;endStartSection(Ljava/lang/String;)V", args = "ldc=entities",
-        ordinal = 0))
+    @Inject(method = "renderWorldPass", at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/RenderGlobal;renderEntities(Lnet/minecraft/entity/Entity;"
+            + "Lnet/minecraft/client/renderer/culling/ICamera;F)V", ordinal = 0))
     private void quadrature$distantTerrain(int pass, float partialTicks, long finishTimeNano, CallbackInfo ci) {
         DistantHook.draw(partialTicks);
     }
