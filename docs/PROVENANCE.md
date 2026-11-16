@@ -261,6 +261,12 @@ authors can dedicate: their own expression of ideas, never copied code.
   pass, which is common knowledge in rendering. The layout of the four targets is a
   contract agreed with the shading stage that reads them.
 - Added: 2026-11-16
+### The fade at the edge of near terrain
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/fade/NearFade.java`, the fade in
+  the stages of `TerrainProgram.java`, and what `TerrainHook.java` publishes of it
+- Source: original, on `FadePattern` in `core`. Facts used: the GLSL 4.60 specification
+  (`gl_FragCoord`, `discard`).
+- Added: 2026-11-16
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`

@@ -76,6 +76,8 @@ public final class TerrainHook {
     public static void draw(BlockRenderLayer layer, double partialTicks, Entity viewer) {
         // The game draws the solid layer first: that is where a frame's view is taken.
         if (layer == BlockRenderLayer.SOLID || mainView == null) {
+            fadeBandInUse = null;
+            fadeOrigin = null;
             mainView = drawer.mainView(partialTicks, viewer);
         }
         drawer.draw(layer, mainView);
@@ -148,6 +150,60 @@ public final class TerrainHook {
      */
     public static int material(IBlockState state) {
         return drawer == null ? -1 : drawer.material(state);
+    }
+
+    private static float fadeStart = Float.NaN;
+    private static float fadeEnd = Float.NaN;
+
+    /**
+     * Sets the band over which near terrain gives its pixels up to what is drawn beyond it, where
+     * {@code -Dquadrature.terrain.fade=true}: at a horizontal distance from the view's position, the
+     * greater of the distances along x and along z in blocks, of {@code start} near terrain shows
+     * whole, and from {@code end} none of it. Between, it keeps the pixels the complement side of
+     * {@code FadePattern} keeps at fade {@code (distance - start) / (end - start)}, frame 0; what
+     * draws beyond is the primary side with the same fade. Not set, the band is the last 16 blocks
+     * before the last chunk of the view distance.
+     */
+    public static void fadeBand(float start, float end) {
+        fadeStart = start;
+        fadeEnd = end;
+    }
+
+    private static float[] fadeBandInUse;
+    private static double[] fadeOrigin;
+
+    /** Told by the terrain stages each time they set the fade for a layer of the frame. */
+    static void fadeDrawn(float[] band, double[] origin) {
+        fadeBandInUse = band;
+        fadeOrigin = origin;
+    }
+
+    /**
+     * The band the near fade was drawn with in the current frame: start and end in blocks. Null where
+     * the fade is switched off, own terrain is off, or no opaque layer has been drawn yet this frame.
+     * Read it after near terrain's opaque layers and before the next frame's.
+     */
+    public static float[] fadeBandInUse() {
+        return fadeBandInUse;
+    }
+
+    /**
+     * The place the near fade's distance was measured from in the current frame, x, y and z in the
+     * world: where the eye of the view's model-view matrix stands, which is the camera and so, in a
+     * view from behind, not the player. Null as {@link #fadeBandInUse}. The distance is the greater of
+     * that along x and that along z.
+     */
+    public static double[] fadeOrigin() {
+        return fadeOrigin;
+    }
+
+    /** The band's start as set, or not a number. */
+    static float fadeStart() {
+        return fadeStart;
+    }
+
+    static float fadeEnd() {
+        return fadeEnd;
     }
 
     /** The timing log's line, or null when own terrain is off. */

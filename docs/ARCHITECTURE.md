@@ -579,6 +579,19 @@ textures, their size and a generation that moves each frame they are drawn.
 `TerrainHook.materials()` gives the table and `TerrainHook.material(state)` a state's
 number, filling its row if near terrain has not met the state.
 
+**The near edge.** Behind `-Dquadrature.terrain.fade=true` the player's view gives its
+pixels up, across a band before the edge of what near terrain holds, to what is drawn
+beyond: by the pattern of `FadePattern`, near terrain the complement side, frame 0. The
+measure is the fragment's horizontal distance from the view's position, the greater of
+that along x and that along z, in blocks; the band is set with `TerrainHook.fadeBand` and
+is otherwise the last 16 blocks before the last chunk of the view distance. The depth
+drawn along the light takes no part. Off, the stages are unchanged to the character.
+`TerrainHook.fadeBandInUse()` gives the band a frame was drawn with and
+`TerrainHook.fadeOrigin()` the place its distance was measured from, the camera's, which in
+a view from behind is not the player's; both are null where no fade was drawn. The sums
+are `NearFade`'s, in `core`. Near translucent terrain is still drawn by the game and does
+not fade. It is built and has not been exercised with distant terrain.
+
 **Not built**, and where each belongs in the frame:
 
 - *Distant opaque terrain* draws into the targets after near terrain's last cutout layer
@@ -591,7 +604,7 @@ number, filling its row if near terrain has not met the state.
   and the opaque depth beneath them; both are to be published as textures once shading
   writes them.
 - *A frame index*, moving by one each frame, is to be published beside the targets for
-  stages that accumulate over frames.
+  stages that accumulate over frames and for the fade's pattern.
 
 ## 7. Distant terrain
 

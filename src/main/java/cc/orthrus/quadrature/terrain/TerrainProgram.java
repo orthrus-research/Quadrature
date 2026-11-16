@@ -1,5 +1,7 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.fade.FadePattern;
+import cc.orthrus.quadrature.core.fade.NearFade;
 import cc.orthrus.quadrature.core.terrain.CubeMatrix;
 import cc.orthrus.quadrature.core.terrain.DrawCommands;
 import cc.orthrus.quadrature.core.view.View;
@@ -310,6 +312,49 @@ final class TerrainProgram {
         "    eyeNormal = vec3(0.0);",
         "}");
 
+    /**
+     * Off unless {@code -Dquadrature.terrain.fade=true}: across a band before the edge of what near
+     * terrain holds, the player's view gives its pixels up to what is drawn beyond, by the pattern
+     * both sides share. Near terrain is the complement side, at frame 0. The depth drawn along the
+     * light takes no part. Where it is off the stages are as they were, to the character.
+     */
+    static final boolean FADE = Boolean.getBoolean("quadrature.terrain.fade");
+
+    /** Gives a vertex stage of the player's view what the fade needs: the place in the eye's space. */
+    private static String fadeVertex(String source) {
+        if (!FADE) {
+            return source;
+        }
+        return source.replace("out float fogDistance;", "out float fogDistance;\nout vec3 fadeEye;")
+            .replace("    fogDistance = length(eye.xyz);", "    fogDistance = length(eye.xyz);\n    fadeEye = eye.xyz;");
+    }
+
+    /**
+     * Gives a fragment stage of the player's view the fade: the fragment's horizontal distance from
+     * the view's position, the greater of that along x and that along z, set against the band.
+     *
+     * @param eye the name of the stage's input holding the fragment's place in the eye's space
+     */
+    private static String fadeFragment(String source, String eye, String declaredAfter) {
+        if (!FADE) {
+            return source;
+        }
+        String declarations = declaredAfter + "\n" + (eye.equals("fadeEye") ? "in vec3 fadeEye;\n" : "")
+            + "uniform mat3 fadeInverse;\nuniform vec2 fadeBand;\n" + FadePattern.glsl();
+        return source.replace(declaredAfter, declarations).replace("void main() {", String.join("\n",
+            "void main() {",
+            "    vec3 fadeAt = fadeInverse * " + eye + ";",
+            "    float fadeShows = clamp((max(abs(fadeAt.x), abs(fadeAt.z)) - fadeBand.x) / (fadeBand.y - fadeBand.x), 0.0, 1.0);",
+            "    if (!" + FadePattern.GLSL_FUNCTION + "(gl_FragCoord.xy, fadeShows, true, 0)) {",
+            "        discard;",
+            "    }"));
+    }
+
+    private static final String FRAGMENT_FADED = fadeFragment(FRAGMENT, "fadeEye", "in float fogDistance;");
+    private static final String FRAGMENT_TARGETS_FADED = fadeFragment(FRAGMENT_TARGETS, "eyePosition", "in vec3 eyePosition;");
+    private final int[] fadePrograms = new int[5];
+    private final float[] fadeInverse = new float[9];
+
     private static final int RECORDS_BINDING = 0;
     private static final int MATERIALS_BINDING = 3;
     private static final int FACES_BINDING = 1;
@@ -372,6 +417,21 @@ final class TerrainProgram {
         // adding the offset to the vertex in the shader does not, and leaving the chunk matrix out
         // moves the rows of a near texture by a pixel where a boundary falls on a pixel center.
         System.arraycopy(view.modelView(), 0, modelView, 0, 16);
+        if (FADE) {
+            // The view's rotation undone, so that a place in the eye's space is told along the world's axes.
+            for (int row = 0; row < 3; row++) {
+                for (int column = 0; column < 3; column++) {
+                    fadeInverse[column * 3 + row] = modelView[row * 4 + column];
+                }
+            }
+            float[] band = NearFade.band(TerrainHook.fadeStart(), TerrainHook.fadeEnd(), view.across());
+            for (int fading : fadePrograms) {
+                GL45.glProgramUniformMatrix3fv(fading, GL20.glGetUniformLocation(fading, "fadeInverse"), false, fadeInverse);
+                GL45.glProgramUniform2f(fading, GL20.glGetUniformLocation(fading, "fadeBand"), band[0], band[1]);
+            }
+            // What was set is said, with the place the stages measure from: the eye of this matrix.
+            TerrainHook.fadeDrawn(band, NearFade.origin(view.originX(), view.originY(), view.originZ(), modelView));
+        }
         GL30.glBindVertexArray(vertexArray);
         inUse = 0;
         boundBuffer = 0;
@@ -609,10 +669,10 @@ final class TerrainProgram {
     }
 
     private void create() {
-        program = link(VERTEX);
+        program = link(fadeVertex(VERTEX));
         cubeModelViewLocation = GL20.glGetUniformLocation(program, "cubeModelView");
         fogModeLocation = GL20.glGetUniformLocation(program, "fogMode");
-        indirectProgram = link(VERTEX_INDIRECT);
+        indirectProgram = link(fadeVertex(VERTEX_INDIRECT));
         indirectFogModeLocation = GL20.glGetUniformLocation(indirectProgram, "fogMode");
         commandBuffer = GL45.glCreateBuffers();
         recordBuffer = GL45.glCreateBuffers();
@@ -621,18 +681,23 @@ final class TerrainProgram {
         depthAlphaLocation = GL20.glGetUniformLocation(depthProgram, "alphaReference");
         depthCommandBuffer = GL45.glCreateBuffers();
         depthRecordBuffer = GL45.glCreateBuffers();
-        facesProgram = link(VERTEX_FACES);
+        facesProgram = link(fadeVertex(VERTEX_FACES));
         facesFogModeLocation = GL20.glGetUniformLocation(facesProgram, "fogMode");
         depthFacesProgram = link(VERTEX_DEPTH_FACES, FRAGMENT_DEPTH);
         depthFacesProjectionLocation = GL20.glGetUniformLocation(depthFacesProgram, "viewProjection");
         depthFacesAlphaLocation = GL20.glGetUniformLocation(depthFacesProgram, "alphaReference");
         emptyVertexArray = GL45.glCreateVertexArrays();
         spriteBuffer = GL45.glCreateBuffers();
-        targetsProgram = link(VERTEX_TARGETS, FRAGMENT_TARGETS);
+        targetsProgram = link(VERTEX_TARGETS, FRAGMENT_TARGETS_FADED);
         targetsAlphaLocation = GL20.glGetUniformLocation(targetsProgram, "alphaReference");
-        targetsFacesProgram = link(VERTEX_TARGETS_FACES, FRAGMENT_TARGETS);
+        targetsFacesProgram = link(VERTEX_TARGETS_FACES, FRAGMENT_TARGETS_FADED);
         targetsFacesAlphaLocation = GL20.glGetUniformLocation(targetsFacesProgram, "alphaReference");
         materialBuffer = GL45.glCreateBuffers();
+        fadePrograms[0] = program;
+        fadePrograms[1] = indirectProgram;
+        fadePrograms[2] = facesProgram;
+        fadePrograms[3] = targetsProgram;
+        fadePrograms[4] = targetsFacesProgram;
         for (int which = 0; which < 2; which++) {
             faceCommandBuffers[which] = GL45.glCreateBuffers();
             faceRecordBuffers[which] = GL45.glCreateBuffers();
@@ -646,7 +711,7 @@ final class TerrainProgram {
     }
 
     private static int link(String vertexSource) {
-        return link(vertexSource, FRAGMENT);
+        return link(vertexSource, FRAGMENT_FADED);
     }
 
     private static int link(String vertexSource, String fragmentSource) {
