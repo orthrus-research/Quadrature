@@ -37,6 +37,13 @@ import org.lwjgl.opengl.GL45;
  * opaque stood out far brighter (47, 68, 244 against 36, 51, 173 in the fourth run). Color, cover
  * and fog are worked out apart, so a later stage can light the surface itself.
  *
+ * <p>Leaves are drawn solid. Distant terrain begins some 180 blocks out, where a leaf image's texel
+ * is a third of a pixel or less: the game's own leaves are solid there, since its smaller copies of
+ * the image average the clear texels in and the alpha test passes what is left. A cut-out at that
+ * size is either a pattern at the scale of a pixel, which crawls as the camera moves, or coverage
+ * from a multisampled target, which the game's frame is not. So a leaf face keeps its whole
+ * rectangle and takes the color those smaller copies give it ({@code MaterialTable.seenFromAfar}).
+ *
  * <p>Two debug views ({@code quadrature.distant.debug}). {@code level} gives every face a color for
  * its tile's level. {@code box} shows where the near box stands open: after the ordinary draw, the
  * faces the box holds are drawn again in magenta, each moved straight away from the eye by
@@ -194,6 +201,7 @@ final class DistantProgram {
         "        clear = exp(-d * d);",
         "    }",
         "    // Cover matters only to the water layer, which is blended over what was drawn before it.",
+        "    // Leaves carry theirs too and are drawn solid: see the class comment.",
         "    result = vec4(mix(gl_Fog.color.rgb, faceColor, clamp(clear, 0.0, 1.0)), faceCover);",
         "}");
 

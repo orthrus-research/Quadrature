@@ -177,6 +177,16 @@ class TileDrawsTest {
         assertEquals(0, MaterialTable.cover(new int[] {0x00FFFFFF}));
         assertEquals(32, MaterialTable.cover(new int[] {0xFF00FF00, 0x00000000}));
         assertEquals(44, MaterialTable.cover(new int[] {0xB4102030, 0xB4102030}));
+        // From afar an image shows the mean light of its pixels, clear ones counted as black.
+        assertEquals(0x546240, MaterialTable.seenFromAfar(new int[] {0xFF546240, 0xFF546240}));
+        // Half the image clear: half the light, which is 0.5 ^ (1 / 2.2) = 0.73 of the stored value.
+        assertEquals(0xBABABA, MaterialTable.seenFromAfar(new int[] {0xFFFFFFFF, 0x00FFFFFF}));
+        // A third leaf, like an acacia's: about two thirds as bright.
+        int acacia = MaterialTable.seenFromAfar(new int[] {0xFF546240, 0x00000000, 0x00000000});
+        assertEquals(0x33, acacia >> 16 & 0xFF);
+        assertEquals(0x3B, acacia >> 8 & 0xFF);
+        assertEquals(0, MaterialTable.seenFromAfar(new int[] {0x00FFFFFF}));
+        assertEquals(0, MaterialTable.seenFromAfar(new int[0]));
         assertEquals(0x7F3F00, MaterialTable.multiply(0xFF7F00, 0x7F7FFF));
         assertEquals(0x02ABCDEF | MaterialTable.FULL_COVER << 26, MaterialTable.entry(0xFFABCDEF, MaterialTable.FOLIAGE));
     }

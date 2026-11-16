@@ -120,6 +120,38 @@ public final class MaterialTable<K> {
         return (int) ((alpha * FULL_COVER + 255L * pixels.length / 2) / (255L * pixels.length));
     }
 
+    /**
+     * The color an image with clear parts shows from afar, as the game draws it: {@code 0xRRGGBB}.
+     * The game's smaller copies of an image average light, not stored values, and count a clear
+     * pixel as black; its alpha test then passes what is left. So a far leaf face is solid, and
+     * its color is the mean, over every pixel, of the light of the pixels that are not clear. A
+     * leaf image a third leaf comes out about two thirds as bright as the leaf itself.
+     */
+    public static int seenFromAfar(int[] pixels) {
+        if (pixels.length == 0) {
+            return 0;
+        }
+        double red = 0;
+        double green = 0;
+        double blue = 0;
+        for (int pixel : pixels) {
+            if (pixel >>> 24 == 0) {
+                continue;
+            }
+            red += Math.pow((pixel >> 16 & 0xFF) / 255.0, GAMMA);
+            green += Math.pow((pixel >> 8 & 0xFF) / 255.0, GAMMA);
+            blue += Math.pow((pixel & 0xFF) / 255.0, GAMMA);
+        }
+        return stored(red / pixels.length) << 16 | stored(green / pixels.length) << 8 | stored(blue / pixels.length);
+    }
+
+    /** The exponent the game takes between a stored value and light when it makes smaller copies. */
+    private static final double GAMMA = 2.2;
+
+    private static int stored(double light) {
+        return (int) Math.round(Math.pow(light, 1 / GAMMA) * 255);
+    }
+
     /** An opaque color and how it is tinted, as the 32 bits the draw reads. */
     public static int entry(int color, int tint) {
         return entry(color, tint, FULL_COVER);

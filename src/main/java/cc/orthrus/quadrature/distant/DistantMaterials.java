@@ -161,22 +161,35 @@ final class DistantMaterials {
             return MaterialTable.entry(average(model.getParticleTexture()), MaterialTable.PLAIN);
         }
         int color = average(quad.getSprite());
+        int cover = MaterialTable.FULL_COVER;
+        if (state.getMaterial() == Material.LEAVES) {
+            // Leaves are drawn solid, as the game's own are from afar, and in their color: see seenFromAfar.
+            cover = cover(quad.getSprite());
+            color = seenFromAfar(quad.getSprite());
+        }
         if (!quad.hasTintIndex()) {
-            return MaterialTable.entry(color, MaterialTable.PLAIN);
+            return MaterialTable.entry(color, MaterialTable.PLAIN, cover);
         }
         // What the block's color handler gives with no world to ask: the plain grass or foliage
         // color for blocks the biome tints, a color of their own for the rest (spruce, birch).
         int fixed = minecraft.getBlockColors().colorMultiplier(state, null, null, quad.getTintIndex());
         if (fixed == -1) {
-            return MaterialTable.entry(color, MaterialTable.PLAIN);
+            return MaterialTable.entry(color, MaterialTable.PLAIN, cover);
         }
         if (state.getBlock() instanceof BlockLeaves && fixed == ColorizerFoliage.getFoliageColorBasic()) {
-            return MaterialTable.entry(color, MaterialTable.FOLIAGE);
+            return MaterialTable.entry(color, MaterialTable.FOLIAGE, cover);
         }
         if (fixed == ColorizerGrass.getGrassColor(0.5, 1.0)) {
-            return MaterialTable.entry(color, MaterialTable.GRASS);
+            return MaterialTable.entry(color, MaterialTable.GRASS, cover);
         }
-        return MaterialTable.entry(MaterialTable.multiply(color, fixed), MaterialTable.PLAIN);
+        return MaterialTable.entry(MaterialTable.multiply(color, fixed), MaterialTable.PLAIN, cover);
+    }
+
+    private static int seenFromAfar(TextureAtlasSprite sprite) {
+        if (sprite == null || sprite.getFrameCount() == 0) {
+            return 0x808080;
+        }
+        return MaterialTable.seenFromAfar(sprite.getFrameTextureData(0)[0]);
     }
 
     private static int cover(TextureAtlasSprite sprite) {

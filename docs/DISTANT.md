@@ -325,7 +325,7 @@ draw's base instance names the tile's record (its place from the view's origin, 
 in doubles; its cell width; where its tints lie). This was chosen over integer vertex
 attributes with an instance a face because it leaves the base instance for the tile, needs
 no vertex layout, and makes a page's layer one indirect draw of plain ranges. There are three
-draw layers: opaque with the skirt, leaves (solid for now), and water, blended over the others.
+draw layers: opaque with the skirt, leaves (solid), and water, blended over the others.
 
 A tile is not drawn when all of it lies in the box near terrain covers, when the view's
 volume misses its bounds, and, group by group, when its faces turn away from the eye. Faces
@@ -388,6 +388,25 @@ distant water face at the block's top stood that much higher than near water, an
 slot between them at the box's edge the unlit bed beyond showed: a third of a pixel at 190
 blocks, which the second run drew as a row of dark dashes along the join (section 10). The
 water layer's top faces are now lowered by `NearCover.WATER_SURFACE_DROP`.
+
+**Leaves.** Drawn solid, in the color the game's own far leaves have. Measured in the fourth
+run from above, near crowns were (44, 50, 31) to (49, 58, 38) and distant crowns (65, 75, 47):
+distant crowns were the lighter, near ones 0.68 as bright. The cause is how the game makes
+the smaller copies of an image: it averages light, not stored values, counts a clear texel as
+black, and its alpha test passes what is left. From some tens of blocks out a near leaf face
+is therefore solid and darker than the leaf. For Riven's umbrella acacia, whose image is 34
+to 41% leaf, that mean comes to 0.65 to 0.71 of the leaf's color, which is the ratio
+measured; mesquite 0.58, baobab and mahogany 0.81 to 0.93. A distant leaf's material now takes
+that color (`MaterialTable.seenFromAfar`, the same mean), where it took the color of the leaf
+texels alone.
+
+There is no cut-out. Distant terrain begins about 180 blocks out, where a texel of the image
+is a third of a pixel or less; a cut-out that small is a pattern at the scale of a pixel,
+which crawls as the camera moves, or needs a multisampled frame, which the game's is not; and
+the game's own leaves are solid there. What makes a far tree line read dark against the sky
+is that it is solid and little fogged at a kilometer, not that its color is wrong: a tree
+line was (46, 55, 37) from the ground, the color of a near crown. More haze would be a change
+to the fog's two distances. Not seen in a game.
 
 **Water's color.** Distant water is the last layer and is blended over the distant sea bed by
 the alpha of the game's water image, which its material carries as cover (the mean alpha, in
