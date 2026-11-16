@@ -51,8 +51,10 @@ import org.lwjgl.opengl.GL45;
  * <p>Where two levels meet both are drawn over a band, one tile of the coarser wide, and each pixel
  * keeps one of them by {@link FadePattern}, the coarser showing more toward the edge of its hole. A
  * tile gives pixels up only to a partner that is stored: the coarser to its four children, the finer
- * to the tile over it, so a level that is still arriving leaves no hole. Inside a level's hole its
- * fill tiles are drawn until finer tiles show, a quarter of a tile at a time ({@code Cover}). A tile that has just been
+ * to the tile over it, so a level that is still arriving leaves no hole. Which level draws a place
+ * is decided for each fragment: the finest level with a shown tile there, read from one bit a tile
+ * ({@code Cover}), so a level's fill tiles inside its hole are drawn exactly where finer tiles are
+ * not yet. A tile that has just been
  * stored comes in by the same pattern over a few frames. A tile kept past
  * its ring takes no part. See {@code Rings.overlap} and docs/DISTANT.md, section 14.
  *
@@ -96,6 +98,9 @@ final class DistantProgram {
      */
     static final float BOX_VIEW_PUSH = 0.01f;
 
+    /** Room in the fragment stage for every level's bits: 8 levels of up to 16 tiles a side. */
+    private static final int MASK_UINTS = 64;
+
     private static final int TILES_BINDING = 0;
     private static final int PAGE_BINDING = 1;
     private static final int MATERIALS_BINDING = 2;
@@ -138,11 +143,7 @@ final class DistantProgram {
         "flat out int faceLevel;",
         "flat out float faceShows;",
         "// Which of the tile's partners in a crossfade are stored: 1 its children, 2 the tile over it.",
-        "// 4: a fill tile, whose quarters finer tiles draw are the four bits from 16 up.",
         "flat out int facePartners;",
-        "// Where in its tile a fragment lies, 0 to 1 along x and z, a hair's breadth into the block",
-        "// a side face belongs to.",
-        "out vec2 faceQuarter;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
@@ -193,7 +194,6 @@ final class DistantProgram {
         "        faceInto = direction == 2u ? vec2(0.0, 0.01) : direction == 3u ? vec2(0.0, -0.01)",
         "            : direction == 4u ? vec2(0.01, 0.0) : vec2(-0.01, 0.0);",
         "    }",
-        "    faceQuarter = (place.xz + faceInto) / (64.0 * tile.cell);",
         "    faceLevel = int(tile.level);",
         "    faceShows = tile.shows;",
         "    facePartners = int(tile.partners);",
@@ -290,13 +290,28 @@ final class DistantProgram {
         "flat in int faceLevel;",
         "flat in float faceShows;",
         "flat in int facePartners;",
-        "in vec2 faceQuarter;",
+        "// One bit for each tile of each level's square: whether it is shown. A level's bits start at",
+        "// level * maskWords; a tile's bit is its place in the square, x fastest.",
+        "uniform uint shownMask[" + MASK_UINTS + "];",
+        "uniform int maskWords;",
+        "uniform int acrossTiles;",
+        "// Where each level's square begins, from the view's origin.",
+        "uniform vec2 squareOrigin[8];",
         FadePattern.glsl(),
         "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
         "float within(vec4 hole, vec2 place) {",
         "    return min(min(place.x - hole.x, hole.z - place.x), min(place.y - hole.y, hole.w - place.y));",
         "}",
         FORWARD_OUTPUT,
+        "// Whether a level has a shown tile over a place.",
+        "bool shownAt(int level, vec2 place) {",
+        "    ivec2 tile = ivec2(floor((place - squareOrigin[level]) / float(64 << level)));",
+        "    if (any(lessThan(tile, ivec2(0))) || any(greaterThanEqual(tile, ivec2(acrossTiles)))) {",
+        "        return false;",
+        "    }",
+        "    int bit = tile.y * acrossTiles + tile.x;",
+        "    return ((shownMask[level * maskWords + (bit >> 5)] >> uint(bit & 31)) & 1u) != 0u;",
+        "}",
         "void main() {",
         "    // What near terrain draws is left to it. With its coverage map: a chunk column whose surface",
         "    // it has meshed, over the heights its cubes span. Without: the box of cubes it meshes.",
@@ -323,36 +338,36 @@ final class DistantProgram {
         "    if (inside) {",
         "        discard;",
         "    }",
-        "    // A fill tile stands in for finer tiles and leaves each quarter to them once they show.",
-        "    if ((facePartners & " + TileDraws.FILL + ") != 0) {",
-        "        int quarter = (faceQuarter.x >= 0.5 ? 1 : 0) + (faceQuarter.y >= 0.5 ? 2 : 0);",
-        "        if (((facePartners >> (" + TileDraws.GIVEN_SHIFT + " + quarter)) & 1) != 0) {",
-        "            discard;",
-        "        }",
-        "    }",
         "    if (faceShows >= 0.0) {",
         "        // A tile that has just arrived comes in over a few frames.",
         "        if (faceShows < 1.0 && !" + FadePattern.GLSL_FUNCTION + "(gl_FragCoord.xy, faceShows, false, 0)) {",
         "            discard;",
         "        }",
-        "        if (crossfade == 1) {",
-        "            // As the coarser of two levels: inside its own hole, where only its band tiles lie. It",
-        "            // gives pixels up only where the finer tiles under it are stored to take them.",
-        "            if (faceLevel > 0 && (facePartners & 1) != 0) {",
-        "                float depth = within(holes[faceLevel], fromOrigin.xz);",
-        "                if (depth > 0.0 && !" + FadePattern.GLSL_FUNCTION
+        "        // The finest shown tile over a place draws it. So a coarser tile, which may be a fill",
+        "        // tile standing in for levels that have not arrived, gives a place up as soon as any",
+        "        // finer level shows a tile there, and only there.",
+        "        vec2 here = fromOrigin.xz + faceInto;",
+        "        for (int finer = faceLevel - 1; finer >= 0; finer--) {",
+        "            if (shownAt(finer, here)) {",
+        "                // But for a band: just inside its own hole a level fades into the next finer",
+        "                // one, showing more toward the hole's edge.",
+        "                if (crossfade == 1 && finer == faceLevel - 1) {",
+        "                    float depth = within(holes[faceLevel], here);",
+        "                    if (depth > 0.0 && " + FadePattern.GLSL_FUNCTION
             + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel], false, 0)) {",
-        "                    discard;",
+        "                        break;",
+        "                    }",
         "                }",
+        "                discard;",
         "            }",
-        "            // As the finer: within the band inside the next level's hole, which is its own ring's",
-        "            // edge, and only where the coarser tile over it is stored.",
-        "            if (faceLevel + 1 < levelCount && (facePartners & 2) != 0) {",
-        "                float depth = within(holes[faceLevel + 1], fromOrigin.xz);",
-        "                if (depth < bandWidth[faceLevel + 1] && !" + FadePattern.GLSL_FUNCTION
+        "        }",
+        "        // As the finer of a band: within the band inside the next level's hole, which is its own",
+        "        // ring's edge, and only where the coarser level shows a tile to take the pixels.",
+        "        if (crossfade == 1 && faceLevel + 1 < levelCount && shownAt(faceLevel + 1, here)) {",
+        "            float depth = within(holes[faceLevel + 1], here);",
+        "            if (depth < bandWidth[faceLevel + 1] && !" + FadePattern.GLSL_FUNCTION
             + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel + 1], true, 0)) {",
-        "                    discard;",
-        "                }",
+        "                discard;",
         "            }",
         "        }",
         "    }",
@@ -397,6 +412,10 @@ final class DistantProgram {
     private int bandWidthLocation;
     private int levelCountLocation;
     private int crossfadeLocation;
+    private int shownMaskLocation;
+    private int maskWordsLocation;
+    private int acrossTilesLocation;
+    private int squareOriginLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -418,7 +437,7 @@ final class DistantProgram {
      */
     int draw(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView, float[] projection,
         float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ, float[] fade,
-        float[] holes, float[] bandWidths, int levels) {
+        float[] holes, float[] bandWidths, int levels, int[] shownMasks, float[] squareOrigins, int across) {
         if (program == 0) {
             create();
         }
@@ -448,6 +467,10 @@ final class DistantProgram {
         GL20.glUniform2f(coverMinimumLocation, coverX, coverZ);
         GL20.glUniform1i(crossfadeLocation, holes == null ? 0 : 1);
         GL20.glUniform1i(levelCountLocation, levels);
+        GL30.glUniform1uiv(shownMaskLocation, shownMasks);
+        GL20.glUniform1i(maskWordsLocation, cc.orthrus.quadrature.core.lod.Cover.maskWords(across));
+        GL20.glUniform1i(acrossTilesLocation, across);
+        GL20.glUniform2fv(squareOriginLocation, squareOrigins);
         if (holes != null) {
             GL20.glUniform4fv(holesLocation, holes);
             GL20.glUniform1fv(bandWidthLocation, bandWidths);
@@ -596,6 +619,10 @@ final class DistantProgram {
         bandWidthLocation = GL20.glGetUniformLocation(program, "bandWidth");
         levelCountLocation = GL20.glGetUniformLocation(program, "levelCount");
         crossfadeLocation = GL20.glGetUniformLocation(program, "crossfade");
+        shownMaskLocation = GL20.glGetUniformLocation(program, "shownMask");
+        maskWordsLocation = GL20.glGetUniformLocation(program, "maskWords");
+        acrossTilesLocation = GL20.glGetUniformLocation(program, "acrossTiles");
+        squareOriginLocation = GL20.glGetUniformLocation(program, "squareOrigin");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();

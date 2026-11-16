@@ -69,6 +69,13 @@ final class DistantSettings {
      */
     static final boolean FILL = !"off".equals(System.getProperty("quadrature.distant.fill", "on"));
 
+    /**
+     * {@code quadrature.distant.order}: {@code near} (the default, and only with fill tiles) builds
+     * the coarsest level's fill tiles, then every level from the finest outward; {@code coarse}
+     * builds the coarsest level first, as the first seven runs did.
+     */
+    static final boolean NEAR_FIRST = FILL && !"coarse".equals(System.getProperty("quadrature.distant.order", "near"));
+
     /** Frames over which a newly stored tile fades in. */
     static final int ARRIVAL_FRAMES = 24;
 

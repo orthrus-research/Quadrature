@@ -5,18 +5,22 @@ package cc.orthrus.quadrature.core.lod;
  * open and nothing is drawn twice.
  *
  * <p>With {@link Rings#fill} a level takes the tiles inside its own hole too. Such a fill tile lies
- * over ground the finer levels draw, and is drawn only until they do: it gives its ground up a
- * quarter at a time, each quarter when the finer tile under it is shown, or when that tile's own
- * four quarters are all given up. Once all four are, it is not needed and can be let go; one whose
- * quarters are given up before it is built need not be built.
+ * over ground the finer levels draw, and is drawn only where they do not yet.
  *
- * <p>A finer tile under ground a coarser stored tile still draws is hidden: under a fill tile that
- * has not given its quarter up, and, in the band where two levels fade into each other, under a
- * band tile whose four finer tiles are not all shown yet, since a band fades only when they are.
+ * <p><b>The rule is by place, not by tile: the finest shown tile over a place draws it.</b> A
+ * coarser tile draws a place only if no finer level has a shown tile there. The one exception is
+ * a band: where a level's band tile lies over a shown tile of the next finer level, both are drawn
+ * and fade into each other. A tile is shown when it is stored, wanted and past its fading in. So
+ * tiles may be stored in any order: a finer one is seen as soon as it is shown, and the coarser
+ * one under it goes on drawing the ground beside it.
  *
- * <p>So of the stored tiles over any column, exactly one draws it outside the bands, and one or
- * both of two inside them. Tiles kept past their ring are outside this rule: they are drawn whole
- * until what replaces them is stored.
+ * <p>The draw applies the rule to each fragment from one bit a tile ({@link #masks}); this class
+ * states it for a place ({@link #draws}), which the tests check, and answers what follows from it
+ * for a whole tile: a fill tile all of whose ground finer tiles draw is of no use ({@link #spare}),
+ * so it need not be built and can be let go.
+ *
+ * <p>Tiles kept past their ring are outside this rule: they are drawn whole until what replaces
+ * them is stored.
  *
  * <p>Holds nothing; asks the rings last selected and the caller's tiles. Not safe for use while
  * the rings are being selected.
@@ -32,8 +36,13 @@ public final class Cover {
         boolean shown(long key);
     }
 
-    /** Every quarter of a tile given up. */
-    public static final int ALL = 15;
+    /** {@link #draws}: the tile does not draw the place, draws it, or draws it fading with the finer tile there. */
+    public static final int NOT = 0, WHOLE = 1, FADING = 2;
+
+    /** Words of bits a level has in {@link #masks}: one bit a tile of its square, 32 to a word. */
+    public static int maskWords(int across) {
+        return (across * across + 31) / 32;
+    }
 
     private final Rings rings;
     private final Tiles tiles;
@@ -44,86 +53,87 @@ public final class Cover {
     }
 
     /**
-     * The quarters of a tile that finer tiles draw, a bit each, numbered as
-     * {@link TileKey#child}: x first, then z. For a tile of level 0, none.
+     * Whether a shown tile draws a place in its ground, given as the level 0 tile position the
+     * place lies in (blocks divided by a tile's 64): {@link #NOT}, {@link #WHOLE} or
+     * {@link #FADING}.
      */
-    public int given(long key) {
-        if (TileKey.level(key) == 0) {
-            return 0;
-        }
-        int given = 0;
-        for (int quarter = 0; quarter < 4; quarter++) {
-            if (taken(TileKey.child(key, quarter))) {
-                given |= 1 << quarter;
+    public int draws(long key, long cellX, long cellZ) {
+        int level = TileKey.level(key);
+        for (int finer = level - 1; finer >= 0; finer--) {
+            long under = TileKey.of(finer, (int) (cellX >> finer), (int) (cellZ >> finer));
+            if (tiles.shown(under)) {
+                // A band: this level's tile just inside its hole, over the next finer level's.
+                return finer == level - 1 && !rings.filling(key) ? FADING : NOT;
             }
         }
-        return given;
+        return WHOLE;
     }
 
-    /** Whether a tile's ground is drawn without the tile above it: by itself, or all by finer tiles. */
-    private boolean taken(long key) {
-        if (tiles.shown(key)) {
-            return true;
-        }
-        if (!tiles.wanted(key)) {
-            // In its level's square and not wanted: outside the world, where there is nothing to
-            // draw. Outside the square: its ground belongs to the tile above and to no finer one.
-            return rings.inSquare(key);
-        }
-        return rings.filling(key) && given(key) == ALL;
-    }
-
-    /** Whether a fill tile has given all its ground up: it need not be built, or can be let go. */
-    public boolean spare(long key) {
-        return rings.filling(key) && given(key) == ALL;
-    }
-
-    /** Whether the four tiles under a band tile are all shown, so that the band can fade. */
-    public boolean finerShown(long key) {
+    /**
+     * Whether finer shown tiles draw all of a tile's ground. A tile of level 0 has none under it.
+     * Ground outside the world, where no tile is wanted, counts as drawn.
+     */
+    public boolean covered(long key) {
         if (TileKey.level(key) == 0) {
             return false;
         }
         for (int quarter = 0; quarter < 4; quarter++) {
-            if (!tiles.shown(TileKey.child(key, quarter))) {
+            long child = TileKey.child(key, quarter);
+            if (tiles.shown(child)) {
+                continue;
+            }
+            if (!rings.inSquare(child)) {
+                // No finer level reaches this quarter: it is this tile's own.
+                return false;
+            }
+            if (!tiles.wanted(child)) {
+                // In its level's square and not wanted: outside the world.
+                continue;
+            }
+            if (!covered(child)) {
                 return false;
             }
         }
         return true;
     }
 
-    /** Whether a coarser stored tile still draws this tile's ground, so that this one is not drawn. */
-    public boolean hidden(long key) {
-        long under = key;
-        for (int level = TileKey.level(key) + 1; level < rings.levels(); level++) {
-            long over = TileKey.parent(under);
-            if (tiles.shown(over)) {
-                if (rings.filling(over)) {
-                    if ((given(over) & 1 << TileKey.childIndex(under)) == 0) {
-                        return true;
-                    }
-                } else if (under == key && !finerShown(over)) {
-                    // A band tile over this one: it is whole until all four under it are shown.
-                    return true;
-                }
-            }
-            under = over;
-        }
-        return false;
-    }
-
-    /** Whether a shown tile draws anything: not hidden, and not a fill tile with nothing left. */
-    public boolean draws(long key) {
-        return !hidden(key) && !(rings.filling(key) && given(key) == ALL);
+    /** Whether a fill tile is of no use now: it need not be built, or can be let go. */
+    public boolean spare(long key) {
+        return rings.filling(key) && covered(key);
     }
 
     /**
-     * Whether a shown tile draws a column of its ground, given by which quarter of the tile the
-     * column lies in.
+     * Writes one bit for each tile of each level's square as last selected: whether it is shown.
+     * A level's bits start at {@code level * maskWords(across)}; a tile's bit is its place in the
+     * square, x fastest.
      */
-    public boolean draws(long key, int quarter) {
-        if (hidden(key)) {
+    public void masks(int[] into) {
+        int across = rings.across();
+        int words = maskWords(across);
+        java.util.Arrays.fill(into, 0, rings.levels() * words, 0);
+        for (int level = 0; level < rings.levels(); level++) {
+            int startX = rings.squareX(level);
+            int startZ = rings.squareZ(level);
+            for (int z = 0; z < across; z++) {
+                for (int x = 0; x < across; x++) {
+                    if (tiles.shown(TileKey.of(level, startX + x, startZ + z))) {
+                        int bit = z * across + x;
+                        into[level * words + (bit >> 5)] |= 1 << (bit & 31);
+                    }
+                }
+            }
+        }
+    }
+
+    /** Reads {@link #masks} as the draw does: whether a level has a shown tile over a block. */
+    public static boolean shownAt(int[] masks, int across, int level, int squareX, int squareZ, long blockX, long blockZ) {
+        long side = TileKey.side(level);
+        long x = Math.floorDiv(blockX, side) - squareX;
+        long z = Math.floorDiv(blockZ, side) - squareZ;
+        if (x < 0 || x >= across || z < 0 || z >= across) {
             return false;
         }
-        return !rings.filling(key) || (given(key) & 1 << quarter) == 0;
+        int bit = (int) (z * across + x);
+        return (masks[level * maskWords(across) + (bit >> 5)] >>> (bit & 31) & 1) != 0;
     }
 }

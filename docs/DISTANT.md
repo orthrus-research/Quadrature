@@ -277,6 +277,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
 | `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
 | `quadrature.distant.fill` | `on` | `on`: every level also takes the tiles inside its own hole and draws them until finer tiles are stored, so no hole is open while distant terrain arrives (section 18). `off`: each level its ring only |
+| `quadrature.distant.order` | `near` | `near`: the coarsest level's fill tiles, then every level from the finest outward. `coarse`: the coarsest level first. Needs fill tiles (sections 18, 19) |
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
@@ -1369,41 +1370,55 @@ its band, and the tiles inside its hole past the band, 16 a level at a reach of 
 (`Rings.fill`, `Rings.filling`). A fill tile lies over ground the finer levels draw and is
 drawn only until they do.
 
-**Giving ground up.** A fill tile gives its ground up a quarter at a time: a quarter when the
-finer tile under it is shown (stored, wanted and past its fading in), or when that tile, being
-a fill tile itself and not stored, has all four of its own quarters given up. The quarters
-are four bits in the tile's draw record beside the crossfade's two (`TileDraws.FILL`,
-`GIVEN_SHIFT`), and the fragment stage discards a fill tile's fragments in a quarter that is
-given. A tile's quarter is found from where the fragment lies in its tile.
+**By place, not by tile.** The finest shown tile over a place draws it (shown: stored, wanted
+and past its fading in). A coarser tile draws a place only where no finer level has a shown
+tile; the one exception is a band, where a level's band tile and the shown tile of the next
+finer level under it are both drawn and fade into each other. Nothing waits: a finer tile is
+seen as soon as it is shown, and the coarser tile under it goes on drawing the ground beside
+it. So tiles may arrive in any order.
 
-**Waiting.** A finer tile is not drawn while a coarser stored tile still draws its ground:
-under a fill tile that has not given that quarter up, and, in a band, under a band tile whose
-four finer tiles are not all shown, since the band fades only when they are. Before this the
-band's finer tiles were drawn whole under a whole band tile until the fourth came.
+The draw decides it for each fragment. Each level has one bit for each tile of its square,
+set when the tile is shown (`Cover.masks`: 144 bits a level, 40 words for eight levels, sent
+as uniforms with where each square begins). A fragment of level k asks levels k - 1 down to 0
+whether a shown tile lies over its place and is discarded at the first that does, unless it is
+in its band and the pattern keeps it. The crossfade's finer side asks the same of level k + 1.
+The partner flags in a tile's record, which said the same for whole tiles, are no longer used.
 
-**So** of the stored tiles over any column exactly one draws it, or the two of a fading band;
-and a column under any stored tile is drawn. `Cover` holds the rule and `CoverTest` the
-proof by enumeration: four levels from four cameras with tiles stored one at a time in the
-schedule's order, thirty random subsets in bounded and unbounded worlds, also after spare fill
-tiles are let go, and seven levels in the lab's world.
+The first version of this section gave ground up by quarters of a fill tile and made finer
+tiles wait under a quarter not yet given up. That held the invariant but hid a stored level 0
+under a level 6 quarter, two kilometers across, until levels 1 to 4 were whole.
 
-**Letting go, and not building.** A fill tile whose four quarters are given is of no use: if
-stored, its storage is freed (`TileSchedule.retire`); if not yet built, it is not built
-(`TileSchedule.next` with `Cover.spare`). Either way it stays wanted and is marked spared,
-which holds no other tile back and is asked about again at the next selection. So in steady
-travel, where the finer levels are already stored when a hole moves, fill tiles are neither
-sampled nor stored.
+`Cover` states the rule for a place and `CoverTest` checks it by enumeration: of the shown
+tiles over any place exactly one draws it whole, the finest, and besides it at most the band
+tile over it; the bits the draw reads agree with the tiles shown. Four levels from four
+cameras with tiles stored one at a time, in both orders; thirty random subsets in bounded and
+unbounded worlds; seven levels in the lab's world.
 
-**Order.** A level's tiles are built nearest first, so its fill tiles come before its ring:
-the first tiles of all are the coarsest level's over the ground around the viewer.
+**Letting go, and not building.** A fill tile all of whose ground finer shown tiles draw is of
+no use (`Cover.spare`): if stored, its storage is freed (`TileSchedule.retire`); if not yet
+built, it is not built (`TileSchedule.next`). Either way it stays wanted and is marked spared,
+which holds no other tile back and is asked about again at the next selection. Letting spare
+tiles go leaves the same places drawn, which the tests check. In steady travel, where the
+finer levels are already stored when a hole moves, fill tiles are neither sampled nor stored.
+
+**Order** (`quadrature.distant.order`, section 19). `near`, the default: the coarsest level's
+fill tiles, which cover the ground about the viewer out to 8 km, then every level from the
+finest, each nearest first, and last the rest of the coarsest. The finer levels' own fill
+tiles come after the levels that cover them and are spared, so only the coarsest level's are
+built. `coarse`: the coarsest level first, as before.
 
 ### 18.2 What it costs
 
-On a cold join, 96 more tiles at seven levels (92 in the lab's world from the tour's place)
-beside 764: an eighth more sampling, spread over the levels, the coarse ones first. In the
-arena, at the worst moment all of them at once, about 5 MiB beside 42, and none once the view
-is whole. Each frame, the rule is asked for every stored tile: a walk up at most six levels,
-and for a fill tile down through the fill tiles under it, of which there are 16 a level.
+On a cold join in the default order, the coarsest level's fill tiles and no others: 16 more
+tiles beside 764 (12 in the lab's world from the tour's place). In the arena, those tiles
+until the levels under them are whole. In the order `coarse` every level's fill tiles are
+built: 96 more, about 5 MiB at the worst moment.
+
+In the fragment stage: no texture is read. A fragment of level k reads up to k words of the
+uniform bits, one for each finer level, and stops at the first that is set; level 0, which
+fills most of the near screen, reads one word, for the crossfade's test against level 1. That
+replaces two tests of a flag. The GPU time is expected to stay near the 2.6 ms measured, and
+is to be read from the next run and not taken from this.
 
 ### 18.3 Skirts
 
@@ -1415,11 +1430,48 @@ tiles are stored, which is before its ring's.
 
 ### 18.4 Open
 
-- A quarter changes hands in one frame: the fill tile's quarter goes and the finer tile, whose
-  own fading in ran while it waited, is there whole. A fade between them would need the finer
-  tile's fade to start when it is let through.
-- Where a fill tile has given a quarter up, its remaining ground ends on a line inside the
-  tile with no side face of its own. Where it stands higher than the finer tile beside it, a
-  sliver may show under its edge until the next quarter goes.
+- A place changes hands when the finer tile's fading in ends: while it fades in, the coarser
+  tile is still whole under it, so the pattern shows the finer through gaps only where it
+  lies nearer the eye.
 - Tiles kept past their ring are still drawn whole over whatever replaces them, as before.
 - How long the first tile takes is not changed by any of this: section 19.
+
+## 19. Arrival: how long, and in what order
+
+Measured without a game, through Riven's own preview with nothing built: a fresh JVM a run,
+seed 2485331, the 32 km layout, the travel tour's place, 4 threads, levels 0 to 6 with bands
+and fill tiles. Seconds from the first request; constructing the preview takes 5 to 8 before
+it, 1.7 with a regional store.
+
+| Order | First tile | Coarse cover to 8 km | Level 0 whole | All |
+|---|---|---|---|---|
+| Coarsest level first (as run so far) | 22 | 40 | 113 | 113 |
+| Finest first, outward | 19 | level 5 at 89 | 30 | 117 |
+| Coarsest fill, level 0, outward | 19 | 34 | 46 | 107 |
+| Coarsest fill, every level's fill, level 0, outward | 19 | 34 | 47 | 102 |
+| Coarsest level first, reading a regional store | 12 | 23 | 98 | 98 |
+| Coarsest fill, level 0, outward, reading a store | 13 | 25 | 36 | 89 |
+
+**The first 19 to 22 seconds** are the same whatever is asked first; one level 0 tile alone
+takes 19. Stacks sampled in a cold start: over half of the worker threads' samples wait in
+Riven's `SharedBuild.get`, three threads on a build the fourth is doing; the work is coast
+forms for the cells about the viewer, the continental outline, coast sediment, drainage and
+the province map. It is Riven's, and one thread's.
+
+**Why the coarsest level is slow.** Not its cells: warm, a level 6 tile costs 1.3 to 1.75
+seconds of CPU against 0.12 for level 5. Level 6 covers the whole world and so builds Riven's
+regional data everywhere; it is half of all the sampling. After it everything finer is warm:
+levels 5 to 0, 792 tiles, take 40 seconds.
+
+**The regional store** takes the first tile from 19 to 22 seconds down to 12 or 13 and the
+coarse cover from 34 to 40 down to 23 to 25 here; it does not hold coast forms or the outline.
+A client in single player borrows the server's generator, whose builds it shares; that was
+not measured.
+
+**Chosen:** the coarsest level's fill tiles, then level 0, then outward (`order=near`). Cold:
+a first picture at 19 seconds, coarse ground to 8 km at 34, full detail about the viewer at
+46, all at about 107. Finest first shows detail 16 seconds sooner and the horizon 55 later.
+
+**For Riven, not done here:** the cold coast and outline build about a point, parallel or
+cheaper, is worth up to 19 seconds; coast forms in the store, or the store sent at a join,
+7 to 9 on the first tile as the store stands.

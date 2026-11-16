@@ -106,6 +106,9 @@ final class Distant {
         }
     });
     private final LongArrayList spared = new LongArrayList();
+    /** For the draw: a bit for each tile of each level's square that is shown, and where the squares lie. */
+    private final int[] shownMasks = new int[8 * Cover.maskWords(2 * REACH / 64)];
+    private final float[] squareOrigins = new float[8 * 2];
     private long tilesSpared;
     /** Near terrain's coverage map this frame, or null when the box is used in its place. */
     private CoverageMap covered;
@@ -161,6 +164,7 @@ final class Distant {
         this.source = source;
         rings.overlap(DistantSettings.CROSSFADE);
         rings.fill(DistantSettings.FILL);
+        rings.nearFirst(DistantSettings.NEAR_FIRST);
     }
 
     /** Starts distant terrain if a cube source exists. */
@@ -242,10 +246,11 @@ final class Distant {
             if (fading) {
                 bands();
             }
+            squares();
             lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
                 minecraft.world.getSunBrightness(partialTicks), cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade, fading ? holes : null, bandWidths, LEVELS);
+                imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across());
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
             DriverMessageAccess.leave();
         } else {
@@ -490,22 +495,10 @@ final class Distant {
             if (tile.faces == 0 || !schedule.drawn(key)) {
                 continue;
             }
-            // While tiles arrive: a tile under ground a coarser one still draws waits, and a fill
-            // tile draws the quarters finer tiles have not taken. A tile kept past its ring is
-            // outside that rule.
-            int fill = 0;
-            if (DistantSettings.FILL && !schedule.kept(key)) {
-                if (arrival.hidden(key)) {
-                    continue;
-                }
-                if (rings.filling(key)) {
-                    int given = arrival.given(key);
-                    if (given == Cover.ALL) {
-                        spared.add(key);
-                        continue;
-                    }
-                    fill = TileDraws.FILL | given << TileDraws.GIVEN_SHIFT;
-                }
+            // A fill tile all of whose ground finer tiles draw is of no use: it is let go below.
+            if (DistantSettings.FILL && !schedule.kept(key) && arrival.spare(key)) {
+                spared.add(key);
+                continue;
             }
             long tileSide = TileKey.side(TileKey.level(key));
             boolean hidden = covered == null
@@ -532,8 +525,7 @@ final class Distant {
             float shows = schedule.kept(key) ? -1f : !DistantSettings.CROSSFADE ? 1f
                 : Math.min(1f, (frame - tile.placedFrame + 1) / (float) DistantSettings.ARRIVAL_FRAMES);
             int record = draws.record(originX - view.originX(), floorY - view.originY(), originZ - view.originZ(),
-                TileKey.level(key), tile.tintWord, shows,
-                fill | (DistantSettings.CROSSFADE && fill == 0 ? partners(key) : 0));
+                TileKey.level(key), tile.tintWord, shows, 0);
             for (int layer = 0; layer < TileMesh.LAYERS; layer++) {
                 for (int direction = 0; direction < FaceRecord.DIRECTIONS; direction++) {
                     if ((facing & 1 << direction) != 0) {
@@ -561,6 +553,16 @@ final class Distant {
         lastTilesInBox = inBox;
     }
 
+    /** Which tiles of each level's square are shown this frame, and where each square begins. */
+    private void squares() {
+        arrival.masks(shownMasks);
+        for (int level = 0; level < LEVELS && level < 8; level++) {
+            long side = TileKey.side(level);
+            squareOrigins[level * 2] = (float) (rings.squareX(level) * side - view.originX());
+            squareOrigins[level * 2 + 1] = (float) (rings.squareZ(level) * side - view.originZ());
+        }
+    }
+
     /** Where each level's hole lies this frame, as the last selection put it, and its band's width. */
     private void bands() {
         for (int level = 1; level < LEVELS && level < 8; level++) {
@@ -573,29 +575,6 @@ final class Distant {
             holes[level * 4 + 3] = (float) (startZ + side - view.originZ());
             bandWidths[level] = TileKey.side(level);
         }
-    }
-
-    /**
-     * Which of a tile's partners in a crossfade are stored and drawn: its four children, to which
-     * it gives pixels up inside its own hole, and the tile over it, to which it gives them up at
-     * its ring's edge.
-     */
-    private int partners(long key) {
-        int partners = 0;
-        int level = TileKey.level(key);
-        if (level > 0) {
-            boolean all = true;
-            for (int child = 0; child < 4 && all; child++) {
-                all = shown(TileKey.child(key, child));
-            }
-            if (all) {
-                partners |= TileDraws.FINER_STORED;
-            }
-        }
-        if (level + 1 < LEVELS && shown(TileKey.parent(key))) {
-            partners |= TileDraws.COARSER_STORED;
-        }
-        return partners;
     }
 
     /** Whether a tile is stored, wanted by the present rings, and past its fading in. */
@@ -649,7 +628,9 @@ final class Distant {
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
         line.append(DistantSettings.FILL
             ? String.format("%n  fill tiles: on, each level's hole is drawn from that level until finer tiles are stored; "
-                + "%d let go once covered", tilesSpared)
+                + "%d let go once covered; order %s", tilesSpared,
+                DistantSettings.NEAR_FIRST ? "near first (the coarsest fill tiles, then from the finest level)"
+                    : "coarsest level first")
             : String.format("%n  fill tiles: off"));
         line.append(DistantSettings.CROSSFADE
             ? String.format("%n  crossfade between levels: on, a band one coarser tile wide; tiles fade in over %d frames",

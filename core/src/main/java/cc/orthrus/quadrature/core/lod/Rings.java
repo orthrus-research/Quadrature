@@ -12,7 +12,8 @@ import java.util.Arrays;
  *
  * <p>Tiles outside the world's bounds are left out. The selection lists the coarsest level first
  * and, within a level, the tiles nearest the camera first, so there is always something to draw
- * and it sharpens outward. Levels above the first whose square holds the whole world are empty.
+ * and it sharpens outward; or, with {@link #nearFirst}, a coarse cover of the ground about the
+ * camera and then every level from the finest. Levels above the first whose square holds the whole world are empty.
  *
  * <p>Not safe for use from more than one thread. Allocates only when it grows.
  */
@@ -31,6 +32,8 @@ public final class Rings {
     private final int[] squareX;
     private final int[] squareZ;
     private boolean selected;
+    /** Whether the selection lists the coarsest fill tiles, then every level from the finest. */
+    private boolean nearFirst;
     private long[] keys = new long[1024];
     private long[] order = new long[1024];
     private int count;
@@ -65,6 +68,28 @@ public final class Rings {
 
     public boolean fill() {
         return fill;
+    }
+
+    /**
+     * The order of a selection. Off: the coarsest level first, each level nearest first. On: the
+     * coarsest level's fill tiles, which cover the ground about the camera out to that level's
+     * hole, then every level from the finest, each nearest first, and of the coarsest what is
+     * left. So there is a coarse picture of everything near first, then full detail at the camera,
+     * then outward; the finer levels' own fill tiles come after the levels that cover them and
+     * are spared. Measured cold in a 32 km world: level 0 whole at 46 s against 113.
+     */
+    public void nearFirst(boolean on) {
+        nearFirst = on;
+    }
+
+    /** A level's square as last selected: its lowest tile position along x. */
+    public int squareX(int level) {
+        return squareX[level];
+    }
+
+    /** A level's square as last selected: its lowest tile position along z. */
+    public int squareZ(int level) {
+        return squareZ[level];
     }
 
     /** Whether a tile lies in its level's square as last selected. */
@@ -179,6 +204,39 @@ public final class Rings {
             }
             nearestFirst(first, count);
         }
+        if (nearFirst) {
+            reorder();
+        }
+    }
+
+    /** Puts a selection listed coarsest first into the order of {@link #nearFirst}. */
+    private void reorder() {
+        if (count == 0) {
+            return;
+        }
+        int top = TileKey.level(keys[0]);
+        int at = 0;
+        for (int i = 0; i < count && TileKey.level(keys[i]) == top; i++) {
+            if (filling(keys[i])) {
+                order[at++] = keys[i];
+            }
+        }
+        // The levels lie coarsest first, each a run: walk the runs from the last.
+        int end = count;
+        while (end > 0) {
+            int level = TileKey.level(keys[end - 1]);
+            int start = end;
+            while (start > 0 && TileKey.level(keys[start - 1]) == level) {
+                start--;
+            }
+            for (int i = start; i < end; i++) {
+                if (level != top || !filling(keys[i])) {
+                    order[at++] = keys[i];
+                }
+            }
+            end = start;
+        }
+        System.arraycopy(order, 0, keys, 0, count);
     }
 
     /** Orders one level's tiles by distance; {@code order} holds distance over index within it. */
