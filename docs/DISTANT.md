@@ -753,3 +753,147 @@ server, which disconnects the client, and ends the client only once the server h
    missing there: reported with where it lies, against the lighter patches of water seen at
    near terrain's outer edge since the second run.
 10. Where it shows no magenta, the frame equals run 1's.
+
+## 14. Design: transitions and the shading targets
+
+Not built. What comes after the first pass on looks: the crossfade between levels and at the
+near join, and distant terrain writing the targets near terrain writes for shading. Read for
+it, and not changed: near terrain's targets on its own branch (`GBufferTarget` and
+`TerrainProgram` there), and the Riven shader's `docs/TARGET.md` and
+`renderer-contract.json`, which state what a shading stage needs and are a design, not an
+interface either side runs.
+
+### 14.1 Crossfade between levels
+
+**Now.** Ring k is level k's square less level k-1's. Where they meet, one level stops and
+the next begins on a line, and when the camera crosses a snapping step that line jumps by two
+tiles (128 blocks at level 0, 8 km at level 6) and the ground between changes level at once.
+Tiles close themselves with skirts, so nothing gapes; what shows is a change of detail on a
+line, and a pop.
+
+**Design.** Over a band on the inside of each line both levels are drawn, and each pixel
+keeps one of them by a threshold that runs from all-fine to all-coarse across the band.
+
+- *Selection.* Ring k keeps, besides its own tiles, the ring of level k tiles just inside its
+  hole. The hole is a whole number of level k tiles, so this is one more tile inward on each
+  side: with a reach of 384, 20 more tiles a level (108 to 128, a fifth more), none at level
+  0. `Rings` selects them and marks them as band tiles; a test checks that every column
+  inside the outermost square is covered by exactly one level outside bands and by exactly
+  two inside.
+- *The band.* For level k-1 meeting level k: the last level k tile inside the hole, so its
+  width is 64 << k blocks, a sixth of level k-1's reach. It moves with the snapped square,
+  not with the eye, so both levels are certain to have tiles under all of it.
+- *The threshold.* A tile's record carries its square's inner and outer edges from the view's
+  origin (two more floats a record; the record has four bytes spare and grows by one word).
+  In the fragment stage `t` runs 0 to 1 across the band by the fragment's distance from the
+  edge, measured on the axis it is nearest the edge on. Level k-1 keeps a fragment where a
+  pattern value is at or above `t`; level k keeps it where the value is below `t`. One
+  pattern and complementary tests: where both levels have a surface at a pixel, exactly one
+  is kept.
+- *The pattern.* Ordered, 4 by 4, from the pixel's place on the screen. It does not crawl
+  over a still frame. Under motion it stays with the screen while the ground moves under it,
+  which reads as fine grain in the band, not as a moving edge. When a stage accumulates over
+  frames, the pattern is offset by the frame's index, so the band resolves to a true blend;
+  the frame's index is an input that stage already needs. A pattern fixed to the ground was
+  weighed and set aside for the reason leaves have no cut-out: far out its cells are smaller
+  than a pixel.
+- *A tile that has not arrived.* The other level is then drawn whole in the band: a tile
+  without its partner is told so in its record (the spare `shows` value), and the schedule
+  knows which are stored.
+- *A tile arriving.* The same value fades a newly stored tile in over a few frames by the same
+  pattern, in place of today's appearing at once.
+- *Depth.* Both levels write depth. The coarser surface lies up to a cell away from the finer
+  one, so in the band the two can cross; the pattern hides that as it hides the change of
+  detail.
+- *Skirts* in a band are behind the other level's surface and cost fragments only where they
+  were already drawn.
+
+**Cost.** A fifth more tiles and faces at levels 1 and up (about 35 MiB to 41 by the fourth
+run's figures), no more draws, and a pattern look-up and a compare in fragments of band
+tiles. Fragments in a band are shaded twice at most.
+
+**Alternative.** Moving the finer level's vertices toward the coarser surface across the
+band (geomorphing). It needs each fine face to know its coarse parent's height, which a run
+tile does not hold, and it cannot fade a tree in. Set aside.
+
+### 14.2 The near join
+
+**Now.** Fragments inside the near box are left out. With images out to 224 blocks the colors
+meet, and what is left at the box's edge is that near terrain has plants, cut-out leaves,
+block light and smooth lighting and distant terrain has not.
+
+**What a crossfade here needs.** Distant terrain can fade itself in over the last cube inside
+the box by the pattern above. Near terrain must fade itself out over the same cube by the
+complementary test, or the two are simply both drawn there. That is a change in near
+terrain's fragment stage: the box and band as uniforms and the same pattern function. It is
+near terrain's to make.
+
+**And the box itself is provisional.** Near terrain is building a coverage map that says,
+column by column, what it has meshed. When distant terrain leaves out what the map covers in
+place of what the box holds, a cube not yet meshed is filled by distant terrain and not left
+open, and the band can follow the map's edge. The order proposed: the coverage map first,
+then the fade on both sides against it.
+
+### 14.3 Writing the shading targets
+
+**What near terrain writes** (its branch, read 2026-11-16). Four targets of 8 bits a channel
+and reversed 32-bit float depth, no lit color:
+
+| Target | Red, green, blue | Alpha |
+|---|---|---|
+| A | The world normal, n * 0.5 + 0.5 | Perceptual roughness |
+| B | Sky light, emission strength, block light, each 0 to 1 over the game's 0 to 15 | A response class: 0.375 on terrain, 0 where nothing was written |
+| C | The square root of linear albedo after tint | 1 for a conductor |
+| D | Reflectance and subsurface (a conductor: its colored reflectance) | The material's occlusion times the game's vertex occlusion |
+
+Its material values come from a buffer of two words a block state: roughness, reflectance,
+subsurface and emission in the first, flags in the second.
+
+**What distant terrain has for each.**
+
+| Wanted | Distant terrain | Gap |
+|---|---|---|
+| World normal | The face's direction, one of six, exact | None. A flat value from the record |
+| Roughness, reflectance, subsurface, emission, conductor | Nothing: a distant material is two colors | Distant materials are numbered as they are met, near terrain's by block state. The distant table must carry the block state's number, or the same two words, so both read one material |
+| Albedo | The image near the join, the flat color beyond, with the biome's tint, as stored values | Convert to linear and write its square root. Leaves' far color is already what the game shows |
+| Sky light | 4 bits a face, from the runs above it | None for open ground. Under canopy it is the face's top (section 6) |
+| Block light | None. The preview has no lights | Written as 0. Lava, glowstone and the like beyond the box do not light anything until the preview says where emitters are (Cubature's preview excludes emitters today) |
+| Occlusion | 2 bits a corner, softened to 0.08 a step | Write 1 - 0.08 * closed as the vertex occlusion; the material's own is 1 |
+| Response class | - | 0.375 as terrain. Whether distant terrain should have a class of its own, so a stage can tell them apart, is open |
+| Depth | The frame's own, reversed float | None, with one far distance for the pass (section 8) |
+| Coverage, transmission | Water blended by its cover; leaves solid | Water is a translucent: it is not written to these targets but shaded forward after them, as near water will be. Its bed is written |
+| Motion, identity | Nothing | Terrain does not move: motion is the camera's, which a stage can work out from depth. A material identity can be the block state's number once the table carries it |
+
+**The shape of the change.** The fragment stage already works out surface, light and fog
+apart (section 8). With the targets on, it writes the surface's parts to A to D and applies
+no light and no fog: those become the shading stage's, as for near terrain. The forward path
+stays for when the targets are off. The opaque and leaf layers draw into near terrain's
+framebuffer, after its layers and before shading; water draws after shading with the
+translucents. So distant terrain needs: the targets' framebuffer from near terrain, a place
+in the frame for "distant opaque" before shading and "distant translucent" after, and the
+material words.
+
+**The fog.** The shared fog (section 8) is the game's fixed-function fog with other
+distances. A shading stage that brings its own aerial perspective replaces it; until then
+the shading stage must apply the same two distances to both terrains, or leave the fog where
+it is now, in each terrain's forward path.
+
+### 14.4 Open questions
+
+1. The near join: will near terrain's stage take the band and the pattern, and is the
+   coverage map to come first? Who owns the pattern function, so both sides use one?
+2. The targets: may distant terrain draw into near terrain's framebuffer, and through what
+   call does it get it? Does the frame graph gain two stages for distant terrain, opaque
+   before shading and translucent after?
+3. Materials: one table for both terrains, numbered by block state, in place of distant
+   terrain's own numbering? The face record's 13 bits hold 8,192; a world's block states met
+   by the preview have stayed near 300.
+4. Response class: terrain's 0.375 for distant terrain too, or a value of its own?
+5. Block light beyond the box: accepted as none until the preview reports emitters, or should
+   Cubature's preview carry them (a change to its contract)?
+6. The dither's offset by frame: is there to be an accumulating stage at all in the first
+   shaded frames, or should the pattern be chosen to look right with none?
+7. Water: distant water shaded forward after the targets, like near water; is that the plan
+   for near water, or will water be written to targets of its own?
+8. The fog's two distances once shading is in: kept as settings of distant terrain, or
+   handed to the shader as aerial perspective?
