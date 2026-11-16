@@ -279,6 +279,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
+| `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `quadrature-travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it (section 17) |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
 looked for once a frame: the source has one listener, which near terrain holds, so its
@@ -1120,9 +1121,13 @@ nearly black where near trunks are brown, which would be the sky light the previ
 under leaves.
 
 **Seen in the level view at the coast.** With the coverage map, distant sea bed shows through
-near water wherever near terrain holds no bed, from some 50 blocks out over a wide area; most
-likely the bed there lies below near terrain's lowest meshed cube. That is the map doing what
-it is for: the ground is completed and not left open. In the normal look that area is lighter
+near water over a wide area, entered from some 50 blocks out. In a column near terrain has
+meshed, a distant fragment within the heights of its cubes is discarded (there, Y -80 to 288),
+so what shows is in columns it has not meshed, 176 blocks out and farther, or below Y -80.
+From 33 blocks over the water a line of sight that enters it 55 blocks out is 73 blocks under
+the surface by 176 blocks: where the sea is deeper than that it meets no near bed and ends on
+distant bed beyond near terrain. The bed's height there was not read, so that is the likely
+account and not a shown one. Either way the ground is completed and not left open. In the normal look that area is lighter
 by about 2 of 255 (37, 52, 173 against 35, 49, 170), which makes it a candidate for the
 lighter patches in near water; that it is their cause is not shown.
 
@@ -1255,3 +1260,44 @@ are built and not yet run in a game; none changes what the forward path draws.
   with the targets bound; and one after shading for water.
 - The opaque color and depth under translucents.
 - The frame index its history targets use.
+
+## 17. A tour of distant terrain in travel
+
+Built and not run. Every run so far captured stills after a settle, which never show a tile
+arriving, its fade over 24 frames, the coverage map handing columns over, or a ring moving.
+
+**What the lab's tools do today.** A tour is a list of views; the launcher teleports to each
+and waits for the client to say it captured one. The capture is made by Riven's client, once
+a view, when the player has stood still for the instance's settle time (`--capture-ticks` at
+prepare, 100 ticks at least, one value for the whole instance) at a place more than 8 blocks
+from the last capture. There is no capture before the settle and no settle time for one view.
+None of that is changed.
+
+**What is added, in this mod and its own runner only.**
+`-Dquadrature.distant.travelCapture=500,2000,5000,12000` (`TravelCapture`): each time the
+viewer jumps more than 8 blocks, a frame is saved at every listed delay after the jump, at the
+end of that frame's world pass, as `quadrature-travel-<jump>-<delay>ms.png` in the game's
+screenshots, and the log's summary (tiles stored by level, the coverage map's counts) is
+written beside each. The first frame of a world is jump 0. The launcher's own teleports are
+the jumps, so a tour needs nothing more; where it lowers the player in steps each step is a
+jump of its own, and the log says where each jump went. The runner copies those frames beside
+the tour's.
+
+**The tour**, `tools/tours/distant-travel-2485331.json`, on an instance prepared with a
+settle of 300 ticks, so that all four delays fall before the settled capture:
+
+1. `arrive_ground`: the join, at the place of `ground_west`. Nothing is stored yet.
+2. `arrive_above`: 2 km east and 160 high, looking west and down. Near terrain and every
+   ring begin again: tiles arriving coarsest first, near columns handed over by the map.
+3. `step_1` to `step_6`: 32 blocks west each time from there, same height and view. Ring 0's
+   square moves by 128 blocks at a time, so in 192 blocks it moves at least once: tiles enter
+   at one edge and fade in, and the band between levels 0 and 1 moves across fixed ground.
+
+**To look for.** At 0.5 s: sky where nothing is stored, or coarse levels only, and no hole
+inside near terrain's columns as they are meshed. At 2 s and 5 s: finer levels filling in from
+the middle outward; a tile newly stored showing as a grain of the pattern and not popping.
+After a step: no line where the band between two levels moved, and no tile kept past its ring
+left over a finer one. The same tour in the level view shows which level each pixel is.
+
+**Not covered still:** continuous motion, which needs a flight and a video or a run of frames
+a tick apart.

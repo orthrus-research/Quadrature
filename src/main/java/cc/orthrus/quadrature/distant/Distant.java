@@ -90,6 +90,7 @@ final class Distant {
     private final float[] projection = new float[16];
     private final float[] nearBox = new float[6];
     private final DistantCover cover = new DistantCover();
+    private final TravelCapture travel = new TravelCapture();
     /** Near terrain's coverage map this frame, or null when the box is used in its place. */
     private CoverageMap covered;
     private float[] imageFade = {DistantSettings.DETAIL_START, DistantSettings.DETAIL_END};
@@ -195,6 +196,7 @@ final class Distant {
             return;
         }
         fillView(viewer, partialTicks, minecraft);
+        boolean captured = travel.frame(viewer);
         arena.beginFrame();
         workers.drain();
         takeEnded();
@@ -232,6 +234,10 @@ final class Distant {
         }
         lastFaces = draws.faces();
         arena.endFrame(frame);
+        if (captured) {
+            // Beside a travel capture: what was stored and covered when its frame was drawn.
+            Quadrature.LOGGER.info(summary());
+        }
         if (LOG && System.nanoTime() - lastLogNanos > LOG_INTERVAL_NANOS) {
             lastLogNanos = System.nanoTime();
             Quadrature.LOGGER.info(summary());
@@ -291,6 +297,7 @@ final class Distant {
             }
         }
         inFlight.clear();
+        travel.forget();
         schedule.reset();
         release();
         selectedX = Long.MIN_VALUE;
