@@ -107,6 +107,11 @@ final class Distant {
         public boolean shown(long key) {
             return Distant.this.shown(key);
         }
+
+        @Override
+        public boolean kept(long key) {
+            return schedule.kept(key) && residents.containsKey(key);
+        }
     });
     private final LongArrayList spared = new LongArrayList();
     private long shadedGeneration = Long.MIN_VALUE;
@@ -503,6 +508,10 @@ final class Distant {
             long key = entry.getLongKey();
             Resident tile = entry.getValue();
             if (tile.faces == 0 || !schedule.drawn(key)) {
+                continue;
+            }
+            // Of two tiles kept past their ring over one place, the coarser draws.
+            if (DistantSettings.FILL && schedule.kept(key) && arrival.keptHidden(key)) {
                 continue;
             }
             // A fill tile all of whose ground finer tiles draw is of no use: it is let go below.

@@ -19,8 +19,10 @@ package cc.orthrus.quadrature.core.lod;
  * for a whole tile: a fill tile all of whose ground finer tiles draw is of no use ({@link #spare}),
  * so it need not be built and can be let go.
  *
- * <p>Tiles kept past their ring are outside this rule: they are drawn whole until what replaces
- * them is stored.
+ * <p>Tiles kept past their ring, after the camera has moved, come last: a kept tile draws a place
+ * only where no wanted tile of any level is shown, so it gives way place by place as what replaces
+ * it is stored and leaves no hole before. Of two kept tiles over one place, which happens where a
+ * band was, the coarser draws and the finer does not.
  *
  * <p>Holds nothing; asks the rings last selected and the caller's tiles. Not safe for use while
  * the rings are being selected.
@@ -34,6 +36,11 @@ public final class Cover {
 
         /** Whether the tile is stored, wanted, and past its fading in. */
         boolean shown(long key);
+
+        /** Whether the tile is stored and has left the selection: kept until what replaces it is stored. */
+        default boolean kept(long key) {
+            return false;
+        }
     }
 
     /** {@link #draws}: the tile does not draw the place, draws it, or draws it fading with the finer tile there. */
@@ -67,6 +74,37 @@ public final class Cover {
             }
         }
         return WHOLE;
+    }
+
+    /**
+     * Whether a kept tile is not drawn at all because a coarser kept tile lies over it. Kept tiles
+     * overlap only where a band was, a band tile over the four under it; there the band tile draws.
+     */
+    public boolean keptHidden(long key) {
+        long over = key;
+        for (int level = TileKey.level(key) + 1; level < TileKey.LEVELS; level++) {
+            over = TileKey.parent(over);
+            if (tiles.kept(over)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a kept tile draws a place in its ground, given as the level 0 tile position the place
+     * lies in: where no wanted tile of any level is shown, and no coarser kept tile lies over it.
+     */
+    public boolean keptDraws(long key, long cellX, long cellZ) {
+        if (keptHidden(key)) {
+            return false;
+        }
+        for (int level = 0; level < rings.levels(); level++) {
+            if (tiles.shown(TileKey.of(level, (int) (cellX >> level), (int) (cellZ >> level)))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

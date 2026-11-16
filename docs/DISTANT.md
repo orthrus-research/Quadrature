@@ -1533,7 +1533,13 @@ tiles are stored, which is before its ring's.
 - A place changes hands when the finer tile's fading in ends: while it fades in, the coarser
   tile is still whole under it, so the pattern shows the finer through gaps only where it
   lies nearer the eye.
-- Tiles kept past their ring are still drawn whole over whatever replaces them, as before.
+- Tiles kept past their ring were drawn whole over whatever replaced them, which the eighth
+  run's level view showed for up to 30 seconds after a far jump. They now follow the rule too,
+  last in line: a kept tile draws a place only where no wanted tile of any level is shown, and
+  of two kept tiles over one place, where a band was, the coarser draws (`Cover.keptDraws`,
+  `keptHidden`; the fragment stage asks every level's bits for a kept tile). `CoverTest` has
+  the jump: the old place's tiles kept, the new place's stored one at a time in both orders,
+  every place under any stored tile drawn once and no hole at any step. Not run in a game.
 - How long the first tile takes is not changed by any of this: section 19.
 
 ## 19. Arrival: how long, and in what order

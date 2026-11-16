@@ -267,4 +267,128 @@ class CoverTest {
             assertEquals(6 * 16 - 4, fill);
         }
     }
+
+    /** A camera that has jumped: the old place's tiles kept, the new place's stored one at a time. */
+    private static final class Jump implements Cover.Tiles {
+        final Rings rings;
+        final List<Long> order = new ArrayList<>();
+        final Set<Long> wanted = new HashSet<>();
+        final Set<Long> shown = new HashSet<>();
+        final Set<Long> kept = new HashSet<>();
+        final Cover cover;
+        long minX = Long.MAX_VALUE, minZ = Long.MAX_VALUE, maxX = Long.MIN_VALUE, maxZ = Long.MIN_VALUE;
+
+        Jump(int levels, long fromX, long fromZ, long toX, long toZ, boolean nearFirst) {
+            // The old place, settled: every tile but the spare fill tiles stored.
+            World old = new World(levels, fromX, fromZ, 0, nearFirst);
+            Set<Long> stored = new HashSet<>();
+            for (long key : old.order) {
+                if (!old.rings.filling(key)) {
+                    stored.add(key);
+                }
+            }
+            rings = new Rings(384, levels);
+            rings.overlap(true);
+            rings.fill(true);
+            rings.nearFirst(nearFirst);
+            rings.select(toX, toZ);
+            for (int i = 0; i < rings.count(); i++) {
+                order.add(rings.tile(i));
+            }
+            wanted.addAll(order);
+            for (long key : stored) {
+                (wanted.contains(key) ? shown : kept).add(key);
+                long side = TileKey.side(TileKey.level(key)) / 64;
+                minX = Math.min(minX, TileKey.originX(key) / 64);
+                minZ = Math.min(minZ, TileKey.originZ(key) / 64);
+                maxX = Math.max(maxX, TileKey.originX(key) / 64 + side);
+                maxZ = Math.max(maxZ, TileKey.originZ(key) / 64 + side);
+            }
+            for (long key : order) {
+                long side = TileKey.side(TileKey.level(key)) / 64;
+                minX = Math.min(minX, TileKey.originX(key) / 64);
+                minZ = Math.min(minZ, TileKey.originZ(key) / 64);
+                maxX = Math.max(maxX, TileKey.originX(key) / 64 + side);
+                maxZ = Math.max(maxZ, TileKey.originZ(key) / 64 + side);
+            }
+            cover = new Cover(rings, this);
+        }
+
+        @Override
+        public boolean wanted(long key) {
+            return wanted.contains(key);
+        }
+
+        @Override
+        public boolean shown(long key) {
+            return shown.contains(key);
+        }
+
+        @Override
+        public boolean kept(long key) {
+            return kept.contains(key);
+        }
+
+        /** Every place under any stored tile, kept or shown, is drawn once, or twice in a wanted band. */
+        void check(String when) {
+            int top = rings.levels() - 1;
+            for (long z = minZ; z < maxZ; z++) {
+                for (long x = minX; x < maxX; x++) {
+                    int whole = 0;
+                    int fading = 0;
+                    int under = 0;
+                    for (int level = top; level >= 0; level--) {
+                        long key = TileKey.of(level, (int) (x >> level), (int) (z >> level));
+                        if (shown.contains(key)) {
+                            under++;
+                            int draws = cover.draws(key, x, z);
+                            whole += draws == Cover.WHOLE ? 1 : 0;
+                            fading += draws == Cover.FADING ? 1 : 0;
+                        } else if (kept.contains(key)) {
+                            under++;
+                            whole += cover.keptDraws(key, x, z) ? 1 : 0;
+                        }
+                    }
+                    if (under > 0 && (whole != 1 || fading > 1)) {
+                        fail(when + ": place " + x + " " + z + " under " + under + " stored tiles is drawn whole by "
+                            + whole + " and fading by " + fading);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void afterAJumpKeptTilesGiveWayPlaceByPlaceAndLeaveNoHole() {
+        long[][] jumps = {{0, 0, 2000, -72}, {1000, -3000, 1000 + 96, -3000}, {-4991, 12072, -3000, 12000},
+            {0, 0, 40000, 40000}};
+        for (boolean nearFirst : new boolean[] {false, true}) {
+            for (long[] j : jumps) {
+                Jump jump = new Jump(4, j[0], j[1], j[2], j[3], nearFirst);
+                String name = "jump " + j[0] + " " + j[1] + " to " + j[2] + " " + j[3] + ", near first " + nearFirst;
+                jump.check(name + ", nothing new stored");
+                int stored = 0;
+                for (long key : jump.order) {
+                    if (jump.shown.contains(key)) {
+                        continue;
+                    }
+                    jump.shown.add(key);
+                    if (++stored % 9 == 0) {
+                        jump.check(name + ", " + stored + " new tiles stored");
+                    }
+                }
+                jump.check(name + ", all stored");
+                // With everything wanted stored, no kept tile draws anything where a wanted tile lies.
+                for (long key : jump.kept) {
+                    long x = TileKey.originX(key) / 64;
+                    long z = TileKey.originZ(key) / 64;
+                    boolean covered = jump.rings.inSquare(TileKey.of(0, (int) x, (int) z))
+                        || jump.shown.contains(TileKey.of(3, (int) (x >> 3), (int) (z >> 3)));
+                    if (covered) {
+                        assertFalse(jump.cover.keptDraws(key, x, z), name + ": a kept tile over a stored one");
+                    }
+                }
+            }
+        }
+    }
 }
