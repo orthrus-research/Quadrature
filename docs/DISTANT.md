@@ -10,8 +10,8 @@ horizon under one fog; distant land begins where near land ends with no band of 
 distant water meet at one level and in one color; on land and over the sea the near box does
 not stand open; an entity 150 blocks out is drawn in front of distant land. **Untested
 still:** the pool's threads when a world is left, whether images near the join show, the
-corrected color of leaf images, the hand, and everything in section 14. Section 15 is the plan
-for the next run.
+corrected color of leaf images, near terrain's coverage map in place of the box, the crossfade
+between levels, the hand, and the rest of section 14. Section 15 is the plan for the next run.
 Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
@@ -1012,3 +1012,64 @@ pixel sees 8 of them, so a band resolves in eighths. A fragment stage passes
 - Whether the pattern's walk should be 8 places to fit the shader's cycle.
 - The order of distant water against near water.
 - Emission: how distant terrain learns a state's emission before the shared table exists.
+
+## 15. The next run
+
+Not done. One GPU turn under Riven's lease, two tours on one fresh instance
+(`quadrature-distant-09`), on the current build: near terrain's coverage map in place of the
+box, the crossfade between levels with tiles fading in, and leaf images filled to their far
+color. Cubature 24f5ad89.
+
+**Before it, without a game.** Gradle on Eclipse Adoptium 25.0.5 (`JAVA_HOME`); the Mixin
+check with `--mixinkit <orthlib-mixinkit jar>`: 36 hooks on 6 targets, no shadowed member.
+
+**Instance**, prepared as the fifth run's: `--spawn-animals`, `renderClouds:true` set in the
+prepared client's options. The lab's launcher runs only at a view distance of 12 and refuses
+an instance with any other, so the join stays about 180 blocks out, where a block is 4 to 5
+pixels: images near the join can be judged only on trunks, crowns and steps.
+
+**Tour**, `tools/tours/distant-sixth-2485331.json`: `ground_west`; `ground_join`, at ground
+level 200 blocks east of it looking west, so that trees first seen from `ground_west` stand
+just past near terrain; `above_west`; `coast_join`.
+
+**Runs**, each `play --name quadrature-distant-09 --tour <the tour>` with `JAVA_TOOL_OPTIONS`
+set, GPU memory sampled beside both, bounded from outside at 24 minutes:
+
+1. Normal look: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
+   -Dquadrature.frameLog=true -Dquadrature.distant=own -Dquadrature.distant.world=16384
+   -Dquadrature.glDebug=true -Dquadrature.coverage=true`.
+2. Level view: the same, and `-Dquadrature.distant.debug=level`. Every level in its own color,
+   with the crossfade on, so the bands and the pattern between levels show, and where each
+   level begins can be read off. Distant terrain takes no fog in this view.
+
+**Pass, run 1:**
+
+1. Starts and finishes the tour; no error; the driver takes the shaders. The log says near
+   terrain's cover is its coverage map, with the counts by state, and that the crossfade is on.
+2. No hole and no band of sky at the near join in any view: distant terrain shows under the
+   outer ring of columns, which near terrain never meshes, as it did under the box.
+3. While near terrain is still meshing after each teleport, the log's count of meshed columns
+   rises and distant terrain is drawn under the rest: recorded from the log between a
+   teleport and its capture (tiles drawn falling as columns are meshed).
+4. Near terrain within 144 blocks agrees with the fifth run's frame of the same view, where
+   there is one (`ground_west`, `above_west`, `coast_join`).
+5. Crowns: distant crowns from above within a tenth of near crowns' color (the fifth run:
+   0.84; the fourth: 1.45).
+6. Between levels: no line where one level stops, in `above_west` and `coast_join`; in a
+   band, a fine grain of the two levels and no gap.
+7. Tiles: stored equal to wanted, with about a fifth more wanted at levels 1 and up than the
+   fifth run's 658 and 676; failed 0, refused 0; arena and GPU time beside the fifth run's
+   35.6 MiB and 2.0 to 2.4 ms.
+8. `ground_join`: looked at and described: whether trunks and crowns just past near terrain
+   show their images, and whether the join can be found.
+
+**Pass, run 2:**
+
+9. Each level's color covers its ring; in each band the two colors are mixed by the pattern
+   and shade from one to the other across it; no pixel of sky inside the outermost ring.
+10. The bands lie where expected: one coarser tile inside each ring's inner edge.
+11. Near terrain is as in run 1.
+
+**Still not covered by this run:** a tile arriving in view (stills are captured after a
+settle), anything in motion, the pool's threads when a world is left, and a short view
+distance.
