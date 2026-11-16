@@ -29,7 +29,8 @@ import java.util.Arrays;
  *       that cannot is treated as solid, so sealed caves under a built-over area make no face.
  *       Generated terrain needs none of this: its sampler fills what the sky cannot reach.
  *   <li><b>Light</b> is the sky's, 15 less one for each block of leaves and three for each of
- *       water above the face, none under an opaque run; a side face takes it at its top.
+ *       water above the face; under an opaque run, one less than the best of the four columns
+ *       beside it, and none where they are covered too. A side face takes it at its top.
  *   <li><b>Occlusion</b> at each corner of a top or side face counts the opaque cells that close
  *       it in: the two beside the corner and the one diagonal to it, 3 when both sides are
  *       closed.
@@ -340,8 +341,38 @@ public final class RunMesher {
         mesh.span(y, y);
     }
 
-    /** Sky light reaching level {@code y} of a column from above. */
+    /**
+     * Sky light at level {@code y} of a column: what falls on it from above, or, under an opaque
+     * run, what spreads in from the four columns beside it, one less than the best of theirs. The
+     * game spreads sky light sideways so, a level a block; one step of it is what ground and a
+     * trunk under a branch get, which with none drew black under every tree with wood in its
+     * crown. Deeper under an overhang the light is still none.
+     */
     private int light(int c, int y) {
+        int direct = fallen(c, y);
+        if (direct >= 0) {
+            return direct;
+        }
+        int x = c % RunTile.SIDE;
+        int z = c / RunTile.SIDE;
+        int best = 0;
+        if (x > 0) {
+            best = Math.max(best, fallen(c - 1, y) - 1);
+        }
+        if (x < RunTile.SIDE - 1) {
+            best = Math.max(best, fallen(c + 1, y) - 1);
+        }
+        if (z > 0) {
+            best = Math.max(best, fallen(c - RunTile.SIDE, y) - 1);
+        }
+        if (z < RunTile.SIDE - 1) {
+            best = Math.max(best, fallen(c + RunTile.SIDE, y) - 1);
+        }
+        return best;
+    }
+
+    /** Sky light reaching level {@code y} of a column from above, or -1 under an opaque run. */
+    private int fallen(int c, int y) {
         int light = 15;
         for (int r = tile.start[c + 1] - 1; r >= tile.start[c] && light > 0; r--) {
             int top = tile.top[r];
@@ -350,7 +381,7 @@ public final class RunMesher {
             }
             byte kind = tile.kind[r];
             if (kind == RunTile.OPAQUE) {
-                return 0;
+                return -1;
             }
             int height = top - Math.max(y, tile.bottom(c, r));
             if (kind == RunTile.LEAVES) {

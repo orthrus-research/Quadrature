@@ -218,6 +218,55 @@ class RunMesherTest {
     }
 
     @Test
+    void aTrunkAndTheGroundUnderABranchAreLitFromBeside() {
+        int wood = code(7, RunTile.OPAQUE);
+        // A trunk at (30, 30) from 4 to 10, a branch of one log beside it at (31, 30, 9), and a
+        // crown one block thick over both and around them.
+        RunTile tile = Tiles.fill((x, z, y) -> {
+            if (y < 4) {
+                return STONE;
+            }
+            if (x == 30 && z == 30 && y < 10 || x == 31 && z == 30 && y == 9) {
+                return wood;
+            }
+            if (y == 10 && x >= 27 && x <= 33 && z >= 27 && z <= 33) {
+                return code(6, RunTile.LEAVES);
+            }
+            return AIR;
+        });
+        TileMesh mesh = mesh(tile);
+        // The ground under the branch: no sky straight above it, 15 - 1 beside it, so 13.
+        int tops = TileMesh.group(TileMesh.OPAQUE, FaceRecord.UP);
+        int under = -1;
+        int beside = -1;
+        for (int i = 0; i < mesh.count(tops); i++) {
+            long record = mesh.record(tops, i);
+            if (FaceRecord.y(record) != 4 - FLOOR || FaceRecord.z(record) > 30
+                    || FaceRecord.z(record) + FaceRecord.depth(record) <= 30) {
+                continue;
+            }
+            if (FaceRecord.x(record) <= 31 && FaceRecord.x(record) + FaceRecord.width(record) > 31) {
+                under = FaceRecord.light(record);
+            }
+            if (FaceRecord.x(record) <= 32 && FaceRecord.x(record) + FaceRecord.width(record) > 32) {
+                beside = FaceRecord.light(record);
+            }
+        }
+        assertEquals(14, beside);
+        assertEquals(13, under);
+        // The trunk's east face looks into the space under the branch and takes that light too.
+        int east = TileMesh.group(TileMesh.OPAQUE, FaceRecord.EAST);
+        int trunk = -1;
+        for (int i = 0; i < mesh.count(east); i++) {
+            long record = mesh.record(east, i);
+            if (FaceRecord.x(record) == 30 && FaceRecord.z(record) == 30 && FaceRecord.material(record) == 7) {
+                trunk = FaceRecord.light(record);
+            }
+        }
+        assertEquals(13, trunk);
+    }
+
+    @Test
     void lightFallsThroughLeavesAndWaterAndStopsAtRock() {
         RunTile tile = Tiles.fill((x, z, y) -> {
             if (y < 4) {
@@ -247,6 +296,9 @@ class RunMesherTest {
         assertEquals(15, lightAt[30]);
         assertEquals(15 - 3, lightAt[45]);
         assertEquals(0, lightAt[55]);
+        // Under the slab's edge light comes in from the column beside it, one less: 15 - 3 - 1.
+        assertEquals(11, lightAt[50]);
+        assertEquals(0, lightAt[51]);
         long water = mesh.record(TileMesh.group(TileMesh.WATER, FaceRecord.UP), 0);
         assertEquals(20, FaceRecord.width(water));
         assertEquals(9, FaceRecord.material(water));
