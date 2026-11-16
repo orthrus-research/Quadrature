@@ -79,12 +79,15 @@ final class DistantSettings {
 
     /**
      * {@code quadrature.distant.shaded.leaves}: what a distant crown writes to the targets.
-     * {@code plain} (the default): the leaves' own albedo, without the darkening of their gaps, and
-     * the gaps as occlusion, from 0.8. {@code far}: the far color the forward path draws, which holds
-     * the gaps as darkness, and occlusion as for any block. The forward path draws the far color
-     * either way.
+     * {@code far} (the default): the far color the forward path draws, which holds the gaps between
+     * leaves as darkness, and occlusion as for any block. That is what near terrain's own leaves
+     * write at a distance, where their images are read from smaller copies, so the two agree across
+     * the join. {@code plain}: the leaves' own albedo and the gaps as occlusion, from 0.8, which is
+     * what both sides are to write once near terrain's images keep a leaf's color in their smaller
+     * copies; until then it is three times brighter than near terrain's. The forward path draws the
+     * far color either way.
      */
-    static final boolean SHADED_LEAVES_PLAIN = !"far".equals(System.getProperty("quadrature.distant.shaded.leaves", "plain"));
+    static final boolean SHADED_LEAVES_PLAIN = "plain".equals(System.getProperty("quadrature.distant.shaded.leaves", "far"));
 
     /**
      * {@code quadrature.distant.shaded.image}: {@code true} writes the four targets and their depth

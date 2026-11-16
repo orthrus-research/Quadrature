@@ -1298,23 +1298,15 @@ last step differs (`TARGETS_OUTPUT` for `FORWARD_OUTPUT`):
   neighbor of a corner, 0.4 where both edge neighbors are closed. At a coarse level the
   darkening is divided by the cell's size: the mean over the cell of what the blocks along
   its edge would have had, not a deeper value.
-- Crowns (`quadrature.distant.shaded.leaves`, default `plain`): C holds the leaves' own
-  albedo, the far color in light over the share of the image that is leaf, and D's alpha is
-  multiplied by 0.8 for the gaps. `far` writes the far color and plain occlusion, for a
-  capture of both across the join. The forward path draws the far color either way.
-
-The table is near terrain's, copied to a buffer of distant terrain's own when its version
-changes; a face finds its row by the state number in its material's third word, which is now
-asked of `TerrainHook.material` so that the row is filled. `DistantHook.shaded()` says whether
-the last pass drew into the targets.
-
-**Water** is not drawn into the targets and writes no depth there. Until there is a place for
-it after shading it is drawn as now, forward, into the frame; with the forward picture still
-the player's, nothing is lost.
-
-**The forward path is unchanged**, switch on or off: both of its stages hold the statements
-they held, in their order, with only the declarations and assignments of four new values the
-targets need.
+- Crowns (`quadrature.distant.shaded.leaves`, default `far`): C holds the far color the
+  forward path draws, with occlusion as for any block, which is what near terrain's leaves
+  write at a distance: their images are read from smaller copies that average the gaps in.
+  `plain` writes the leaves' own albedo, the far color in light over the share of the image
+  that is leaf, and multiplies D's alpha by 0.8 for the gaps. The ninth run measured `plain`
+  three times brighter than near crowns in albedo (0.155 against 0.052 in green) and 0.80
+  against 0.94 in occlusion, so `far` is the default. Both sides are to go to `plain` when
+  near terrain's images keep a leaf's color in their smaller copies; that waits on near
+  terrain.
 
 **Settled since, by near terrain and the shader thread:**
 
