@@ -102,9 +102,6 @@ children and whether one tile lies under another.
 - Water's side faces: a water tile beside lower ground shows no wall of water.
 - Detail runs tinting the top under them.
 - The overlay of edited terrain, and with it any use of the exposure rule.
-- Cubature's client work executor. Until it exists the tasks that sample and mesh run on a
-  pool of distant terrain's own (section 8), against the rule that Quadrature starts no
-  threads for terrain work.
 - Where the world ends: the terrain preview does not say, so a bound is a setting.
 - A coarse level kept for the whole world. Rings alone are selected; ground whose tile has
   not arrived is empty.
@@ -269,7 +266,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.reach` | 384 | How far ring 0 reaches, in blocks; a multiple of 128 |
 | `quadrature.distant.levels` | 7 | Levels 0 to 6, which reach 24.5 km |
 | `quadrature.distant.world` | none | Half the side of the world's square in blocks; no tile is built outside it |
-| `quadrature.distant.threads` | 2 | Threads that sample and mesh, 1 to 8 |
+| `quadrature.distant.threads` | 2 | The fallback pool's threads, 1 to 8. No effect while Cubature's pool is used, whose size is Cubature's `clientPreviewThreads` |
 | `quadrature.distant.fog` | `own` | `own`: one fog for near and distant terrain. `game`: the game's fog on near terrain and none on distant terrain, as the first two runs drew |
 | `quadrature.distant.fogStart` | the reach (384) | Where the shared fog begins, in blocks from the eye |
 | `quadrature.distant.fogEnd` | the outermost ring's reach (24,576) | Where the shared fog is complete |
@@ -285,15 +282,29 @@ exception ends a task quietly.
 cell's width as its footprint, joins the buried strata, meshes, and leaves faces and tints in
 one buffer on a queue. The client thread stores finished tiles for at most a millisecond a
 frame. `TileSchedule` hands tiles out in the selection's order, coarsest level first and
-nearest first, at most four at a time for two threads. A tile that leaves every ring is
+nearest first, at most two for each thread at a time. A tile that leaves every ring is
 dropped if it was waiting, told to stop at its next row if it is being sampled, and refused
 if it arrives. A stored tile that leaves the rings is kept, and drawn, until the tiles of
 the selection over the same ground are stored, so ground does not turn empty while its
 replacement is built; for that long two levels are drawn over one another there.
 
-The threads are a stand-in. Quadrature's rule is that terrain work runs on Cubature's
-executor; Cubature's client executor does not exist yet, so distant terrain keeps a pool of
-its own, at the lowest priority, until it does.
+**Threads.** Quadrature starts no threads for terrain work. Tiles are built on Cubature's
+client preview pool (`ICubeSource.previewWork()`, Cubature's docs/CUBE-SOURCE.md, section 8):
+Cubature keeps the threads (`clientPreviewThreads`, by default a quarter of the processors,
+1 to 4) and a sampler for each, and its governor lets fewer tiles run at once while frames
+run longer than `clientPreviewFrameBudgetMs` or the integrated server's ticks run long. A
+tile is handed in with its place in the schedule's order as its priority, checks between
+rows whether it was cancelled and waits there if the governor has lowered the count. A tile
+that leaves every ring has its task cancelled. A task withdrawn because its preview went is
+told as abandoned and asked for again if still wanted. Each tile's end is told once, by its
+job or by the client thread, whichever comes first.
+
+The fallback, for a cube source with no such pool: a pool of distant terrain's own,
+`quadrature.distant.threads` threads at the lowest priority, as the first two runs used. A
+warning is logged when it is used. The log's lines say which pool builds tiles, its threads
+and how many run at once.
+
+Not run in a game on Cubature's pool (section 12).
 
 **Materials.** Each block state met gets an index as tiles are sampled. On the client thread
 each index gets two colors, for its top and for its sides: the mean, weighted by alpha, of
@@ -508,7 +519,9 @@ both runs, where near water has nothing opaque drawn behind it.
 
 ## 11. The next run
 
-Not done. One short GPU turn under Riven's lease: two runs with distant terrain on, on one
+Not done. It runs the build tagged `lod-turn-3`: this branch before it moved to Cubature's
+pool, with Cubature 802bab6d and distant terrain's own two threads, as instance
+`quadrature-distant-04` was prepared. One short GPU turn under Riven's lease: two runs with distant terrain on, on one
 fresh instance (a rebuilt jar needs a freshly prepared instance, and the Quadrature jar has
 changed). There is no reference run: with the fog changed it would differ from both runs
 everywhere past 144 blocks, and the second run's reference frames exist for three of the four
@@ -575,3 +588,35 @@ About 15 minutes each. If a third run fits a later turn: the same with
    that it differs by the fog alone, clearer and never displaced.
 7. Looked at and described: how the shared fog reads at the join and at the horizon, clouds
    against clear terrain, the step from near water to flat distant water.
+
+## 12. The run after: Cubature's pool
+
+Not done. After section 11's turn, one tour on the current build: Cubature 0aedf201, tiles
+built on its client preview pool. It is also the first run in a game of three additions to
+Cubature's cube source: `surfaceHeights` and `surfaceVersion` (158b9a0a), `cubeContent`
+(6bf47ee3) and `previewWork` (0aedf201), which distant terrain's near-terrain neighbor waits
+on before it moves its own pin.
+
+**Instance** `quadrature-distant-05`, prepared as section 11's with the new jars:
+`--cubic-artifact <Quadrature>/pins/Cubature-1.12.2-0.1.4.0-cleanroom.jar` (sha256
+58b552a9...8de7) and this build's Quadrature jar. Riven's frozen jar stands: it was built
+against Cubature 802bab6d, and the additions since are additive.
+
+**Run:** the tour and options of section 11's run 2 (shared fog, normal look).
+
+**Pass:**
+
+1. The game starts: Cubature's new classes load, and Riven's jar built against
+   the older Cubature links.
+2. The log says tiles are built on Cubature's client preview pool, with its threads and how
+   many run at once, and not the fallback's warning.
+3. Tiles arrive at every view: stored equal to wanted, failed 0, refused 0. The time to the
+   first tile, to the coarsest level and to all tiles is recorded beside the second run's
+   (27 s, 75 s, 155 s on two threads of its own).
+4. The log's count of tiles at once moves with the governor: recorded with the frame rate.
+   Frames stay at the cap while tiles are built.
+5. After a move, abandoned tiles are counted and none stays in flight: "being built" returns
+   to 0 at every settled view.
+6. Leaving the world and stopping leaves no thread named "Cubature client preview" alive
+   (a thread dump before the stop, or the client's exit without a hang).
+7. The frames match section 11's run 2 where both have settled.

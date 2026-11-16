@@ -134,9 +134,8 @@ final class Distant {
             Quadrature.LOGGER.error("Distant terrain was requested, but no cube source is installed.");
             return null;
         }
-        Quadrature.LOGGER.info("Distant terrain is on: {} levels, ring 0 reaches {} blocks, {} worker threads of "
-            + "its own (a stand-in for Cubature's client executor), world bound {}.", LEVELS, REACH,
-            DistantWorkers.THREADS, WORLD_HALF > 0 ? WORLD_HALF + " blocks from the origin" : "none");
+        Quadrature.LOGGER.info("Distant terrain is on: {} levels, ring 0 reaches {} blocks, world bound {}.", LEVELS,
+            REACH, WORLD_HALF > 0 ? WORLD_HALF + " blocks from the origin" : "none");
         Quadrature.LOGGER.info("Distant terrain: fog {}; debug view {}.",
             DistantSettings.FOG ? "shared with near terrain, " + DistantSettings.FOG_START + " to "
                 + DistantSettings.FOG_END + " blocks" : "the game's on near terrain, none on distant terrain",
@@ -178,12 +177,13 @@ final class Distant {
         }
         fillView(viewer, partialTicks, minecraft);
         arena.beginFrame();
+        workers.drain();
         takeEnded();
         takeBuilt();
         select();
         release();
         while (true) {
-            long key = schedule.next(DistantWorkers.THREADS * 2);
+            long key = schedule.next(workers.threads() * 2);
             if (key == -1) {
                 break;
             }
@@ -241,8 +241,15 @@ final class Distant {
         if (workers == null || floor != floorY || ceiling != ceilingY) {
             floorY = floor;
             ceilingY = ceiling;
-            // Threads of an earlier pool finish what they hold and then idle; their results are refused.
-            workers = new DistantWorkers(materials, floor, ceiling);
+            // Tasks of an earlier set finish what they hold; their results are refused.
+            workers = new DistantWorkers(materials, floor, ceiling, source.previewWork());
+            if (workers.governed()) {
+                Quadrature.LOGGER.info("Distant terrain: tiles are built on Cubature's client preview pool, {} threads, "
+                    + "{} at once to start.", workers.threads(), workers.running());
+            } else {
+                Quadrature.LOGGER.warn("Distant terrain: the cube source has no client preview pool; tiles are built on "
+                    + "{} threads of distant terrain's own (-Dquadrature.distant.threads).", workers.threads());
+            }
         }
         Quadrature.LOGGER.info("Distant terrain: sampling the terrain preview of world {}, levels {} to {}.",
             identity, floor, ceiling);
@@ -486,6 +493,8 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(String.format("%n  %s: %d threads, %d at once", workers.governed() ? "Cubature's preview pool"
+            : "own threads", workers.threads(), workers.running()));
         line.append(String.format("%n  built %d (sample %.1f ms, mesh %.2f ms a tile), stored %d, abandoned %d, "
                 + "failed %d, refused for room %d, let go %d; storing %.3f ms a frame at most", tilesBuilt,
             tilesBuilt == 0 ? 0.0 : sampleNanos / 1e6 / tilesBuilt, tilesBuilt == 0 ? 0.0 : meshNanos / 1e6 / tilesBuilt,
