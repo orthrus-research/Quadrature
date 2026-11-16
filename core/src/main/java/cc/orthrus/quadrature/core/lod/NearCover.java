@@ -36,6 +36,40 @@ public final class NearCover {
         return (originCube + (long) meshedReach(loadedReach) + 1) * 16L;
     }
 
+    /**
+     * The box of blocks near terrain meshes when nothing says so column by column: the cubes the
+     * server keeps sent to the client, less the outermost shell, whose cubes always lack a
+     * neighbor. From the cube source's held box when it states one, which is where the server has
+     * the player and how far it sends, whatever the client's own settings say; else from the
+     * viewer's cube and the client's view distances, which is the same box once the server has
+     * followed the viewer and agrees on the distances.
+     *
+     * @param heldBox {@code {centerX, centerY, centerZ, horizontal, vertical}} in cubes, or null
+     * @param across  how far cubes load over the ground by the client's settings; {@code upward} in height
+     * @param into    the lowest block on x, y and z, then the block after the highest on each
+     * @return how far cubes load over the ground, as the box was taken
+     */
+    public static int box(int[] heldBox, int originCubeX, int originCubeY, int originCubeZ, int across, int upward,
+            long[] into) {
+        int x = originCubeX;
+        int y = originCubeY;
+        int z = originCubeZ;
+        if (heldBox != null) {
+            x = heldBox[0];
+            y = heldBox[1];
+            z = heldBox[2];
+            across = heldBox[3];
+            upward = heldBox[4];
+        }
+        into[0] = minimum(x, across);
+        into[1] = minimum(y, upward);
+        into[2] = minimum(z, across);
+        into[3] = maximum(x, across);
+        into[4] = maximum(y, upward);
+        into[5] = maximum(z, across);
+        return across;
+    }
+
     /** A column's state in near terrain's coverage map when its surface is meshed. */
     public static final byte SURFACE_MESHED = 3;
 

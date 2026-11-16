@@ -284,7 +284,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
-| `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it (section 17) |
+| `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it, and one more when the place is whole, `travel-<jump>-whole-<ms>ms.png` (section 17) |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
 looked for once a frame: the source has one listener, which near terrain holds, so its
@@ -481,8 +481,13 @@ cyan, 5 blue, 6 violet), with no fog on distant terrain and the game's fog on ne
 
 **What near terrain covers.** Fragments inside a box round the camera are discarded: the
 loaded cubes' reach on each axis less one cube, since near terrain meshes a cube only among
-loaded neighbors and so never the outermost. It is a box, not a column: above and below the
-vertical reach distant terrain shows. `NearCover` holds the rule, and a test checks it against
+loaded neighbors and so never the outermost. The reach is the cube source's held box where
+the server states one (`ICubeSource.heldBox()`: the cubes it keeps sent, around where it has
+the player, which can trail the viewer by a tick or two and can be smaller than the client
+asked for), and the client's own view distances around the viewer's cube where it states
+none; `NearCover.box` takes either. This box is what is used without the coverage map; with
+the map the rule is by column and the box gives only the heights. It is a box, not a column:
+above and below the vertical reach distant terrain shows. `NearCover` holds the rule, and a test checks it against
 near terrain's (a cube is meshed when its six neighbors are loaded) over whole neighborhoods.
 
 **With near terrain's coverage map** (`-Dquadrature.coverage=true`, which is near terrain's
@@ -1368,6 +1373,32 @@ written beside each. The first frame of a world is jump 0. The launcher's own te
 the jumps, so a tour needs nothing more; where it lowers the player in steps each step is a
 jump of its own, and the log says where each jump went. The runner copies those frames beside
 the tour's.
+
+**When a place is whole.** One more frame a jump is taken off the clock, the first in which
+the place is whole, as `travel-<jump>-whole-<ms>ms.png`, the number being the time since the
+jump. Whole (`Travel.whole`) is three things at once:
+
+- The cube source calls its view settled, `ICubeSource.settled(20)`. By Cubature's source that
+  is: `quietTicks()` is 20 or more, meaning that for the last 20 client ticks no cube arrived,
+  left or changed (blocks, light or biomes, a neighbor's included), the held box did not
+  change, and no client light work was left queued at a tick's end; and, where the server
+  states a held box, `heldBoxSent()`, meaning the server has said it sent every cube of that
+  box. It says nothing of light the server computes after sending a cube, of entities, or of
+  anything a renderer has built.
+- The held box is this place's: its center within a cube of the viewer's on each axis. The
+  center is where the server last moved the player, so in the first ticks after a jump the
+  old place's box can still read as settled.
+- Every tile the selection wants is stored and none is being built, which the cube source
+  cannot know.
+
+Near terrain's meshing is not asked: a place can be whole here with near columns still to
+mesh, and the coverage map's counts in the summary beside the frame say how many.
+
+The fixed delays stay, and the last of them is the ceiling: a tour is written to wait that
+long at a view, and where a place was not whole by then the log says so. The whole frame is
+still taken later if the viewer stays. The lab's own settle before its still captures is the
+launcher's, a count of ticks fixed when an instance is prepared, and is not changed by this;
+the time in a whole frame's name is what that count can be judged against.
 
 **The tour**, `tools/tours/distant-travel-2485331.json`, on an instance prepared with the
 launcher's least settle, 400 ticks, so that all four delays fall before the settled capture:

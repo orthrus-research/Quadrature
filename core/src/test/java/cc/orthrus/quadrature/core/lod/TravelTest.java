@@ -32,4 +32,24 @@ class TravelTest {
         assertFalse(Travel.jumped(0, 80, 0, 4, 88, 4));
         assertFalse(Travel.jumped(0, 80, 0, 0, 80, 0));
     }
+
+    @Test
+    void aPlaceIsWholeWhenCubesAreSettledAroundTheViewerAndEveryTileIsStored() {
+        int[] box = {-188, 10, 750, 12, 4};
+        assertTrue(Travel.whole(true, box, -188, 10, 750, 310, 310, 0));
+        // The center may trail the viewer by a cube.
+        assertTrue(Travel.whole(true, box, -187, 9, 751, 310, 310, 0));
+        // Cubes still arriving, a tile missing, a tile being built, nothing asked for yet.
+        assertFalse(Travel.whole(false, box, -188, 10, 750, 310, 310, 0));
+        assertFalse(Travel.whole(true, box, -188, 10, 750, 310, 309, 0));
+        assertFalse(Travel.whole(true, box, -188, 10, 750, 310, 310, 1));
+        assertFalse(Travel.whole(true, box, -188, 10, 750, 0, 0, 0));
+        // Just after a jump the settled box is still the old place's.
+        assertFalse(Travel.whole(true, box, -312, 10, 754, 310, 310, 0));
+        assertFalse(Travel.whole(true, box, -188, 12, 750, 310, 310, 0));
+        assertFalse(Travel.whole(true, box, -188, 10, 748, 310, 310, 0));
+        // A server that states no box: the quiet ticks stand alone.
+        assertTrue(Travel.whole(true, null, -312, 10, 754, 310, 310, 0));
+        assertFalse(Travel.whole(false, null, -312, 10, 754, 310, 310, 0));
+    }
 }

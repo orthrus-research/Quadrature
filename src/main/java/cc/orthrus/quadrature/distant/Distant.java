@@ -7,6 +7,7 @@ import cc.orthrus.quadrature.core.view.ShadedGate;
 import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
 import cc.orthrus.quadrature.core.lod.NearCover;
+import cc.orthrus.quadrature.core.lod.Travel;
 import cc.orthrus.quadrature.core.lod.Rings;
 import cc.orthrus.quadrature.core.lod.TileCulling;
 import cc.orthrus.quadrature.core.lod.TileDraws;
@@ -94,6 +95,7 @@ final class Distant {
     private final float[] modelView = new float[16];
     private final float[] projection = new float[16];
     private final float[] nearBox = new float[6];
+    private final long[] boxBlocks = new long[6];
     private final DistantCover cover = new DistantCover();
     private final TravelCapture travel = new TravelCapture();
     /** Which stored tile draws what while tiles arrive: see {@link Cover}. */
@@ -238,6 +240,10 @@ final class Distant {
         takeEnded();
         takeBuilt();
         select();
+        if (travel.awaitsWhole() && whole(viewer)) {
+            travel.whole();
+            captured = true;
+        }
         DistantHook.drawnTo(drawnTo);
         release();
         while (true) {
@@ -366,6 +372,26 @@ final class Distant {
             CubicChunksConfig.verticalCubeLoadDistance, true);
     }
 
+    /**
+     * Whether the viewer's place is whole, for the travel capture. Of the cube source this asks
+     * {@code settled(20)}: no cube arrived, left or changed, the held box did not change and no
+     * client light work was left queued for 20 client ticks, and the server has said it sent
+     * every cube of the held box, where it states one. That speaks of cubes only, so the tiles
+     * are counted here.
+     */
+    private boolean whole(Entity viewer) {
+        int wanted = 0;
+        int stored = 0;
+        for (int level = 0; level < LEVELS; level++) {
+            schedule.count(level, levelCount);
+            wanted += levelCount[0];
+            stored += levelCount[1];
+        }
+        return Travel.whole(source.settled(20), source.heldBox(), (int) Math.floor(viewer.posX / 16),
+            (int) Math.floor(viewer.posY / 16), (int) Math.floor(viewer.posZ / 16), wanted, stored,
+            schedule.building());
+    }
+
     /** Tasks that ended without a tile: abandoned, withdrawn or failed. */
     private void takeEnded() {
         for (DistantWorkers.Ended end = workers.takeEnded(); end != null; end = workers.takeEnded()) {
@@ -482,20 +508,24 @@ final class Distant {
         // What near terrain covers. With its coverage map (-Dquadrature.coverage=true): the chunk
         // columns whose surface it has meshed, so ground it has not reached yet stays distant
         // terrain's and gives way column by column. Without: the box of cubes it meshes, which is
-        // the reach less one cube. Either way only over the heights its cubes span.
+        // the cubes the server keeps sent less their outer shell, by the cube source's held box
+        // or, from a server that states none, by the view distances. Either way only over the
+        // heights its cubes span.
         CoverageMap map = TerrainHook.coverage();
         covered = cover.update(map) ? map : null;
         int firstCubeX = covered == null ? 0 : (int) (cover.firstBlockX() >> 4);
         int firstCubeZ = covered == null ? 0 : (int) (cover.firstBlockZ() >> 4);
         // Images fade outside what near terrain reaches, whatever the view distance.
+        int loaded = NearCover.box(source.heldBox(), view.originCubeX(), view.originCubeY(), view.originCubeZ(),
+            view.across(), view.upward(), boxBlocks);
         imageFade = NearCover.imageFade(DistantSettings.DETAIL_START, DistantSettings.DETAIL_END,
-            (NearCover.meshedReach(view.across()) + 1) * 16f, REACH);
-        long boxMinX = NearCover.minimum(view.originCubeX(), view.across());
-        long boxMaxX = NearCover.maximum(view.originCubeX(), view.across());
-        long boxMinY = NearCover.minimum(view.originCubeY(), view.upward());
-        long boxMaxY = NearCover.maximum(view.originCubeY(), view.upward());
-        long boxMinZ = NearCover.minimum(view.originCubeZ(), view.across());
-        long boxMaxZ = NearCover.maximum(view.originCubeZ(), view.across());
+            (NearCover.meshedReach(loaded) + 1) * 16f, REACH);
+        long boxMinX = boxBlocks[0];
+        long boxMinY = boxBlocks[1];
+        long boxMinZ = boxBlocks[2];
+        long boxMaxX = boxBlocks[3];
+        long boxMaxY = boxBlocks[4];
+        long boxMaxZ = boxBlocks[5];
         nearBox[0] = (float) (boxMinX - view.originX());
         nearBox[1] = (float) (boxMinY - view.originY());
         nearBox[2] = (float) (boxMinZ - view.originZ());

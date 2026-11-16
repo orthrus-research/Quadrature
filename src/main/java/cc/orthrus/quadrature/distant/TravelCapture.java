@@ -19,6 +19,11 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * lab's own {@code riven-view-} captures, which its launcher files by name. The first frame
  * of a world counts as jump 0. A jump before the last delay drops the delays not yet reached.
  *
+ * <p>One more frame a jump is not on the clock: the first in which the place is whole
+ * ({@link Travel#whole}), as {@code travel-<jump>-whole-<ms>ms.png} with the time it took. The
+ * last delay is the ceiling a tour is written to wait: a place not whole by then is logged so,
+ * and its whole frame is still taken if the viewer stays.
+ *
  * <p>A still, settled capture never shows tiles arriving, a tile fading in, or the coverage map
  * handing columns over; these frames are for that and nothing else. Nothing is drawn differently.
  */
@@ -35,6 +40,7 @@ final class TravelCapture {
     private String due;
     private boolean registered;
     private String lastName = "travel";
+    private boolean whole;
 
     /**
      * Once a world pass, on the client thread.
@@ -54,6 +60,7 @@ final class TravelCapture {
             jump++;
             jumpedAt = now;
             next = 0;
+            whole = false;
             Quadrature.LOGGER.info(String.format("Travel capture: jump %d to %.1f %.1f %.1f", jump, viewer.posX,
                 viewer.posY, viewer.posZ));
         }
@@ -65,9 +72,26 @@ final class TravelCapture {
             Quadrature.LOGGER.info("Travel capture: {} {} ms after the jump", due, (now - jumpedAt) / 1_000_000L);
             lastName = due;
             next++;
+            if (next == DELAYS.length && !whole) {
+                Quadrature.LOGGER.info("Travel capture: jump {} was not whole at the last delay", jump);
+            }
             return true;
         }
         return false;
+    }
+
+    /** Whether this jump's whole frame is still to come and none is due this pass. */
+    boolean awaitsWhole() {
+        return DELAYS.length != 0 && jump >= 0 && !whole && due == null;
+    }
+
+    /** The place is whole: its frame is saved at the end of this pass. Only when {@link #awaitsWhole}. */
+    void whole() {
+        long after = (System.nanoTime() - jumpedAt) / 1_000_000L;
+        whole = true;
+        due = String.format("travel-%02d-whole-%05dms.png", jump, after);
+        lastName = due;
+        Quadrature.LOGGER.info("Travel capture: {}, whole {} ms after the jump", due, after);
     }
 
     /** The name of the frame last asked for, for what is written beside it. */

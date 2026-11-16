@@ -99,6 +99,26 @@ class NearCoverTest {
     }
 
     @Test
+    void theBoxIsTheHeldBoxLessItsShellAndElseTheViewDistancesAroundTheViewer() {
+        long[] box = new long[6];
+        // No held box: the viewer's cube and the client's distances, 12 across and 4 in height.
+        assertEquals(12, NearCover.box(null, -188, 10, 750, 12, 4, box));
+        assertArrayEquals(new long[] {(-188 - 11) * 16L, (10 - 3) * 16L, (750 - 11) * 16L, (-188 + 12) * 16L,
+            (10 + 4) * 16L, (750 + 12) * 16L}, box);
+        // A held box of the same size around the same cube is the same box.
+        long[] held = new long[6];
+        assertEquals(12, NearCover.box(new int[] {-188, 10, 750, 12, 4}, -188, 10, 750, 12, 4, held));
+        assertArrayEquals(box, held);
+        // The server sends less than the client asks for, around where it has the player.
+        assertEquals(8, NearCover.box(new int[] {-189, 10, 750, 8, 2}, -188, 10, 750, 12, 4, held));
+        assertArrayEquals(new long[] {(-189 - 7) * 16L, (10 - 1) * 16L, (750 - 7) * 16L, (-189 + 8) * 16L,
+            (10 + 2) * 16L, (750 + 8) * 16L}, held);
+        // A box of the center cube alone meshes that cube: nothing less than one.
+        assertEquals(0, NearCover.box(new int[] {3, 0, -2, 0, 0}, 0, 0, 0, 12, 4, held));
+        assertArrayEquals(new long[] {48, 0, -32, 64, 16, -16}, held);
+    }
+
+    @Test
     void theJoinFadesByTheFartherOfXAndZAndOnlyTilesWhollyBeforeItAreSkipped() {
         // Near terrain's band at a view distance of 12: from 160 to 176 blocks.
         assertEquals(0f, NearCover.joinFade(100, -159.9, 160, 176));
