@@ -1472,6 +1472,51 @@ not measured.
 a first picture at 19 seconds, coarse ground to 8 km at 34, full detail about the viewer at
 46, all at about 107. Finest first shows detail 16 seconds sooner and the horizon 55 later.
 
-**For Riven, not done here:** the cold coast and outline build about a point, parallel or
-cheaper, is worth up to 19 seconds; coast forms in the store, or the store sent at a join,
-7 to 9 on the first tile as the store stands.
+### 19.1 The cold start inside Riven: what was found, and a proposal
+
+Looked into in Riven's sources and with the same harness; nothing of Riven's was changed.
+
+**What happens.** Every column asks for the coast forms of the nine coast cells about it. Cold,
+the first of those cells is built once, by whichever thread asks first; the others wait for
+it, since a build is single-flight by key, and they all need the same key. In 41 of 64 stack
+samples of a cold start exactly one of four tile threads was working. What it works on: the
+coast cell's forms need the ground before them, which needs drainage, whose build samples the
+continental outline's kernels over a wide area. So it is one build that everything near needs,
+and reordering which thread asks for which cell cannot help: there is one cell to wait for.
+
+**Why it runs on one thread.** Drainage and hydrology split their builds over Riven's build
+pool, but the preview's sampler marks its thread alone (`BuildPool.alone`), on purpose: a
+distant preview tile would otherwise hold pool helpers that the server's own generation waits
+for. On a client there is no generation to protect, and no pool either.
+
+**Measured,** with the mark lifted by a switch in a scratch build that was not kept, the
+coarsest fill tiles and then level 0, cold:
+
+| Tile threads, build pool | First tile | Coarse cover | Level 0 whole |
+|---|---|---|---|
+| 4, alone (as now) | 18.7 | 34 | 44 |
+| 4, pool of 4 | 15.7 | 26 | 43 |
+| 2, alone (as now) | 19.6 | 40 | 58 |
+| 2, pool of 2 | 15.7 | 30 | 51 |
+| 1, pool of 3 | 15.3 | 39 | 75 |
+
+So pooled builds are worth about 3 seconds on the first tile and 8 to 10 on the coarse cover,
+with the same total of threads in the last two rows as in the first. Most of the first 15
+seconds stays on one thread even then: the outline sampling inside the drainage build is not
+in a part the pool splits. Where exactly was not found.
+
+**Proposal, for Riven's author; not built.** Each needs a decision about the generator and
+none changes terrain, the builds being pure:
+
+1. On a client, let the preview's builds use a pool: the client's preview is built with
+   `inputs.buildPool()`, which could be Cubature's client preview pool or a small pool of its
+   own, and the sampler would not mark itself alone there. Gain as measured above. The
+   server is not touched: its sampler keeps the mark.
+2. Split the outline sampling inside the drainage build over the pool as its other stages
+   are. This would help the server's cold builds as well, and is where most of the remaining
+   15 seconds are. Its gain is not measured.
+3. Hold coast forms, or what they need of drainage, in the regional store, and offer the
+   store at a join: 7 to 9 seconds on the first tile with the store as it stands.
+
+A change that only reorders which thread asks for which cell was considered and dropped: the
+threads wait on one cell's build, not on each other's cells.
