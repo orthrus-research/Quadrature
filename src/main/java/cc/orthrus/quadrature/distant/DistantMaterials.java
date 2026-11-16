@@ -140,7 +140,9 @@ final class DistantMaterials {
         if (state.getMaterial() == Material.WATER) {
             // Water has no model; its still image, tinted by the biome.
             TextureAtlasSprite still = minecraft.getTextureMapBlocks().getAtlasSprite("minecraft:blocks/water_still");
-            return MaterialTable.entry(average(still), MaterialTable.WATER_TINT);
+            // Its cover is the image's own alpha, so that distant water lets its bed through as near
+            // water does: drawn opaque it was far brighter than near water over a dark bed.
+            return MaterialTable.entry(average(still), MaterialTable.WATER_TINT, cover(still));
         }
         IBakedModel model = minecraft.getBlockRendererDispatcher().getModelForState(state);
         BakedQuad quad = null;
@@ -175,6 +177,13 @@ final class DistantMaterials {
             return MaterialTable.entry(color, MaterialTable.GRASS);
         }
         return MaterialTable.entry(MaterialTable.multiply(color, fixed), MaterialTable.PLAIN);
+    }
+
+    private static int cover(TextureAtlasSprite sprite) {
+        if (sprite == null || sprite.getFrameCount() == 0) {
+            return MaterialTable.FULL_COVER;
+        }
+        return MaterialTable.cover(sprite.getFrameTextureData(0)[0]);
     }
 
     private static int average(TextureAtlasSprite sprite) {

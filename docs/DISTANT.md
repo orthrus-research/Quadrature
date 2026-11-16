@@ -325,8 +325,7 @@ draw's base instance names the tile's record (its place from the view's origin, 
 in doubles; its cell width; where its tints lie). This was chosen over integer vertex
 attributes with an instance a face because it leaves the base instance for the tile, needs
 no vertex layout, and makes a page's layer one indirect draw of plain ranges. There are three
-draw layers: opaque with the skirt, leaves (solid for now), water (an opaque tinted color
-for now).
+draw layers: opaque with the skirt, leaves (solid for now), and water, blended over the others.
 
 A tile is not drawn when all of it lies in the box near terrain covers, when the view's
 volume misses its bounds, and, group by group, when its faces turn away from the eye. Faces
@@ -390,6 +389,15 @@ slot between them at the box's edge the unlit bed beyond showed: a third of a pi
 blocks, which the second run drew as a row of dark dashes along the join (section 10). The
 water layer's top faces are now lowered by `NearCover.WATER_SURFACE_DROP`.
 
+**Water's color.** Distant water is the last layer and is blended over the distant sea bed by
+the alpha of the game's water image, which its material carries as cover (the mean alpha, in
+the top six bits of the material's entry). The game draws near water so. Drawn opaque, as in
+the first four runs, distant water was the image's own color, (47, 68, 244), where near water
+over its dark bed was (36, 51, 173); that ratio is the image's alpha, about 0.71. The biome's
+water tint and the shared fog apply as before; there are no waves and no reflection. Opaque
+layers are drawn with blending off and water with the game's usual blend, and the blend state
+is put back as found. Not seen in a game.
+
 **Debug views.** `-Dquadrature.distant.debug=box` shows where the near box stands open. After
 the ordinary draw, which leaves out what the box holds, the faces the box holds are drawn
 again in magenta, each moved straight away from the eye by a hundredth of its distance. They
@@ -426,7 +434,7 @@ one-block step of the ground in the first frame.
   the cube arithmetic is off by one from what near terrain meshes.
 - Empty ground wherever a tile has not arrived: on joining, most of the view for the first
   minute or more in a 32 km world.
-- No block light, no shadows, no water surface, leaves as solid blocks.
+- No block light, no shadows, no waves or reflection on water, leaves as solid blocks.
 
 **Log.** With `-Dquadrature.frameLog=true`, every five seconds: tiles wanted and stored by
 level, being built, kept past the rings, resident; tiles, faces and draws of the last frame;

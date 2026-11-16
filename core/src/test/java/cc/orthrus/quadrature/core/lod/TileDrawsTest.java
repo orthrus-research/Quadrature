@@ -163,8 +163,22 @@ class TileDrawsTest {
         // A half-clear pixel counts half.
         assertEquals(0x55AA00, MaterialTable.average(new int[] {0xFF00FF00, 0x80FF0000}) & 0xFFFF00);
         assertEquals(0, MaterialTable.average(new int[] {0x00FFFFFF}));
+        // An entry carries the color, the tint and how much the image covers.
+        int water = MaterialTable.entry(0x2F44F4, MaterialTable.WATER_TINT, 45);
+        assertEquals(0x2F44F4, water & 0xFFFFFF);
+        assertEquals(MaterialTable.WATER_TINT, MaterialTable.tint(water));
+        assertEquals(45, MaterialTable.cover(water));
+        int stone = MaterialTable.entry(0x808080, MaterialTable.PLAIN);
+        assertEquals(MaterialTable.FULL_COVER, MaterialTable.cover(stone));
+        assertEquals(MaterialTable.PLAIN, MaterialTable.tint(stone));
+        assertEquals(MaterialTable.FULL_COVER, MaterialTable.cover(MaterialTable.entry(0, MaterialTable.GRASS, 900)));
+        // Cover is the mean alpha: all opaque, all clear, half the pixels clear, a translucent image.
+        assertEquals(63, MaterialTable.cover(new int[] {0xFF000000, 0xFFFFFFFF}));
+        assertEquals(0, MaterialTable.cover(new int[] {0x00FFFFFF}));
+        assertEquals(32, MaterialTable.cover(new int[] {0xFF00FF00, 0x00000000}));
+        assertEquals(44, MaterialTable.cover(new int[] {0xB4102030, 0xB4102030}));
         assertEquals(0x7F3F00, MaterialTable.multiply(0xFF7F00, 0x7F7FFF));
-        assertEquals(0x02ABCDEF, MaterialTable.entry(0xFFABCDEF, MaterialTable.FOLIAGE));
+        assertEquals(0x02ABCDEF | MaterialTable.FULL_COVER << 26, MaterialTable.entry(0xFFABCDEF, MaterialTable.FOLIAGE));
     }
 
     @Test

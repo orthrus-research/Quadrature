@@ -101,8 +101,45 @@ public final class MaterialTable<K> {
         return red << 16 | green << 8 | blue;
     }
 
-    /** A color and how it is tinted, as the 32 bits the draw reads. */
+    /** The most an entry's cover can be: every pixel of the image fully opaque. */
+    public static final int FULL_COVER = 63;
+
+    /**
+     * How much of an image covers what lies behind it, 0 to {@link #FULL_COVER}: the mean of its
+     * pixels' alpha. For water it is how strongly the surface hides its bed; for leaves, the share
+     * of the face that is leaf.
+     */
+    public static int cover(int[] pixels) {
+        if (pixels.length == 0) {
+            return FULL_COVER;
+        }
+        long alpha = 0;
+        for (int pixel : pixels) {
+            alpha += pixel >>> 24;
+        }
+        return (int) ((alpha * FULL_COVER + 255L * pixels.length / 2) / (255L * pixels.length));
+    }
+
+    /** An opaque color and how it is tinted, as the 32 bits the draw reads. */
     public static int entry(int color, int tint) {
-        return color & 0xFFFFFF | tint << 24;
+        return entry(color, tint, FULL_COVER);
+    }
+
+    /**
+     * A color, how it is tinted and how much it covers, as the 32 bits the draw reads: the color in
+     * the low 24, the tint in the next 2, the cover in the top 6.
+     */
+    public static int entry(int color, int tint, int cover) {
+        return color & 0xFFFFFF | (tint & 3) << 24 | Math.max(0, Math.min(FULL_COVER, cover)) << 26;
+    }
+
+    /** An entry's tint. */
+    public static int tint(int entry) {
+        return entry >>> 24 & 3;
+    }
+
+    /** An entry's cover, 0 to {@link #FULL_COVER}. */
+    public static int cover(int entry) {
+        return entry >>> 26;
     }
 }

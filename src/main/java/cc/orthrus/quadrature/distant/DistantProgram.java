@@ -5,6 +5,7 @@ import cc.orthrus.quadrature.core.lod.TileDraws;
 import cc.orthrus.quadrature.frame.StateEnvelopeAccess;
 
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -30,7 +31,11 @@ import org.lwjgl.opengl.GL45;
  * fog on (see {@code DistantHook.fog}) both fade by one rule.
  *
  * <p>Water's top faces are lowered to the level the game draws a water surface at
- * ({@link NearCover#WATER_SURFACE_DROP}), so near and distant water meet without a step.
+ * ({@link NearCover#WATER_SURFACE_DROP}), so near and distant water meet without a step. Water is the
+ * last layer and is blended over the opaque ones by the alpha of the game's water image, which the
+ * material carries as its cover: the game draws near water so, over its bed, and distant water drawn
+ * opaque stood out far brighter (47, 68, 244 against 36, 51, 173 in the fourth run). Color, cover
+ * and fog are worked out apart, so a later stage can light the surface itself.
  *
  * <p>Two debug views ({@code quadrature.distant.debug}). {@code level} gives every face a color for
  * its tile's level. {@code box} shows where the near box stands open: after the ordinary draw, the
@@ -87,6 +92,7 @@ final class DistantProgram {
         "out vec3 fromOrigin;",
         "out vec3 fromEye;",
         "out vec3 faceColor;",
+        "out float faceCover;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
@@ -137,7 +143,8 @@ final class DistantProgram {
         "    }",
         "    uint entry = materials[2u * material + (direction < 2u ? 0u : 1u)];",
         "    vec3 color = rgb(entry);",
-        "    uint tint = entry >> 24;",
+        "    uint tint = (entry >> 24) & 3u;",
+        "    faceCover = float(entry >> 26) / 63.0;",
         "    if (tint != 0u) {",
         "        uint column = z * 64u + x;",
         "        uint biome = (words[tile.tintWord + (column >> 2)] >> (8u * (column & 3u))) & 255u;",
@@ -159,6 +166,7 @@ final class DistantProgram {
         "in vec3 fromOrigin;",
         "in vec3 fromEye;",
         "in vec3 faceColor;",
+        "in float faceCover;",
         "layout(location = 0) out vec4 result;",
         "void main() {",
         "    // What lies inside the box of loaded cubes is near terrain's to draw.",
@@ -185,7 +193,8 @@ final class DistantProgram {
         "        float d = gl_Fog.density * fogDistance;",
         "        clear = exp(-d * d);",
         "    }",
-        "    result = vec4(mix(gl_Fog.color.rgb, faceColor, clamp(clear, 0.0, 1.0)), 1.0);",
+        "    // Cover matters only to the water layer, which is blended over what was drawn before it.",
+        "    result = vec4(mix(gl_Fog.color.rgb, faceColor, clamp(clear, 0.0, 1.0)), faceCover);",
         "}");
 
     private int program;
@@ -263,10 +272,31 @@ final class DistantProgram {
 
     /** The frame's three layers, one indirect draw for each page that has commands in it. */
     private int layers(TileDraws list, DistantArena arena, boolean water) {
+        // The opaque layers are drawn unblended whatever the game left set. Water is drawn last, over
+        // them, blended by its image's alpha as the game blends near water over its bed. The blend
+        // state is put back as it was found.
+        boolean wasBlending = GL11.glIsEnabled(GL11.GL_BLEND);
+        if (wasBlending) {
+            GL11.glDisable(GL11.GL_BLEND);
+        }
         int draws = 0;
         for (int layer = 0; layer < TileDraws.LAYERS; layer++) {
             if (layer == TileDraws.WATER && !water) {
                 continue;
+            }
+            boolean blended = layer == TileDraws.WATER;
+            int sourceColor = 0;
+            int targetColor = 0;
+            int sourceAlpha = 0;
+            int targetAlpha = 0;
+            if (blended) {
+                sourceColor = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+                targetColor = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+                sourceAlpha = GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA);
+                targetAlpha = GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA);
+                GL11.glEnable(GL11.GL_BLEND);
+                GL14.glBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE,
+                    GL11.GL_ONE_MINUS_SRC_ALPHA);
             }
             for (int page = 0; page < list.pages(); page++) {
                 int count = list.runCount(layer, page);
@@ -279,6 +309,13 @@ final class DistantProgram {
                     TileDraws.COMMAND_BYTES);
                 draws++;
             }
+            if (blended) {
+                GL14.glBlendFuncSeparate(sourceColor, targetColor, sourceAlpha, targetAlpha);
+                GL11.glDisable(GL11.GL_BLEND);
+            }
+        }
+        if (wasBlending) {
+            GL11.glEnable(GL11.GL_BLEND);
         }
         return draws;
     }
