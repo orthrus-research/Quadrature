@@ -3,7 +3,6 @@ package cc.orthrus.quadrature.distant;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.lod.BuiltTile;
 import cc.orthrus.quadrature.core.lod.Cover;
-import cc.orthrus.quadrature.core.material.MaterialTable;
 import cc.orthrus.quadrature.core.view.ShadedGate;
 import cc.orthrus.quadrature.core.view.ShadingTargets;
 import cc.orthrus.quadrature.core.lod.FaceRecord;
@@ -609,11 +608,15 @@ final class Distant {
      */
     private boolean shade(Minecraft minecraft, float partialTicks, boolean fading) {
         ShadingTargets targets = TerrainHook.shadingTargets();
-        MaterialTable table = TerrainHook.materials();
-        if (!ShadedGate.draws(targets) || table == null) {
-            // No targets: near terrain's switch for them is off, or they are not made yet. Where they
-            // stand near terrain draws them in every frame, and this pass runs only in frames in
-            // which near terrain draws (DistantHook.draw), so every frame they stand is theirs.
+        long pass = TerrainHook.frame();
+        if (!ShadedGate.draws(targets, pass)) {
+            // No targets, or they are not this world pass's: nothing to add to.
+            return false;
+        }
+        // Near terrain's material table, brought up to date with the rows distant terrain's
+        // materials asked for; 0 where own terrain is off or the targets are not drawn.
+        int table = TerrainHook.materialsBuffer();
+        if (table == 0) {
             return false;
         }
         int framebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
@@ -633,7 +636,7 @@ final class Distant {
                 minecraft.world.getSunBrightness(partialTicks), cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
                 imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand,
-                table.bytes(), table.version());
+                table, (int) (pass & 0x7FFFFFFF));
         } finally {
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer);
             GL11.glViewport(viewport.get(0), viewport.get(1), viewport.get(2), viewport.get(3));

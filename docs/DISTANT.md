@@ -1281,7 +1281,8 @@ color and depth under translucent surfaces; a frame index.
 
 Behind `quadrature.distant.shaded`, off by default; not run in a game.
 
-After the forward draw, in every frame the targets stand (`ShadedGate`: published and made),
+After the forward draw, in every world pass in which near terrain drew the targets
+(`ShadedGate`: its count of passes, `TerrainHook.frame()`, equals the targets' `drawnFrame()`),
 the opaque and leaf layers are drawn again through the published
 framebuffer: its viewport, the alpha test and blending off, nothing cleared, the depth test as
 the frame has it, which with reversed depth is nearer-or-equal against near terrain's own
@@ -1316,20 +1317,25 @@ last step differs (`TARGETS_OUTPUT` for `FORWARD_OUTPUT`):
 
 **Settled since, by near terrain and the shader thread:**
 
-- The targets' generation counts how often they were made anew and is no sign of a frame. The
-  first version of this pass waited for it to move and would have drawn once and stopped;
-  `ShadedGateTest` holds the pass to drawing frame after frame with the generation unchanged.
-  Near terrain is to publish the frame the targets were drawn in beside a frame index; until
-  that is in this tree the pass draws whenever the targets stand, which is every frame near
-  terrain's switch is on, since this pass runs only in frames near terrain draws.
+- The targets' generation counts how often they were made anew and is no sign of a frame.
+  The first version of this pass waited for it to move; the second drew whenever the targets
+  stood. Near terrain now publishes the pass the targets were drawn in beside its count of
+  passes, and the pass draws when they are equal, which `ShadedGateTest` holds: pass after
+  pass with the generation unchanged, and not in a pass the targets were not drawn in.
+- The material table is read from near terrain's own storage buffer
+  (`TerrainHook.materialsBuffer()`), asked for after distant terrain's materials have had
+  their rows filled; where it is 0 the pass is skipped. Distant terrain keeps no copy and
+  reads no list of kinds: a state's row is near terrain's to fill.
+- The pattern's frame. On the shaded path the fades between levels and of arriving tiles take
+  near terrain's count of passes, since a later stage accumulates over frames; on the forward
+  path they take 0. The near join's band takes 0 on both paths, because near terrain's half
+  of it does, and the two halves must use one pattern.
 - Occlusion and leaves as above.
 - Sky light by column is accepted: open ground is exactly 15 and under a canopy it falls one a
   block of leaves, which `RunMesherTest` holds (a flat top at 15; 15 less 3 under three blocks
   of leaves).
-- A pixel in a fade carries one surface whole in all four targets and depth. The pattern's
-  frame stays 0, on both paths, until near terrain publishes a frame index.
+- A pixel in a fade carries one surface whole in all four targets and depth.
 - Block light 0 and no distant water are accepted for now.
-- Near terrain is to publish its material buffer; until then the table is copied.
 
 **Images of the targets.** `quadrature.distant.shaded.image=true` writes the four targets,
 their alphas and the depth as images beside each travel capture, after this pass

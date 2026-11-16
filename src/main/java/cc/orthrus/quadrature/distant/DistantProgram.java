@@ -112,7 +112,7 @@ final class DistantProgram {
      */
     static final float LEAF_OCCLUSION = 0.936f;
 
-    /** Near terrain's material table, a copy of distant terrain's own, for the shaded path. */
+    /** Near terrain's material table, bound here for the shaded path. */
     private static final int SHADED_BINDING = 4;
 
     private static final String VERTEX = String.join("\n",
@@ -381,6 +381,8 @@ final class DistantProgram {
         "uniform vec2 joinBand;",
         "// Where that distance is measured from, x and z from the view's origin: near terrain's camera.",
         "uniform vec2 joinOrigin;",
+        "// The frame the fades between levels and of arriving tiles take their pattern from.",
+        "uniform int fadeFrame;",
         "// 0 while the water layer is drawn.",
         "uniform int imaged;",
         FadePattern.glsl(),
@@ -435,7 +437,7 @@ final class DistantProgram {
         "    }",
         "    if (faceShows >= 0.0) {",
         "        // A tile that has just arrived comes in over a few frames.",
-        "        if (faceShows < 1.0 && !" + FadePattern.GLSL_FUNCTION + "(gl_FragCoord.xy, faceShows, false, 0)) {",
+        "        if (faceShows < 1.0 && !" + FadePattern.GLSL_FUNCTION + "(gl_FragCoord.xy, faceShows, false, fadeFrame)) {",
         "            discard;",
         "        }",
         "        // The finest shown tile over a place draws it. So a coarser tile, which may be a fill",
@@ -449,7 +451,7 @@ final class DistantProgram {
         "                if (crossfade == 1 && finer == faceLevel - 1) {",
         "                    float depth = within(holes[faceLevel], here);",
         "                    if (depth > 0.0 && " + FadePattern.GLSL_FUNCTION
-            + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel], false, 0)) {",
+            + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel], false, fadeFrame)) {",
         "                        break;",
         "                    }",
         "                }",
@@ -461,7 +463,7 @@ final class DistantProgram {
         "        if (crossfade == 1 && faceLevel + 1 < levelCount && shownAt(faceLevel + 1, here)) {",
         "            float depth = within(holes[faceLevel + 1], here);",
         "            if (depth < bandWidth[faceLevel + 1] && !" + FadePattern.GLSL_FUNCTION
-            + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel + 1], true, 0)) {",
+            + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel + 1], true, fadeFrame)) {",
         "                discard;",
         "            }",
         "        }",
@@ -526,8 +528,13 @@ final class DistantProgram {
     private int joinBandLocation;
     private int joinOriginLocation;
     private int targetsProgram;
-    private int shadedBuffer;
-    private long shadedVersion = Long.MIN_VALUE;
+    /**
+     * The frame the fades between levels and of arriving tiles take their pattern from: 0 on the
+     * forward path, near terrain's count of world passes on the shaded path, where a later stage
+     * accumulates over frames. The near join's band takes 0 on both, as near terrain's half does.
+     */
+    private int fadeFrame;
+    private int fadeFrameLocation;
     /** Whether the draw under way writes the targets for shading and not the frame. */
     private boolean targets;
     private int vertexArray;
@@ -554,36 +561,30 @@ final class DistantProgram {
      * with their viewport: the same faces by the same rules, with the last step writing the targets.
      * Not the water, and not a debug view's second draw.
      *
-     * @param table near terrain's material table, eight bytes a state; {@code tableVersion} says when it changed
+     * @param table near terrain's material table: the name of its storage buffer, eight bytes a state
+     * @param pass  near terrain's count of world passes, which moves the fades' pattern from frame to frame
      */
     int drawTargets(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView,
         float[] projection, float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ,
         float[] fade, float[] holes, float[] bandWidths, int levels, int[] shownMasks, float[] squareOrigins,
-        int across, float[] joinBand, byte[] table, long tableVersion) {
+        int across, float[] joinBand, int table, int pass) {
         if (program == 0) {
             create();
-        }
-        if (shadedBuffer == 0) {
-            shadedBuffer = GL45.glCreateBuffers();
-        }
-        if (tableVersion != shadedVersion) {
-            shadedVersion = tableVersion;
-            java.nio.ByteBuffer data = java.nio.ByteBuffer.allocateDirect(table.length);
-            data.put(table).flip();
-            GL45.glNamedBufferData(shadedBuffer, data, GL15.GL_STATIC_DRAW);
         }
         int[] forward = locations();
         int forwardProgram = program;
         locate(targetsProgram);
         program = targetsProgram;
         targets = true;
-        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SHADED_BINDING, shadedBuffer);
+        fadeFrame = pass;
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SHADED_BINDING, table);
         try {
             return draw(list, arena, materials, modelView, projection, nearBox, daylight, cover, coverX, coverZ, fade,
                 holes, bandWidths, levels, shownMasks, squareOrigins, across, joinBand);
         } finally {
             GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SHADED_BINDING, 0);
             targets = false;
+            fadeFrame = 0;
             program = forwardProgram;
             locations(forward);
         }
@@ -621,6 +622,7 @@ final class DistantProgram {
         GL20.glUniform2f(coverMinimumLocation, coverX, coverZ);
         GL20.glUniform1i(crossfadeLocation, holes == null ? 0 : 1);
         GL20.glUniform1i(levelCountLocation, levels);
+        GL20.glUniform1i(fadeFrameLocation, fadeFrame);
         GL30.glUniform1uiv(shownMaskLocation, shownMasks);
         GL20.glUniform1i(maskWordsLocation, cc.orthrus.quadrature.core.lod.Cover.maskWords(across));
         GL20.glUniform1i(acrossTilesLocation, across);
@@ -799,6 +801,7 @@ final class DistantProgram {
         squareOriginLocation = GL20.glGetUniformLocation(program, "squareOrigin");
         joinBandLocation = GL20.glGetUniformLocation(program, "joinBand");
         joinOriginLocation = GL20.glGetUniformLocation(program, "joinOrigin");
+        fadeFrameLocation = GL20.glGetUniformLocation(program, "fadeFrame");
     }
 
     /** The uniforms' places as they stand, to put back after the other program has drawn. */
@@ -808,7 +811,7 @@ final class DistantProgram {
             imageLayersLocation, imagedLocation, imagesLocation, detailStartLocation, detailEndLocation, coverLocation,
             coverSideLocation, coverMinimumLocation, holesLocation, bandWidthLocation, levelCountLocation,
             crossfadeLocation, shownMaskLocation, maskWordsLocation, acrossTilesLocation, squareOriginLocation,
-            joinBandLocation, joinOriginLocation};
+            joinBandLocation, joinOriginLocation, fadeFrameLocation};
     }
 
     private void locations(int[] kept) {
@@ -840,7 +843,8 @@ final class DistantProgram {
         acrossTilesLocation = kept[i++];
         squareOriginLocation = kept[i++];
         joinBandLocation = kept[i++];
-        joinOriginLocation = kept[i];
+        joinOriginLocation = kept[i++];
+        fadeFrameLocation = kept[i];
     }
 
     private static int compile(int type, String source) {
