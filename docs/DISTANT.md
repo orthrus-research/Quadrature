@@ -508,8 +508,11 @@ both runs, where near water has nothing opaque drawn behind it.
 
 ## 11. The next run
 
-Not done. One short GPU turn under Riven's lease: a reference and a distant run on one fresh
-instance (a rebuilt jar needs a freshly prepared instance, and the Quadrature jar has changed).
+Not done. One short GPU turn under Riven's lease: two runs with distant terrain on, on one
+fresh instance (a rebuilt jar needs a freshly prepared instance, and the Quadrature jar has
+changed). There is no reference run: with the fog changed it would differ from both runs
+everywhere past 144 blocks, and the second run's reference frames exist for three of the four
+views.
 
 **Before it, without a game.** Gradle must run on Eclipse Adoptium 25.0.5 exactly
 (`JAVA_HOME`), or the build stops at once. The Mixin check needs OrthLib's `orthlib-mixinkit`
@@ -544,28 +547,31 @@ only more than 8 blocks from the last, and waits 900 s a view against a settle o
 **Runs**, each `play --name quadrature-distant-04 --tour <the tour>` with `JAVA_TOOL_OPTIONS`
 set and bounded from outside at 24 minutes, the lease left free three minutes between them:
 
-1. Reference, distant off: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
-   -Dquadrature.frameLog=true`.
-2. Distant on, shared fog, box view: the same, and `-Dquadrature.distant=own
-   -Dquadrature.distant.world=16384 -Dquadrature.distant.debug=box -Dquadrature.glDebug=true`.
+1. Box view: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
+   -Dquadrature.frameLog=true -Dquadrature.distant=own -Dquadrature.distant.world=16384
+   -Dquadrature.glDebug=true -Dquadrature.distant.debug=box`. Settles whether the near box
+   stands open anywhere and whether a band of sky lies at the join.
+2. Normal look: the same without `-Dquadrature.distant.debug=box`. The frames to judge the
+   fog, the water's level and the join by eye.
 
-About 15 minutes each. If a third run fits a later turn: the same as run 2 with
+About 15 minutes each. If a third run fits a later turn: the same with
 `-Dquadrature.distant.debug=level`.
 
 **Pass:**
 
-1. Both runs start and finish the tour; run 2's log says the fog runs from 384 to 24,576
-   blocks and that the box view is on, and never that distant terrain failed.
+1. Both runs start and finish the tour; each log says the fog runs from 384 to 24,576 blocks,
+   run 1's that the box view is on, and neither that distant terrain failed.
 2. Tiles arrive at every view; failed 0, refused 0; no driver message of error severity.
-3. No magenta once a view has settled, in any of the four frames. Magenta along the box's edge
-   means the box is larger than what near terrain meshes; magenta patches inside mean near
-   terrain has holes there. Either is reported with where it lies.
+3. Run 1: no magenta once a view has settled, in any of the four frames. Magenta along the
+   box's edge means the box is larger than what near terrain meshes; magenta patches inside
+   mean near terrain has holes there. Either is reported with where it lies.
 4. With the fog pushed out, near terrain's far edge is visible in `above_west` and
    `coast_join`. Distant terrain begins where near terrain ends: no band of sky or of the
    horizon's color between them.
 5. No row of dark dashes at the water join in `coast_strait` or `coast_join`.
-6. Within 144 blocks of the eye, where the game's fog had not begun, near terrain agrees with
-   the reference within `near.json`. Beyond that it differs by the fog alone: run 2 is clearer,
-   never displaced.
+6. The two runs' frames agree except where run 1 shows magenta. Against the second run's
+   reference frames (`ground_west`, `above_west`, `coast_strait`), near terrain within 144
+   blocks of the eye, where the game's fog had not begun, agrees within `near.json`; beyond
+   that it differs by the fog alone, clearer and never displaced.
 7. Looked at and described: how the shared fog reads at the join and at the horizon, clouds
    against clear terrain, the step from near water to flat distant water.
