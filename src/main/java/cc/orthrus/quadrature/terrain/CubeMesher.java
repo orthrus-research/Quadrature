@@ -1,7 +1,10 @@
 package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
+import cc.orthrus.quadrature.core.scene.LightScene;
 import cc.orthrus.quadrature.core.terrain.CubeConnectivity;
+
+import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
 
@@ -30,11 +33,24 @@ final class CubeMesher {
     private final boolean[] started = new boolean[LAYERS.length];
     private final int[] counts = new int[LAYERS.length];
     private final long[] opaque = new long[64];
+    /** The scene the cells are noted for, or null when none is kept. */
+    private final LightScene scene;
+    private final short[] cells = new short[LightScene.CELLS];
+    /** The number of each block state seen, so the registry is asked once for each. */
+    private final Reference2IntOpenHashMap<IBlockState> stateNumbers = new Reference2IntOpenHashMap<>();
+    private int unnumbered;
     private final CubeConnectivity connectivity = new CubeConnectivity();
     private short links;
     private int failures;
 
     CubeMesher() {
+        this(null);
+    }
+
+    /** @param scene where each cube's cells are noted as it is meshed, or null */
+    CubeMesher(LightScene scene) {
+        this.scene = scene;
+        stateNumbers.defaultReturnValue(-1);
         for (int i = 0; i < builders.length; i++) {
             builders[i] = new BufferBuilder(i == 0 ? 1 << 18 : 1 << 16);
         }
@@ -67,6 +83,9 @@ final class CubeMesher {
                         if (state.isOpaqueCube()) {
                             int cell = CubeConnectivity.cell(x, y, z);
                             opaque[cell >> 6] |= 1L << cell;
+                        }
+                        if (scene != null) {
+                            cells[LightScene.index(x, y, z)] = (short) number(state);
                         }
                         if (state.getRenderType() == EnumBlockRenderType.INVISIBLE) {
                             continue;
@@ -107,6 +126,39 @@ final class CubeMesher {
             any |= counts[layer] > 0;
         }
         return any;
+    }
+
+    /**
+     * The number a block state goes by in the scene: the game's own for it, the block's identity and
+     * its variant. The first time a state is seen the scene is told what it does to light, by the
+     * state's values alone; a block whose light depends on where it stands is taken at those values.
+     */
+    private int number(IBlockState state) {
+        int number = stateNumbers.getInt(state);
+        if (number < 0) {
+            number = Block.getStateId(state);
+            if (number < 0 || number >= LightScene.STATES) {
+                // More blocks than sixteen bits name: such a state is kept as something solid and dark.
+                if (unnumbered++ == 0) {
+                    Quadrature.LOGGER.warn("A block state's number, {}, does not fit the light scene: {}", number, state);
+                }
+                number = LightScene.STATES - 1;
+            }
+            stateNumbers.put(state, number);
+            scene.defineState(number, Math.min(15, Math.max(0, state.getLightValue())),
+                Math.min(15, Math.max(0, state.getLightOpacity())), state.isOpaqueCube());
+        }
+        return number;
+    }
+
+    /** The state of each cell of the cube last built, as the scene orders them. */
+    short[] cells() {
+        return cells;
+    }
+
+    /** A bit for each cell of the cube last built that an opaque whole cube fills. */
+    long[] blocking() {
+        return opaque;
     }
 
     /** The vertices of a layer of the cube last built: its position and the count bound them. */

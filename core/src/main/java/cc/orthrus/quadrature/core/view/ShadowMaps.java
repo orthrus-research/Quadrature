@@ -5,10 +5,13 @@ package cc.orthrus.quadrature.core.view;
  * array texture of depth, and for each of its layers the matrix it was drawn through and the box that
  * matrix covers.
  *
- * <p>A layer's matrix takes a position relative to the frame's origin, in blocks, to the layer's clip
+ * <p>A layer's matrix takes a position relative to the published origin, in blocks, to the layer's clip
  * space: a plain orthographic box, clip depth from -1 nearest the light to 1 farthest. The previous
  * frame's matrix is relative to the previous frame's origin. The host draws with no depth bias beyond
  * the polygon offset named here; a sampler biases as it sees fit.
+ *
+ * <p>The texture is not drawn every frame. The matrices and origin published are always those it was
+ * last drawn with, never the light's of the moment, which is published beside them.
  *
  * <p>The texture can be sampled two ways, through one of two sampler objects: as depth compared with
  * a reference, filtered, or as the depth itself, unfiltered.
@@ -27,6 +30,7 @@ public final class ShadowMaps {
     private final double[] origin = new double[3];
     private final double[] previousOrigin = new double[3];
     private final float[] towardLight = new float[3];
+    private final float[] drawnTowardLight = new float[3];
     private float polygonOffsetFactor;
     private float polygonOffsetUnits;
     private long generation;
@@ -60,16 +64,28 @@ public final class ShadowMaps {
         polygonOffsetUnits = units;
     }
 
-    /** Starts a frame: what was current becomes previous. */
+    /**
+     * Starts a frame in which the texture is drawn again: what was current becomes previous, and the
+     * frame's origin and light are the ones it is drawn with.
+     */
     public void beginFrame(double originX, double originY, double originZ, double towardLightX,
         double towardLightY, double towardLightZ) {
+        hold(towardLightX, towardLightY, towardLightZ);
+        origin[0] = originX;
+        origin[1] = originY;
+        origin[2] = originZ;
+        System.arraycopy(towardLight, 0, drawnTowardLight, 0, 3);
+    }
+
+    /**
+     * Starts a frame in which the texture is kept as it is: its matrices and origin stay those it was
+     * drawn with, the frame before's become the same, and only the direction toward the light moves on.
+     */
+    public void hold(double towardLightX, double towardLightY, double towardLightZ) {
         for (int layer = 0; layer < layers; layer++) {
             System.arraycopy(viewProjection[layer], 0, previousViewProjection[layer], 0, 16);
         }
         System.arraycopy(origin, 0, previousOrigin, 0, 3);
-        origin[0] = originX;
-        origin[1] = originY;
-        origin[2] = originZ;
         double length = Math.sqrt(towardLightX * towardLightX + towardLightY * towardLightY
             + towardLightZ * towardLightZ);
         towardLight[0] = (float) (towardLightX / length);
@@ -164,9 +180,14 @@ public final class ShadowMaps {
         return previousOrigin;
     }
 
-    /** A unit vector from the scene toward the sun, or the moon while the sun is down. */
+    /** A unit vector from the scene toward the sun, or the moon while the sun is down, this frame. */
     public float[] towardLight() {
         return towardLight;
+    }
+
+    /** The direction toward the light the texture was last drawn along; the light may have turned a little since. */
+    public float[] drawnTowardLight() {
+        return drawnTowardLight;
     }
 
     public float polygonOffsetFactor() {

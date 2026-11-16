@@ -9,6 +9,8 @@ import cc.orthrus.quadrature.core.terrain.CubeSlots;
 import cc.orthrus.quadrature.core.terrain.CubeVisitor;
 import cc.orthrus.quadrature.core.terrain.DrawCommands;
 import cc.orthrus.quadrature.core.terrain.Visibility;
+import cc.orthrus.quadrature.core.scene.LightScene;
+import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
@@ -81,7 +83,19 @@ public final class Terrain
     private final ICubeSource source;
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
-    private final CubeMesher mesher = new CubeMesher();
+    /**
+     * Off unless {@code -Dquadrature.scene=true}: the cells of every cube that is meshed are kept for
+     * lighting, with what each block state does to light.
+     */
+    private static final boolean SCENE = Boolean.getBoolean("quadrature.scene");
+    private final LightScene scene = SCENE ? new LightScene() : null;
+    /**
+     * Off unless {@code -Dquadrature.scene.gpu=true}, which needs the scene: the scene is copied to
+     * buffers a shader can read, a bounded amount a frame.
+     */
+    private static final boolean SCENE_GPU = SCENE && Boolean.getBoolean("quadrature.scene.gpu");
+    private final SceneBuffers sceneBuffers = SCENE_GPU ? new SceneBuffers(scene) : null;
+    private final CubeMesher mesher = new CubeMesher(scene);
     private final TerrainProgram program = new TerrainProgram();
     private final TerrainArena arena = OWN_BUFFERS ? null : new TerrainArena();
     /** A slot for every loaded cube, holding where its mesh lies in the arena. */
@@ -97,6 +111,17 @@ public final class Terrain
     /** Counts meshes placed and released: what a view draws may differ once it has moved on. */
     private long meshVersion;
     private long shadowMeshVersion = -1;
+    /** The cosine of the angle the light may turn before its depth is drawn again; 0.1 degree unless set. */
+    private static final double SHADOW_TURN_COSINE = Math.cos(Math.toRadians(
+        Double.parseDouble(System.getProperty("quadrature.shadow.turn", "0.1"))));
+    private final View lightCandidate = new View();
+    private final double[] shadowToward = new double[3];
+    private boolean shadowContent;
+    private boolean shadowResnapped;
+    private boolean shadowTurned;
+    private long shadowKept;
+    private long shadowResnaps;
+    private long shadowTurns;
     private double shadowOriginX;
     private double shadowOriginY;
     private double shadowOriginZ;
@@ -235,6 +260,9 @@ public final class Terrain
         links.remove(key);
         slots.release(key);
         tableVersion++;
+        if (scene != null) {
+            scene.remove(x, y, z);
+        }
     }
 
     @Override
@@ -249,6 +277,9 @@ public final class Terrain
         }
         meshes.clear();
         dirty.clear();
+        if (scene != null) {
+            scene.clear();
+        }
         for (LongIterator it = links.keySet().iterator(); it.hasNext();) {
             slots.release(it.nextLong());
         }
@@ -332,6 +363,9 @@ public final class Terrain
             links.remove(key);
             slots.release(key);
             tableVersion++;
+            if (scene != null) {
+                scene.remove(x, y, z);
+            }
             return;
         }
         if (!surrounded(x, y, z)) {
@@ -344,12 +378,18 @@ public final class Terrain
             emptied++;
             snapshot.release();
             setLinks(key, CubeConnectivity.ALL);
+            if (scene != null) {
+                scene.putUniform(x, y, z, LightScene.AIR);
+            }
             return;
         }
         long start = System.nanoTime();
         boolean any = mesher.build(snapshot, x, y, z);
         snapshot.release();
         setLinks(key, mesher.links());
+        if (scene != null) {
+            scene.put(x, y, z, mesher.cells(), mesher.blocking());
+        }
         CubeMesh mesh = null;
         if (any) {
             long placing = System.nanoTime();
@@ -466,6 +506,10 @@ public final class Terrain
             placeNanosThisFrame += flushing;
             placeNanos += flushing;
         }
+        if (sceneBuffers != null) {
+            sceneBuffers.update(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
+                mainView.upward());
+        }
         lastPlaceNanos = placeNanosThisFrame;
         if (placeNanosThisFrame > mostPlaceNanos) {
             mostPlaceNanos = placeNanosThisFrame;
@@ -494,12 +538,16 @@ public final class Terrain
 
         // A second view, found and not yet drawn: what a shadow of the sun or moon would be drawn from.
         start = System.nanoTime();
+        boolean redraw = false;
         if (SHADOW) {
-            lightSide = MainView.alongLight(lightView, mainView, partialTicks, ShadowTarget.SIDE, towardLight);
+            redraw = shadowDue(partialTicks);
+            if (redraw) {
+                lit.sweep(this, lightView);
+            }
         } else {
             MainView.alongLight(lightView, mainView, partialTicks);
+            lit.sweep(this, lightView);
         }
-        lit.sweep(this, lightView);
         lastLightNanos = System.nanoTime() - start;
 
         if (selectedCubes != null) {
@@ -518,10 +566,16 @@ public final class Terrain
             }
             // The second view's commands are written as the first's are, and not handed to the driver.
             start = System.nanoTime();
-            command(lightList, lit, lightView, false);
+            if (!SHADOW || redraw) {
+                command(lightList, lit, lightView, false);
+            }
             lastLightCommandNanos = System.nanoTime() - start;
-            if (SHADOW) {
+            if (redraw) {
                 drawShadow();
+            } else if (SHADOW) {
+                shadowMaps.hold(towardLight[0], towardLight[1], towardLight[2]);
+                shadowKept++;
+                image();
             }
         }
         return mainView;
@@ -533,6 +587,55 @@ public final class Terrain
      * the same matrix composition. The cutout layers are tested against the block texture's alpha.
      * Entities are not drawn into it.
      */
+    /**
+     * Whether the light's depth must be drawn again this frame: a mesh was placed, replaced or released
+     * since it was drawn, the player has moved into another texel of it, or the light has turned more
+     * than a set angle. If so the view along the light is made for this frame; if not, the view the
+     * depth was drawn through stands.
+     */
+    private boolean shadowDue(double partialTicks) {
+        lightSide = MainView.alongLight(lightCandidate, mainView, partialTicks, ShadowTarget.SIDE, towardLight);
+        boolean due = shadowMeshVersion != meshVersion;
+        shadowResnapped = false;
+        if (shadowMeshVersion >= 0) {
+            // Another texel, along the axes the depth was drawn with.
+            float[] axes = lightView.modelView();
+            double texel = lightSide / ShadowTarget.SIDE;
+            for (int axis = 0; axis < 3 && !shadowResnapped; axis++) {
+                double now = axes[axis] * mainView.originX() + axes[4 + axis] * mainView.originY()
+                    + axes[8 + axis] * mainView.originZ();
+                double before = axes[axis] * shadowOriginX + axes[4 + axis] * shadowOriginY + axes[8 + axis] * shadowOriginZ;
+                shadowResnapped = Math.rint(now / texel) != Math.rint(before / texel);
+            }
+            double cosine = towardLight[0] * shadowToward[0] + towardLight[1] * shadowToward[1]
+                + towardLight[2] * shadowToward[2];
+            shadowTurned = cosine < SHADOW_TURN_COSINE;
+        }
+        shadowContent = due || shadowResnapped;
+        due |= shadowResnapped || shadowTurned || shadowMeshVersion < 0;
+        if (due) {
+            lightView.copy(lightCandidate);
+        }
+        return due;
+    }
+
+    /** The diagnostic image, once for each place the player stands still at with nothing waiting. */
+    private void image() {
+        if (!SHADOW_IMAGE) {
+            return;
+        }
+        long place = CubeKey.of((int) Math.floor(mainView.originX()), (int) Math.floor(mainView.originY()),
+            (int) Math.floor(mainView.originZ()));
+        if (place != stillAt || !dirty.isEmpty()) {
+            stillAt = place;
+            stillFrames = 0;
+        } else if (++stillFrames == STILL_FRAMES && imagedAt != place) {
+            imagedAt = place;
+            shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
+                + (int) Math.floor(mainView.originZ()));
+        }
+    }
+
     private void drawShadow() {
         long start = System.nanoTime();
         DriverMessages.enter("shadow");
@@ -542,22 +645,18 @@ public final class Terrain
         shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
         shadowMaps.beginFrame(mainView.originX(), mainView.originY(), mainView.originZ(), towardLight[0],
             towardLight[1], towardLight[2]);
-        // The box moved to another texel if the player's old and new positions fall in different
-        // texels along the light's axes as they stand now.
-        float[] axes = lightView.modelView();
-        double texel = lightSide / ShadowTarget.SIDE;
-        boolean resnapped = false;
-        for (int axis = 0; axis < 3 && !resnapped; axis++) {
-            double now = axes[axis] * mainView.originX() + axes[4 + axis] * mainView.originY()
-                + axes[8 + axis] * mainView.originZ();
-            double before = axes[axis] * shadowOriginX + axes[4 + axis] * shadowOriginY + axes[8 + axis] * shadowOriginZ;
-            resnapped = Math.rint(now / texel) != Math.rint(before / texel);
-        }
         shadowOriginX = mainView.originX();
         shadowOriginY = mainView.originY();
         shadowOriginZ = mainView.originZ();
-        shadowMaps.layer(0, lightView, lightSide, shadowMeshVersion != meshVersion || resnapped);
+        System.arraycopy(towardLight, 0, shadowToward, 0, 3);
+        shadowMaps.layer(0, lightView, lightSide, shadowContent);
         shadowMeshVersion = meshVersion;
+        if (shadowResnapped) {
+            shadowResnaps++;
+        }
+        if (shadowTurned) {
+            shadowTurns++;
+        }
         shadowDraws = program.drawDepth(lightList, BlockRenderLayer.SOLID.ordinal(), arena, lightView.projection(), -1f);
         shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), arena,
             lightView.projection(), cutoutReference);
@@ -570,18 +669,7 @@ public final class Terrain
         shadowNanos += lastShadowNanos;
         mostShadowNanos = Math.max(mostShadowNanos, lastShadowNanos);
         shadowFrames++;
-        if (SHADOW_IMAGE) {
-            long place = CubeKey.of((int) Math.floor(mainView.originX()), (int) Math.floor(mainView.originY()),
-                (int) Math.floor(mainView.originZ()));
-            if (place != stillAt || !dirty.isEmpty()) {
-                stillAt = place;
-                stillFrames = 0;
-            } else if (++stillFrames == STILL_FRAMES && imagedAt != place) {
-                imagedAt = place;
-                shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
-                    + (int) Math.floor(mainView.originZ()));
-            }
-        }
+        image();
     }
 
     /**
@@ -753,6 +841,16 @@ public final class Terrain
     }
 
     @Override
+    public LightScene lightScene() {
+        return scene;
+    }
+
+    @Override
+    public PublishedScene publishedScene() {
+        return sceneBuffers == null ? null : sceneBuffers.published();
+    }
+
+    @Override
     public String summary() {
         String line = String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, "
                 + "%d left for a neighbor, %.1f MiB, %d M vertices held; last frame %d draws, %d k vertices; "
@@ -784,6 +882,13 @@ public final class Terrain
             arena.pagesInUse(), arena.largestRoomBytes() / 1048576.0, arena.freeRanges(),
             TerrainArena.JOINING ? "blocks joined" : "blocks by size class");
         line += TerrainArena.COPY ? ", meshes staged and copied" : ", meshes written into their pages";
+        if (SCENE) {
+            line += String.format("; scene %d cubes of %d loaded, %d with cells of their own, %.1f MiB, version %d",
+                scene.cubes(), links.size(), scene.mixedCubes(), scene.cellBytes() / 1048576.0, scene.version());
+        }
+        if (SCENE_GPU) {
+            line += sceneBuffers.summary();
+        }
         if (SHADOW) {
             float[] box = lightView.projection();
             line += String.format("; shadow %d texels a side, %d MiB, %.3f blocks a texel, %d cubes, %d commands, "
@@ -793,8 +898,10 @@ public final class Terrain
                 lit.count(), lightList.commandCount(), shadowDraws, lastShadowNanos / 1e6,
                 shadowFrames == 0 ? 0.0 : shadowNanos / 1e6 / shadowFrames, mostShadowNanos / 1e6,
                 shadow.gpuMillisLast(), shadow.gpuMillisMean(), shadow.gpuMillisMost(), cutoutReference);
-            line += String.format(", box %.0f blocks, generation %d and content generation %d of %d frames", lightSide,
-                shadowMaps.generation(), shadowMaps.contentGeneration(), shadowFrames);
+            line += String.format(", box %.0f blocks, drawn in %d frames and kept in %d, %d for another texel, %d for "
+                    + "the light turning, generation %d, content generation %d, GPU %.3f ms a frame over all frames",
+                lightSide, shadowFrames, shadowKept, shadowResnaps, shadowTurns, shadowMaps.generation(),
+                shadowMaps.contentGeneration(), shadow.gpuMillisTotal() / Math.max(1, shadowFrames + shadowKept));
         }
         line += TerrainArena.TOUCH ? ", pages written once when made" : "";
         if (DIRECT) {

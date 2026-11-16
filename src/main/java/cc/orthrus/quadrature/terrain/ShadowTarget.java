@@ -203,6 +203,11 @@ final class ShadowTarget {
         return gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples;
     }
 
+    /** All the GPU time measured for the draws so far. */
+    double gpuMillisTotal() {
+        return gpuNanos / 1e6;
+    }
+
     double gpuMillisMost() {
         return mostGpuNanos / 1e6;
     }
@@ -223,6 +228,9 @@ final class ShadowTarget {
         BufferedImage image = new BufferedImage(IMAGE_SIDE, IMAGE_SIDE, BufferedImage.TYPE_BYTE_GRAY);
         byte[] gray = ((java.awt.image.DataBufferByte) image.getRaster().getDataBuffer()).getData();
         long covered = 0;
+        float[] reduced = new float[IMAGE_SIDE * IMAGE_SIDE];
+        float least = 1f;
+        float most = 0f;
         for (int y = 0; y < IMAGE_SIDE; y++) {
             for (int x = 0; x < IMAGE_SIDE; x++) {
                 float nearest = 1f;
@@ -232,11 +240,22 @@ final class ShadowTarget {
                         nearest = Math.min(nearest, readback.get(row + dx));
                     }
                 }
+                reduced[y * IMAGE_SIDE + x] = nearest;
                 if (nearest < 1f) {
                     covered++;
+                    least = Math.min(least, nearest);
+                    most = Math.max(most, nearest);
                 }
+            }
+        }
+        // The grays are spread over the depths that occur, which are a small part of the box's.
+        float span = Math.max(most - least, 1e-6f);
+        for (int y = 0; y < IMAGE_SIDE; y++) {
+            for (int x = 0; x < IMAGE_SIDE; x++) {
+                float nearest = reduced[y * IMAGE_SIDE + x];
                 // The image's first row is the top; the texture's first row is the bottom.
-                gray[(IMAGE_SIDE - 1 - y) * IMAGE_SIDE + x] = (byte) (nearest >= 1f ? 0 : 32 + Math.round((1f - nearest) * 223f));
+                gray[(IMAGE_SIDE - 1 - y) * IMAGE_SIDE + x] = (byte) (nearest >= 1f ? 0
+                    : 32 + Math.round((most - nearest) / span * 223f));
             }
         }
         File directory = new File(Minecraft.getMinecraft().gameDir, "quadrature-shadow");
@@ -248,8 +267,8 @@ final class ShadowTarget {
             Quadrature.LOGGER.warn("Shadow image not written: {}", error.toString());
             return null;
         }
-        Quadrature.LOGGER.info("Shadow image written: {}, {} of {} pixels hold depth.", file.getName(), covered,
-            IMAGE_SIDE * IMAGE_SIDE);
+        Quadrature.LOGGER.info("Shadow image written: {}, {} of {} pixels hold depth, from {} to {} of the box.",
+            file.getName(), covered, IMAGE_SIDE * IMAGE_SIDE, String.format("%.4f", least), String.format("%.4f", most));
         return file;
     }
 }

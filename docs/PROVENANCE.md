@@ -196,6 +196,19 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Taken: the ideas. No renderer's source was read.
 - Added: 2026-11-15
 
+### The scene for lighting
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/`,
+  `src/main/java/cc/orthrus/quadrature/terrain/SceneBuffers.java`, and the cells noted in
+  `CubeMesher.java`
+- Source: original. Facts used: the game's public interfaces for a block state's
+  identity, light value, light opacity and whether it is an opaque cube; the OpenGL 4.6
+  compatibility specification (buffer textures, integer formats). A coarse lookup over
+  bricks of cells is common to sparse voxel structures, as in Crassin, Neyret, Lefebvre
+  and Eisemann, "GigaVoxels", I3D 2009.
+- Taken: the idea of a lookup that names a brick or says a region is uniform.
+- Not taken: any structure's source, and no hierarchy beyond one coarser level a brick.
+- Added: 2026-11-16
+
 ### Driver messages
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/DriverMessages.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (debug output,

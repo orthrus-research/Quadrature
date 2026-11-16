@@ -1,5 +1,7 @@
 package cc.orthrus.quadrature.terrain;
 
+import cc.orthrus.quadrature.core.scene.LightScene;
+import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
@@ -26,6 +28,12 @@ public final class TerrainHook {
 
         /** What is published of the depth drawn along the light, or null when it is not drawn. */
         ShadowMaps shadowMaps();
+
+        /** The world as lighting needs it, or null when it is not kept. */
+        LightScene lightScene();
+
+        /** The light scene as a shader reads it, or null when it is not copied to the GPU. */
+        PublishedScene publishedScene();
 
         /** One line for the timing log. */
         String summary();
@@ -59,6 +67,23 @@ public final class TerrainHook {
      */
     public static ShadowMaps shadowMaps() {
         return drawer == null ? null : drawer.shadowMaps();
+    }
+
+    /**
+     * The world as lighting needs it, independent of any view: the cells of every meshed cube and what
+     * each block state does to light. Null when own terrain is off or the scene is not kept. Read it on
+     * the client thread.
+     */
+    public static LightScene lightScene() {
+        return drawer == null ? null : drawer.lightScene();
+    }
+
+    /**
+     * The light scene as a shader reads it: the buffers, the box they cover, and what was copied this
+     * frame. Null when own terrain is off or the scene is not copied to the GPU.
+     */
+    public static PublishedScene publishedScene() {
+        return drawer == null ? null : drawer.publishedScene();
     }
 
     /** The timing log's line, or null when own terrain is off. */
