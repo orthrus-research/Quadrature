@@ -238,6 +238,17 @@ authors can dedicate: their own expression of ideas, never copied code.
   by vertex number, as described in research R2. No code from another renderer.
 - Added: 2026-11-16
 
+### The material table and the list of kinds
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/material/`,
+  `src/main/java/cc/orthrus/quadrature/terrain/Materials.java`,
+  `src/main/resources/assets/quadrature/material_kinds.properties`
+- Source: original. Facts used: the game's public interfaces for a block's material, the
+  light it gives and its states' properties; published values for the reflectance of
+  common non-metals (about 0.04) from the literature on physically based shading. The list
+  of kinds and its numbers are a data format agreed with the shading stage that reads the
+  table; the names in it are the registry names of the game's and of mods' blocks.
+- Taken: nothing from another renderer or shader pack.
+- Added: 2026-11-16
 ### Terrain diagnostics
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/SelectionComparison.java`,
   `ScreenProbe.java`, and the accessors `RenderGlobalAccess.java`, `RenderInfoAccess.java`
