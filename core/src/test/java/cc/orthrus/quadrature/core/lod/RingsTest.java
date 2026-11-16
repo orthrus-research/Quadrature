@@ -40,6 +40,58 @@ class RingsTest {
     }
 
     @Test
+    void withOverlapEveryColumnIsHeldByOneLevelOutsideTheBandsAndTwoInside() {
+        Rings rings = new Rings(384, 5);
+        rings.overlap(true);
+        Random random = new Random(11);
+        for (int trial = 0; trial < 12; trial++) {
+            long cameraX = trial == 0 ? 0 : random.nextInt(400_000) - 200_000;
+            long cameraZ = trial == 0 ? 0 : random.nextInt(400_000) - 200_000;
+            rings.select(cameraX, cameraZ);
+            int[] counts = perLevel(rings);
+            assertEquals(144, counts[0]);
+            for (int level = 1; level < 5; level++) {
+                assertEquals(128, counts[level], "20 more tiles a level");
+            }
+            // Columns on a grid across the top level's square, each in the middle of a level 0 tile.
+            long top = TileKey.side(4);
+            long startX = rings.squareStart(4, cameraX) * top;
+            long startZ = rings.squareStart(4, cameraZ) * top;
+            for (long z = startZ + 32; z < startZ + rings.across() * top; z += 448) {
+                for (long x = startX + 32; x < startX + rings.across() * top; x += 448) {
+                    int held = 0;
+                    for (int i = 0; i < rings.count(); i++) {
+                        long tile = rings.tile(i);
+                        long side = TileKey.side(TileKey.level(tile));
+                        if (x >= TileKey.originX(tile) && x < TileKey.originX(tile) + side && z >= TileKey.originZ(tile)
+                                && z < TileKey.originZ(tile) + side) {
+                            held++;
+                        }
+                    }
+                    // In a band: inside some level's hole, within one of that level's tiles of its edge.
+                    boolean band = false;
+                    for (int level = 1; level < 5; level++) {
+                        long holeX = rings.holeStart(level, cameraX);
+                        long holeZ = rings.holeStart(level, cameraZ);
+                        long side = rings.holeSide(level);
+                        long inside = Math.min(Math.min(x - holeX, holeX + side - 1 - x),
+                            Math.min(z - holeZ, holeZ + side - 1 - z));
+                        band |= inside >= 0 && inside < TileKey.side(level);
+                    }
+                    assertEquals(band ? 2 : 1, held, "column " + x + " " + z + " for a camera at " + cameraX + " " + cameraZ);
+                }
+            }
+        }
+        rings.overlap(false);
+        rings.select(0, 0);
+        assertEquals(108, perLevel(rings)[1]);
+        // A hole is the square of the ring below.
+        assertEquals(rings.squareStart(0, 5000) * 64L, rings.holeStart(1, 5000));
+        assertEquals(768, rings.holeSide(1));
+        assertEquals(1536, rings.holeSide(2));
+    }
+
+    @Test
     void theRingsTileTheTopSquareOnceWithNoGapAndTheCameraInRingZero() {
         Rings rings = new Rings(384, 8);
         long cameraX = 123_457;

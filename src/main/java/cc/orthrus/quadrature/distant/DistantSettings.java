@@ -54,6 +54,16 @@ final class DistantSettings {
      */
     static final float DETAIL_END = Math.max(DETAIL_START + 1f, number("quadrature.distant.detailEnd", 352f));
 
+    /**
+     * {@code quadrature.distant.crossfade}: {@code on} (the default) draws two levels over a band
+     * where they meet and fades from one to the other, and fades a tile in when it arrives;
+     * {@code off} lets each level end on a line, as the first five runs drew.
+     */
+    static final boolean CROSSFADE = !"off".equals(System.getProperty("quadrature.distant.crossfade", "on"));
+
+    /** Frames over which a newly stored tile fades in. */
+    static final int ARRIVAL_FRAMES = 24;
+
     static final int DEBUG_NONE = 0;
     /** Magenta where the near box holds distant ground and near terrain drew nothing in front of it. */
     static final int DEBUG_BOX = 1;

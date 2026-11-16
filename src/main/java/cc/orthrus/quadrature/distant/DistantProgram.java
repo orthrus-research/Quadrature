@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.distant;
 
+import cc.orthrus.quadrature.core.fade.FadePattern;
 import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.TileDraws;
 import cc.orthrus.quadrature.frame.StateEnvelopeAccess;
@@ -45,6 +46,13 @@ import org.lwjgl.opengl.GL45;
  * changes at the end and farther levels need no images. Water has none. The fragment stage works out
  * the surface (image or flat color, with the biome's tint), then its light, then the fog, each apart,
  * so that a later stage can take the surface and light it by other means.
+ *
+ * <p>Where two levels meet both are drawn over a band, one tile of the coarser wide, and each pixel
+ * keeps one of them by {@link FadePattern}, the coarser showing more toward the edge of its hole. A
+ * tile gives pixels up only to a partner that is stored: the coarser to its four children, the finer
+ * to the tile over it, so a level that is still arriving leaves no hole. A tile that has just been
+ * stored comes in by the same pattern over a few frames. A tile kept past
+ * its ring takes no part. See {@code Rings.overlap} and docs/DISTANT.md, section 14.
  *
  * <p>Leaves are drawn solid. Distant terrain begins some 180 blocks out, where a leaf image's texel
  * is a third of a pixel or less: the game's own leaves are solid there, since its smaller copies of
@@ -93,7 +101,7 @@ final class DistantProgram {
 
     private static final String VERTEX = String.join("\n",
         "#version 460 compatibility",
-        "struct Tile { vec3 origin; float cell; uint tintWord; uint level; float shows; uint unused; };",
+        "struct Tile { vec3 origin; float cell; uint tintWord; uint level; float shows; uint partners; };",
         "layout(std430, binding = 0) readonly buffer Tiles { Tile tiles[]; };",
         "layout(std430, binding = 1) readonly buffer Page { uint words[]; };",
         "layout(std430, binding = 2) readonly buffer Materials { uint materials[]; };",
@@ -123,6 +131,12 @@ final class DistantProgram {
         "// A hair's breadth into the block a side face belongs to, so that the face is counted to",
         "// that block's chunk column and not to the one it looks at.",
         "flat out vec2 faceInto;",
+        "// The tile's level, and how much of it shows: 0 to 1 while it arrives, below 0 for a tile",
+        "// kept past its ring, which takes no part in any fade.",
+        "flat out int faceLevel;",
+        "flat out float faceShows;",
+        "// Which of the tile's partners in a crossfade are stored: 1 its children, 2 the tile over it.",
+        "flat out int facePartners;",
         "const vec3 LEVEL[8] = vec3[8](vec3(1.0, 0.2, 0.2), vec3(1.0, 0.6, 0.1), vec3(1.0, 1.0, 0.2),",
         "    vec3(0.2, 0.9, 0.2), vec3(0.2, 0.9, 0.9), vec3(0.3, 0.4, 1.0), vec3(0.8, 0.3, 1.0), vec3(1.0));",
         "const int CORNER[6] = int[6](0, 1, 2, 2, 1, 3);",
@@ -173,6 +187,9 @@ final class DistantProgram {
         "        faceInto = direction == 2u ? vec2(0.0, 0.01) : direction == 3u ? vec2(0.0, -0.01)",
         "            : direction == 4u ? vec2(0.01, 0.0) : vec2(-0.01, 0.0);",
         "    }",
+        "    faceLevel = int(tile.level);",
+        "    faceShows = tile.shows;",
+        "    facePartners = int(tile.partners);",
         "    fromOrigin = tile.origin + place;",
         "    fromEye = (modelView * vec4(fromOrigin, 1.0)).xyz;",
         "    gl_Position = viewProjection * vec4(fromOrigin, 1.0);",
@@ -210,6 +227,12 @@ final class DistantProgram {
         "uniform int overlay;",
         "uniform sampler2DArray images;",
         "uniform usampler2D cover;",
+        "// Level k's hole, from the view's origin: its lowest x and z, its highest x and z.",
+        "uniform vec4 holes[8];",
+        "// The band inside level k's hole over which it fades into the level below: one of its tiles.",
+        "uniform float bandWidth[8];",
+        "uniform int levelCount;",
+        "uniform int crossfade;",
         "uniform int coverSide;",
         "uniform vec2 coverMinimum;",
         "uniform float detailStart;",
@@ -224,7 +247,15 @@ final class DistantProgram {
         "in float faceLight;",
         "in float faceCover;",
         "flat in vec2 faceInto;",
+        "flat in int faceLevel;",
+        "flat in float faceShows;",
+        "flat in int facePartners;",
         "layout(location = 0) out vec4 result;",
+        FadePattern.glsl(),
+        "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
+        "float within(vec4 hole, vec2 place) {",
+        "    return min(min(place.x - hole.x, hole.z - place.x), min(place.y - hole.y, hole.w - place.y));",
+        "}",
         "void main() {",
         "    // What near terrain draws is left to it. With its coverage map: a chunk column whose surface",
         "    // it has meshed, over the heights its cubes span. Without: the box of cubes it meshes.",
@@ -250,6 +281,32 @@ final class DistantProgram {
         "    }",
         "    if (inside) {",
         "        discard;",
+        "    }",
+        "    if (faceShows >= 0.0) {",
+        "        // A tile that has just arrived comes in over a few frames.",
+        "        if (faceShows < 1.0 && !" + FadePattern.GLSL_FUNCTION + "(gl_FragCoord.xy, faceShows, false, 0)) {",
+        "            discard;",
+        "        }",
+        "        if (crossfade == 1) {",
+        "            // As the coarser of two levels: inside its own hole, where only its band tiles lie. It",
+        "            // gives pixels up only where the finer tiles under it are stored to take them.",
+        "            if (faceLevel > 0 && (facePartners & 1) != 0) {",
+        "                float depth = within(holes[faceLevel], fromOrigin.xz);",
+        "                if (depth > 0.0 && !" + FadePattern.GLSL_FUNCTION
+            + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel], false, 0)) {",
+        "                    discard;",
+        "                }",
+        "            }",
+        "            // As the finer: within the band inside the next level's hole, which is its own ring's",
+        "            // edge, and only where the coarser tile over it is stored.",
+        "            if (faceLevel + 1 < levelCount && (facePartners & 2) != 0) {",
+        "                float depth = within(holes[faceLevel + 1], fromOrigin.xz);",
+        "                if (depth < bandWidth[faceLevel + 1] && !" + FadePattern.GLSL_FUNCTION
+            + "(gl_FragCoord.xy, 1.0 - depth / bandWidth[faceLevel + 1], true, 0)) {",
+        "                    discard;",
+        "                }",
+        "            }",
+        "        }",
         "    }",
         "    float fogDistance = length(fromEye);",
         "    // The surface: its image near the join, fading to its flat color, which is the image's mean.",
@@ -301,6 +358,10 @@ final class DistantProgram {
     private int coverLocation;
     private int coverSideLocation;
     private int coverMinimumLocation;
+    private int holesLocation;
+    private int bandWidthLocation;
+    private int levelCountLocation;
+    private int crossfadeLocation;
     private int vertexArray;
     private int commandBuffer;
     private int recordBuffer;
@@ -316,10 +377,13 @@ final class DistantProgram {
      * @param cover      near terrain's coverage map, whose side is 0 when the box is to be used
      * @param coverX     the map's lowest x and z, less the view's origin
      * @param fade       where level 0's images begin to fade and where they are gone, from the eye
+     * @param holes      for each level, its hole from the view's origin, four floats; null for no crossfade
+     * @param bandWidths for each level, the width of the band inside its hole
      * @return how many draws were issued
      */
     int draw(TileDraws list, DistantArena arena, DistantMaterials materials, float[] modelView, float[] projection,
-        float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ, float[] fade) {
+        float[] nearBox, float daylight, DistantCover cover, float coverX, float coverZ, float[] fade,
+        float[] holes, float[] bandWidths, int levels) {
         if (program == 0) {
             create();
         }
@@ -347,6 +411,12 @@ final class DistantProgram {
         GL20.glUniform1i(coverLocation, COVER_UNIT);
         GL20.glUniform1i(coverSideLocation, cover.side());
         GL20.glUniform2f(coverMinimumLocation, coverX, coverZ);
+        GL20.glUniform1i(crossfadeLocation, holes == null ? 0 : 1);
+        GL20.glUniform1i(levelCountLocation, levels);
+        if (holes != null) {
+            GL20.glUniform4fv(holesLocation, holes);
+            GL20.glUniform1fv(bandWidthLocation, bandWidths);
+        }
         if (cover.side() > 0) {
             GL45.glBindTextureUnit(COVER_UNIT, cover.texture());
         }
@@ -487,6 +557,10 @@ final class DistantProgram {
         coverLocation = GL20.glGetUniformLocation(program, "cover");
         coverSideLocation = GL20.glGetUniformLocation(program, "coverSide");
         coverMinimumLocation = GL20.glGetUniformLocation(program, "coverMinimum");
+        holesLocation = GL20.glGetUniformLocation(program, "holes");
+        bandWidthLocation = GL20.glGetUniformLocation(program, "bandWidth");
+        levelCountLocation = GL20.glGetUniformLocation(program, "levelCount");
+        crossfadeLocation = GL20.glGetUniformLocation(program, "crossfade");
         // No vertex attributes: every vertex comes from the page.
         vertexArray = GL45.glCreateVertexArrays();
         commandBuffer = GL45.glCreateBuffers();

@@ -23,6 +23,8 @@ public final class Rings {
     /** Tiles along a side of a ring's square. */
     private final int across;
 
+    /** Whether each ring keeps the tiles just inside its hole, for a crossfade with the ring below. */
+    private boolean overlap;
     private long[] keys = new long[1024];
     private long[] order = new long[1024];
     private int count;
@@ -45,6 +47,29 @@ public final class Rings {
 
     public int reach() {
         return reach;
+    }
+
+    /**
+     * Whether each ring above the lowest also keeps the ring of its own tiles just inside its
+     * hole. Over that band, one of its tiles wide, both levels then have tiles, and a draw can
+     * fade from one to the other. With a reach of 384 it is 20 more tiles a level.
+     */
+    public void overlap(boolean on) {
+        overlap = on;
+    }
+
+    public boolean overlap() {
+        return overlap;
+    }
+
+    /** The lowest block of a level's hole along one axis, for a camera at {@code camera}: the square of the ring below. */
+    public long holeStart(int level, long camera) {
+        return (long) squareStart(level - 1, camera) * TileKey.side(level - 1);
+    }
+
+    /** The side of every hole of a level, in blocks. */
+    public long holeSide(int level) {
+        return (long) across * TileKey.side(level - 1);
     }
 
     public int levels() {
@@ -77,9 +102,12 @@ public final class Rings {
             int holeX = level > 0 ? squareStart(level - 1, cameraX) >> 1 : 0;
             int holeZ = level > 0 ? squareStart(level - 1, cameraZ) >> 1 : 0;
             int first = count;
+            // With overlap the hole left out is a tile smaller on every side.
+            int inset = overlap ? 1 : 0;
             for (int z = startZ; z < startZ + across; z++) {
                 for (int x = startX; x < startX + across; x++) {
-                    if (level > 0 && x >= holeX && x < holeX + across / 2 && z >= holeZ && z < holeZ + across / 2) {
+                    if (level > 0 && x >= holeX + inset && x < holeX + across / 2 - inset && z >= holeZ + inset
+                            && z < holeZ + across / 2 - inset) {
                         continue;
                     }
                     if (x * side >= maxX || (x + 1) * side <= minX || z * side >= maxZ || (z + 1) * side <= minZ) {

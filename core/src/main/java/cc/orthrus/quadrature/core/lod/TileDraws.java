@@ -68,6 +68,21 @@ public final class TileDraws {
      * @return the record's index, for {@link #add}
      */
     public int record(double originX, double originY, double originZ, int level, int tintWord, float shows) {
+        return record(originX, originY, originZ, level, tintWord, shows, 0);
+    }
+
+    /** Over the band inside its own hole, this tile's four children are all stored. */
+    public static final int FINER_STORED = 1;
+    /** Over the band at its ring's edge, the coarser tile over this one is stored. */
+    public static final int COARSER_STORED = 2;
+
+    /**
+     * Adds a tile's record, with which of its partners in a crossfade are stored:
+     * {@link #FINER_STORED}, {@link #COARSER_STORED}. A tile fades against a partner only when the
+     * partner is there to show in its place.
+     */
+    public int record(double originX, double originY, double originZ, int level, int tintWord, float shows,
+            int partners) {
         if (records.remaining() < RECORD_BYTES) {
             ByteBuffer larger = ByteBuffer.allocateDirect(records.capacity() * 2).order(ByteOrder.nativeOrder());
             records.flip();
@@ -75,7 +90,7 @@ public final class TileDraws {
             records = larger;
         }
         records.putFloat((float) originX).putFloat((float) originY).putFloat((float) originZ);
-        records.putFloat(1 << level).putInt(tintWord).putInt(level).putFloat(shows).putInt(0);
+        records.putFloat(1 << level).putInt(tintWord).putInt(level).putFloat(shows).putInt(partners);
         return recordCount++;
     }
 

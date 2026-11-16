@@ -18,7 +18,7 @@ class TileDrawsTest {
         TileDraws draws = new TileDraws();
         draws.begin(3);
         int far = draws.record(25_000.25, -1700.5, -12_000.75, 6, 4096, 1f);
-        int near = draws.record(-64.0, -1664.0, 128.0, 0, 77, 0.5f);
+        int near = draws.record(-64.0, -1664.0, 128.0, 0, 77, 0.5f, TileDraws.COARSER_STORED);
         draws.add(TileDraws.OPAQUE, 2, 100, 10, far);
         draws.add(TileDraws.WATER, 0, 7, 1, near);
         draws.add(TileDraws.OPAQUE, 0, 5, 2, near);

@@ -186,6 +186,12 @@ public final class TileSchedule {
         }
     }
 
+    /** Whether a stored tile has left the selection and is kept only until its replacement is stored. */
+    public boolean kept(long key) {
+        int[] state = states.get(key);
+        return state != null && state[0] == LEAVING;
+    }
+
     /** Whether a tile is stored and should be drawn: wanted, or kept until its replacement is. */
     public boolean drawn(long key) {
         int[] state = states.get(key);

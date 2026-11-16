@@ -273,6 +273,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.fogStart` | the reach (384) | Where the shared fog begins, in blocks from the eye |
 | `quadrature.distant.fogEnd` | the outermost ring's reach (24,576) | Where the shared fog is complete |
 | `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
+| `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
@@ -843,6 +844,26 @@ tiles. Fragments in a band are shaded twice at most.
 **Alternative.** Moving the finer level's vertices toward the coarser surface across the
 band (geomorphing). It needs each fine face to know its coarse parent's height, which a run
 tile does not hold, and it cannot fade a tree in. Set aside.
+
+**Built** (not seen in a game), with these differences from the design above:
+
+- The band's edges are not in the tile's record. Each level's hole is a uniform, set each
+  frame from the camera the rings were last selected for, and the band's width is the level's
+  tile. The record's spare word says which of the tile's partners are stored.
+- A tile gives pixels up only to a partner that is stored and past its fading in: a coarser
+  tile to its four children, a finer tile to the tile over it. So there is no level-wide
+  switch: while a level is still arriving, each tile fades against what is there, and what
+  is not there leaves the other drawn whole. Nothing depends on a whole level being stored,
+  which under travel is rarely so.
+- A tile kept past its ring is drawn whole and is no one's partner.
+- A newly stored tile comes in over 24 frames by the same pattern.
+- The box view draws without the crossfade. The level view draws with it, each level in its
+  color, which shows the bands.
+- The pattern's frame is 0.
+
+`Rings.overlap`, `Rings.holeStart`, `Rings.holeSide`, `TileSchedule.kept`,
+`TileDraws.FINER_STORED` and `COARSER_STORED`; in the mod, `Distant.bands` and
+`Distant.partners`, and the fragment stage of `DistantProgram`.
 
 ### 14.2 The near join
 

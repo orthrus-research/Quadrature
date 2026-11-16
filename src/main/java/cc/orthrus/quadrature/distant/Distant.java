@@ -70,6 +70,8 @@ final class Distant {
         int faces;
         int minimumY;
         int maximumY;
+        /** The frame it was stored in, from which it fades in. */
+        long placedFrame;
         final int[] groupOffset = new int[TileMesh.GROUPS];
         final int[] groupCount = new int[TileMesh.GROUPS];
     }
@@ -91,6 +93,11 @@ final class Distant {
     /** Near terrain's coverage map this frame, or null when the box is used in its place. */
     private CoverageMap covered;
     private float[] imageFade = {DistantSettings.DETAIL_START, DistantSettings.DETAIL_END};
+    /** The camera the rings were last selected for: the holes lie where that selection put them. */
+    private long ringsCameraX;
+    private long ringsCameraZ;
+    private final float[] holes = new float[8 * 4];
+    private final float[] bandWidths = new float[8];
     private final int[] levelCount = new int[2];
     private DistantWorkers workers;
     private ICubicTerrainPreview preview;
@@ -133,6 +140,7 @@ final class Distant {
 
     private Distant(ICubeSource source) {
         this.source = source;
+        rings.overlap(DistantSettings.CROSSFADE);
     }
 
     /** Starts distant terrain if a cube source exists. */
@@ -206,10 +214,14 @@ final class Distant {
             int timer = (int) (frame % TIMERS);
             readTimer(timer);
             GL33.glQueryCounter(timerStart[timer], GL33.GL_TIMESTAMP);
+            boolean fading = DistantSettings.CROSSFADE && DistantSettings.DEBUG != DistantSettings.DEBUG_BOX;
+            if (fading) {
+                bands();
+            }
             lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
                 minecraft.world.getSunBrightness(partialTicks), cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade);
+                imageFade, fading ? holes : null, bandWidths, LEVELS);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
             DriverMessageAccess.leave();
         } else {
@@ -351,6 +363,7 @@ final class Distant {
                     resident.faces = tile.faces();
                     resident.minimumY = tile.minimumY();
                     resident.maximumY = tile.maximumY();
+                    resident.placedFrame = frame;
                     for (int group = 0; group < TileMesh.GROUPS; group++) {
                         resident.groupOffset[group] = tile.groupOffset(group);
                         resident.groupCount[group] = tile.groupCount(group);
@@ -380,6 +393,8 @@ final class Distant {
         selectedZ = z;
         long cameraX = (long) Math.floor(view.originX());
         long cameraZ = (long) Math.floor(view.originZ());
+        ringsCameraX = cameraX;
+        ringsCameraZ = cameraZ;
         if (WORLD_HALF > 0) {
             rings.select(cameraX, cameraZ, -WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
         } else {
@@ -465,8 +480,11 @@ final class Distant {
                 continue;
             }
             int facing = TileCulling.facing(key, tile.minimumY, tile.maximumY, eyeX, eyeY, eyeZ);
+            // A tile kept past its ring is drawn whole; one just stored comes in over a few frames.
+            float shows = schedule.kept(key) ? -1f : !DistantSettings.CROSSFADE ? 1f
+                : Math.min(1f, (frame - tile.placedFrame + 1) / (float) DistantSettings.ARRIVAL_FRAMES);
             int record = draws.record(originX - view.originX(), floorY - view.originY(), originZ - view.originZ(),
-                TileKey.level(key), tile.tintWord, 1f);
+                TileKey.level(key), tile.tintWord, shows, DistantSettings.CROSSFADE ? partners(key) : 0);
             for (int layer = 0; layer < TileMesh.LAYERS; layer++) {
                 for (int direction = 0; direction < FaceRecord.DIRECTIONS; direction++) {
                     if ((facing & 1 << direction) != 0) {
@@ -481,6 +499,50 @@ final class Distant {
         draws.finish();
         lastTilesDrawn = drawn;
         lastTilesInBox = inBox;
+    }
+
+    /** Where each level's hole lies this frame, as the last selection put it, and its band's width. */
+    private void bands() {
+        for (int level = 1; level < LEVELS && level < 8; level++) {
+            long startX = rings.holeStart(level, ringsCameraX);
+            long startZ = rings.holeStart(level, ringsCameraZ);
+            long side = rings.holeSide(level);
+            holes[level * 4] = (float) (startX - view.originX());
+            holes[level * 4 + 1] = (float) (startZ - view.originZ());
+            holes[level * 4 + 2] = (float) (startX + side - view.originX());
+            holes[level * 4 + 3] = (float) (startZ + side - view.originZ());
+            bandWidths[level] = TileKey.side(level);
+        }
+    }
+
+    /**
+     * Which of a tile's partners in a crossfade are stored and drawn: its four children, to which
+     * it gives pixels up inside its own hole, and the tile over it, to which it gives them up at
+     * its ring's edge.
+     */
+    private int partners(long key) {
+        int partners = 0;
+        int level = TileKey.level(key);
+        if (level > 0) {
+            boolean all = true;
+            for (int child = 0; child < 4 && all; child++) {
+                all = shown(TileKey.child(key, child));
+            }
+            if (all) {
+                partners |= TileDraws.FINER_STORED;
+            }
+        }
+        if (level + 1 < LEVELS && shown(TileKey.parent(key))) {
+            partners |= TileDraws.COARSER_STORED;
+        }
+        return partners;
+    }
+
+    /** Whether a tile is stored, wanted by the present rings, and past its fading in. */
+    private boolean shown(long key) {
+        Resident tile = residents.get(key);
+        return tile != null && schedule.drawn(key) && !schedule.kept(key)
+            && frame - tile.placedFrame + 1 >= DistantSettings.ARRIVAL_FRAMES;
     }
 
     private void readTimer(int timer) {
@@ -525,6 +587,10 @@ final class Distant {
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(DistantSettings.CROSSFADE
+            ? String.format("%n  crossfade between levels: on, a band one coarser tile wide; tiles fade in over %d frames",
+                DistantSettings.ARRIVAL_FRAMES)
+            : String.format("%n  crossfade between levels: off"));
         line.append(covered == null
             ? String.format("%n  near terrain's cover: the box of cubes it meshes (no coverage map)")
             : String.format("%n  near terrain's cover: its coverage map, %d of %d columns meshed, %d waiting, %d with no "
