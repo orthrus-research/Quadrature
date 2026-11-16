@@ -306,6 +306,20 @@ authors can dedicate: their own expression of ideas, never copied code.
   does not read, decompile or execute mod code.
 - Added: 2026-11-13
 
+### A shading stage handed over in a folder
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/stage/` (`Json.java`,
+  `StageManifest.java`, `StagePlan.java`, `StageCompare.java`, `FrameBlock.java`,
+  `FrameClock.java`, `FrameHistory.java`);
+  `src/main/java/cc/orthrus/quadrature/frame/StageRunner.java`, `StageHost.java`,
+  `StageCheck.java`
+- Source: original. Facts used: the OpenGL 4.6 and GLSL 4.60 specifications (the std140
+  layout of a uniform block, the queries for a block's size and its members' offsets,
+  sampler objects, depth comparison, direct state access); the JSON grammar of RFC 8259;
+  SHA-256 as the Java platform provides it. The manifest's fields and the block's layout
+  were agreed with the author of the stage's programs and are this project's own.
+- Taken: nothing from another renderer or from a shader pack's format.
+- Added: 2026-11-16
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

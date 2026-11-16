@@ -83,7 +83,8 @@ public final class StageCompare {
      * @param compared   the mask's value for a pixel that is compared; any other leaves it out
      * @param absolute   what a color channel may differ by apart from its share of the expected value
      * @param relative   the share of the expected value it may differ by besides
-     * @param alphaExact whether alpha must be exactly the expected; otherwise alpha is not compared
+     * @param alphaExact whether alpha must be exactly the expected; otherwise alpha is compared as a
+     *                   color channel is
      */
     public static Result radiance(float[] got, float[] expected, byte[] mask, int compared, int width, int height,
         double absolute, double relative, boolean alphaExact) {
@@ -98,7 +99,7 @@ public final class StageCompare {
                 result.compared++;
                 double most = 0;
                 boolean color = false;
-                for (int channel = 0; channel < 3; channel++) {
+                for (int channel = 0; channel < (alphaExact ? 3 : 4); channel++) {
                     float want = expected[pixel * 4 + channel];
                     double by = Math.abs(got[pixel * 4 + channel] - want);
                     // Not a number never agrees.

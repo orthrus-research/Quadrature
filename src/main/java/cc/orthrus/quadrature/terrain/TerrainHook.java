@@ -159,6 +159,17 @@ public final class TerrainHook {
     }
 
     /**
+     * The player's view as the frame's terrain was drawn through it: its projection and model-view
+     * matrices, read from the driver when the first opaque layer began, column-major, and the origin
+     * the model-view is relative to, which is the viewer's place and not the camera's. The camera
+     * stands where the model-view sends to nothing: the origin moved by the matrix's own translation
+     * undone, as {@code NearFade.origin} works it out. Null before the first frame. One instance,
+     * filled again each frame: read it, do not keep it.
+     */
+    public static View mainView() {
+        return mainView;
+    }
+    /**
      * The current frame's index: a count that moves by one each time own terrain begins a world pass,
      * which is once a frame but for the game's two-colored stereo picture, which draws the world twice.
      * {@code shadingTargets().drawnFrame()} is this count as it stood when the targets were last
