@@ -32,6 +32,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.Entity;
+import net.minecraftforge.common.MinecraftForge;
 
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
@@ -182,6 +183,9 @@ final class Distant {
         rings.overlap(DistantSettings.CROSSFADE);
         rings.fill(DistantSettings.FILL);
         rings.nearFirst(DistantSettings.NEAR_FIRST);
+        if (FrameTailLog.ENABLED) {
+            MinecraftForge.EVENT_BUS.register(new FrameTailLog(() -> workers == null ? 0 : workers.running()));
+        }
     }
 
     /** Starts distant terrain if a cube source exists. */

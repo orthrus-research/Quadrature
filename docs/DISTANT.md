@@ -285,6 +285,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
 | `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it, and one more when the place is whole, `travel-<jump>-whole-<ms>ms.png` (section 17) |
+| `quadrature.distant.frameTail` | off | A diagnostic: once a second, the tail of the last 120 whole frame intervals as Cubature's preview governor reads it, and what made the long ones (section 19.2) |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
 looked for once a frame: the source has one listener, which near terrain holds, so its
@@ -1761,6 +1762,28 @@ none changes terrain, the builds being pure:
 
 A change that only reorders which thread asks for which cell was considered and dropped: the
 threads wait on one cell's build, not on each other's cells.
+
+### 19.2 The governor's frames, measured
+
+Cubature's client preview governor (a8ebb701, `ClientPreviewGovernor.update`, fed by
+`ClientCubeSource.onRenderTick` and `governWork`) keeps the last 120 intervals from one
+frame's start to the next and, once a second while a job ran, halves the jobs it lets run at
+once, never below one, when the 95th percentile of them is at or over 25 ms: seven frames in
+120. It adds one back at most every two seconds, only while a job waits and the percentile
+is under 20 ms. Server ticks count only from an integrated server; a dedicated server's
+never reach it.
+
+In the eighth and tenth runs the pool went from 2 to 1 at once 5 to 20 seconds after near
+terrain had finished meshing, and stayed there 40 to 75 seconds, while every stage of the
+world pass summed to 3 to 11 ms at the 95th. So the long frames were outside the world
+pass's stages; the frame log does not hold whole frame intervals and cannot say where.
+
+`-Dquadrature.distant.frameTail=true` (`FrameTailLog`, `FrameTail`) logs once a second, by
+the governor's rule over the same 120 intervals: the percentile, how many are at or over 20
+and 25 ms, the worst, how many of those over 25 held a client tick and the longest such
+tick, how many frames held a tick at all, the time the collectors report for the second,
+and how many jobs the pool lets run. A frame costs three readings of the clock and two
+array cells; nothing is allocated but the line. Not yet run.
 
 ## 20. The near join's fade, distant terrain's side
 
