@@ -15,7 +15,7 @@
   "cubature": {
     "version": "1.12.2-0.1.4.0",
     "commit": "24f5ad8957c681639f92f5163fb6069e6d8acc07",
-    "jar": "Cubature-1.12.2-0.1.4.0-cleanroom.jar",
+    "jar": "Cubature-1.12.2-0.1.4.0-24f5ad89-cleanroom.jar",
     "sha256": "44bcc8364b057513fac031bb45df123acf6891708f974b6c530f6e53ef0de7d6"
   },
   "graphics": {

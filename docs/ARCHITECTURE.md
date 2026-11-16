@@ -464,12 +464,13 @@ holds, or in place of what has not arrived, is told two things.
 - *Where the cube source says more, it is used.* The host looks once for the cube
   source's surface heights, surface version and cube content by name. Where they are
   present a column's band comes from the heights, a column is judged by the band's cubes,
-  and emptiness is one look-up; where they are absent, as with the cube source pinned,
-  the scan above stands and emptiness is asked of a snapshot.
+  and emptiness is one look-up; where they are absent the scan above stands and emptiness
+  is asked of a snapshot. The cube source pinned has them; coverage is verified so far
+  only against a cube source without them.
 - *What the rule cannot tell:* a cube that is solid and wholly enclosed draws nothing and
   reads as air, which matters only above the surface, where there is none; and a roof
   over a column, an overhang or a tree's crown, is taken for its surface. A height for
-  each column from the cube source would settle both; it gives none.
+  each column from the cube source settles both.
 
 **The walk over a model's quads.** The game's dispatcher writes a block's vertices and
 keeps nothing of the quad they came from. Behind `-Dquadrature.faces=true` or

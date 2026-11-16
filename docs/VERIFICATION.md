@@ -495,6 +495,19 @@ instance (2026-11-16).
   texture coordinates are not the sprite's own corners. Drawing from records, and a
   vertex array with no attributes, are not exercised by it.
 
+### The cube source at commit 24f5ad89
+
+One instance prepared with the cube source at that commit, the forest tour, own terrain
+with every switch off scored against the game's terrain in the same instance (2026-11-16).
+
+- The game's two runs: no view captured facing elsewhere; no error, no Mixin that failed
+  to apply and no linkage error in the client's or the server's log.
+- Own terrain: 16 of 17 views pass. View 07 fails at 0.1125% on the river alone: 885
+  changed pixels in the river's box and 152 outside it, where the game's own two runs on
+  this instance differ by 399 in the box.
+- In 111 comparisons of what is selected, no cube the game draws is missing from what
+  Quadrature draws.
+- Timings are not recorded: a build on the same machine overlapped the run.
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
