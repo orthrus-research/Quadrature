@@ -4,10 +4,13 @@ Status: the part with no graphics in it is built and tested, in `core`
 (`cc.orthrus.quadrature.core.lod`): the run tile, the run mesher, the face record, the ring
 selection, the schedule and the draw list. The first frames are written and compile, in
 `cc.orthrus.quadrature.distant` (section 8): sampling, materials, an arena and the draw.
-They have run once in a game (section 9): the shader compiles, tiles are sampled, stored and
-drawn in the right places, from one view high above the ground. **Untested still:** the join
-with near terrain, depth against near terrain, the far distance against hosted drawing, and
-any view of the horizon. Section 10 is the plan for the next run. Section 7 of
+They have run twice in a game (sections 9 and 10): tiles are sampled, stored and drawn in the
+right places, land shows beyond near terrain to the horizon, and near terrain is drawn exactly
+as without distant terrain. **Untested still:** whether a band of sky stands between near and
+distant terrain (the game's fog hid the join), the shared fog, the two debug views and the
+lowered water surface, which were written after the second run and have not run in a game;
+clouds and the hand under the raised far distance. Section 11 is the plan for the next run.
+Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
 ## 1. What a tile is
@@ -151,7 +154,7 @@ five warm passes with the write into a native buffer, while seven other threads 
 
 ## 7. Provenance
 
-Records 6 to 9 below belong to the first frames (section 8).
+Records 6 to 10 below belong to the first frames (section 8).
 
 Records for [PROVENANCE.md](PROVENANCE.md), kept here until this branch joins the one that
 owns that file. No renderer's or level-of-detail mod's source was read for any of it.
@@ -231,6 +234,16 @@ corrected, before the records move into PROVENANCE.md; until then they are unver
   depths; a single far distance for every projection of the pass avoids it.
 - Added: 2026-11-15
 
+### One fog for near and distant terrain, the near box and the debug views
+- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererFog.java`,
+  `DistantHook.java` (`fog`), `DistantSettings.java`, `DistantProgram.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/lod/NearCover.java`
+- Source: original. Facts used: the game's world pass, read from its public classes: where it
+  sets its fog, with which distances, and which call is the sky's; the level at which the game
+  draws a still water surface; the OpenGL compatibility specification's fog state.
+- Taken: nothing. The fog formula is near terrain's own program's.
+- Added: 2026-11-16
+
 ### Flat material colors and biome tints
 - Code: `src/main/java/cc/orthrus/quadrature/distant/DistantMaterials.java`,
   `core/src/main/java/cc/orthrus/quadrature/core/lod/MaterialTable.java`
@@ -257,6 +270,10 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.levels` | 7 | Levels 0 to 6, which reach 24.5 km |
 | `quadrature.distant.world` | none | Half the side of the world's square in blocks; no tile is built outside it |
 | `quadrature.distant.threads` | 2 | Threads that sample and mesh, 1 to 8 |
+| `quadrature.distant.fog` | `own` | `own`: one fog for near and distant terrain. `game`: the game's fog on near terrain and none on distant terrain, as the first two runs drew |
+| `quadrature.distant.fogStart` | the reach (384) | Where the shared fog begins, in blocks from the eye |
+| `quadrature.distant.fogEnd` | the outermost ring's reach (24,576) | Where the shared fog is complete |
+| `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
 looked for once a frame: the source has one listener, which near terrain holds, so its
@@ -320,21 +337,67 @@ distant ground between 300 and 670 blocks would draw in front of near ground at 
 this changes for hosted drawing: anything drawn beyond the old far distance is no longer
 clipped; the volume the game culls chunks and entities against reaches farther, though its
 own distance limits still apply; depth precision near the eye is unchanged, since the near
-distance sets it. The game's fog distances are not touched.
+distance sets it.
+
+**Fog.** The game fogs the world between three quarters of its view distance and the whole of
+it. Left alone, that hides near terrain's last cubes in front of clear distant land (section
+10). With `quadrature.distant.fog=own`, the default, near and distant terrain take one fog:
+
+- Which calls. `EntityRenderer.setupFog` sets the game's fog several times a world pass. After
+  each call that is not the sky's (`startCoords` -1) and not made inside `renderCloudsCheck`,
+  `MixinEntityRendererFog` hands the game's view distance to `DistantHook.fog`. If the fog the
+  game has just set is its ordinary one, linear and complete at the view distance, its start
+  and end are replaced through `GlStateManager.setFogStart` and `setFogEnd` by
+  `quadrature.distant.fogStart` and `fogEnd`. The color, the mode and the density are the
+  game's.
+- Under which switch. Only with `-Dquadrature.distant=own`, `quadrature.distant.fog` not
+  `game`, the debug view not `level`, and while distant terrain has a preview to draw from. In a
+  world with no preview, or before the first world pass has found one, the game's fog stands.
+- What is left alone. The sky's fog, which shades the dome toward the horizon; the clouds' fog;
+  and every fog that is not the ordinary one: under water or lava, in blindness, inside a cloud,
+  or one another mod has set to other distances.
+- What it changes for hosted drawing. Everything the game draws in the world between those
+  calls is fogged by the new distances: near terrain's layers, entities and block entities, the
+  block outline, particles, rain and snow, and whatever other mods draw there. With the
+  defaults nothing within 384 blocks is fogged at all, so entities and particles at the edge of
+  the view distance no longer fade. The sky and the clouds look as they did. Clouds still fade
+  at the game's view distance, which will now look early beside clear terrain.
+- Distant terrain's program applies the fog the fixed-function state holds when it draws, by
+  distance from the eye, with the code near terrain's program uses. It draws between two of the
+  calls above, so it reads the same distances and color near terrain did.
+- Until the first tiles arrive, near terrain ends on a clear edge against the sky.
+
+The defaults follow the rings: fog begins where ring 0 ends, so everything at full detail is
+clear, and is complete at the outermost ring's reach, so the last tiles fade into the horizon's
+color and do not end on an edge. Both are untried in a game.
+
+**Water's surface.** The game draws still water a ninth of a block below its block's top. A
+distant water face at the block's top stood that much higher than near water, and through the
+slot between them at the box's edge the unlit bed beyond showed: a third of a pixel at 190
+blocks, which the second run drew as a row of dark dashes along the join (section 10). The
+water layer's top faces are now lowered by `NearCover.WATER_SURFACE_DROP`.
+
+**Debug views.** `-Dquadrature.distant.debug=box` draws in magenta, unfogged, the fragments the
+near box would discard, and draws the tiles wholly inside the box as well. Near terrain is
+drawn first and hides them by depth wherever it has a mesh, so magenta marks exactly where the
+box stands open: a cube not yet meshed, a hole in near terrain, or a box larger than what near
+terrain meshes. `=level` gives every face a color for its tile's level (0 red, 1 orange, 2
+yellow, 3 green, 4 cyan, 5 blue, 6 violet), with no fog on distant terrain and the game's fog
+on near terrain.
 
 **What near terrain covers.** Fragments inside a box round the camera are discarded: the
 loaded cubes' reach on each axis less one cube, since near terrain meshes a cube only among
 loaded neighbors and so never the outermost. It is a box, not a column: above and below the
-vertical reach distant terrain shows.
+vertical reach distant terrain shows. `NearCover` holds the rule, and a test checks it against
+near terrain's (a cube is meshed when its six neighbors are loaded) over whole neighborhoods.
 
 **Light.** Sky light and corner occlusion from the record, the day's brightness, and a fixed
-shade for each direction. No fog. A corner is darkened by 0.08 for each of the up to three
+shade for each direction. A corner is darkened by 0.08 for each of the up to three
 cells that close it in. The game's own figure, about a fifth, drew a dark line along every
 one-block step of the ground in the first frame.
 
 **What this simple rule will show.**
 - A hard change at the box's edge from textured, lit near terrain to flat colors.
-- The game's fog on near terrain's far edge in front of unfogged distant terrain.
 - Gaps where a cube inside the box is not yet loaded or meshed, and at the box's edge if
   the cube arithmetic is off by one from what near terrain meshes.
 - Empty ground wherever a tile has not arrived: on joining, most of the view for the first
@@ -389,84 +452,120 @@ reach, so near terrain had no mesh and the whole frame was distant terrain. The 
 terrain covers, depth against near terrain and the far distance against the game's own
 drawing were not exercised, and no view showed the horizon.
 
-## 10. The next run
+## 10. The second run, 2026-11-16
 
-Not done. One GPU turn under Riven's lease, two tours on one instance.
+One turn under the lease, two tours of four views on one fresh instance
+(`quadrature-distant-03`, the 32 km world of section 9), a reference with distant terrain off
+and a run with it on, reversed depth on, the game's fog as it was. Three views stood where near
+terrain is meshed under the camera; the tour is `tools/tours/distant-2485331.json`.
 
-**Before it, without a game.** `python tools/mixin_check.py --java <java 26>` applies the
-mod's Mixins to the game's development-named classes with OrthLib's offline Mixin check and
-fails if one does not apply or hooks nothing. Run against the first injection it reports the
-failure the game did, word for word; against the current one it reports 33 hooks on 6
-targets, seven of them distant terrain's (six projections and the draw).
+| | |
+|---|---|
+| Both runs | Started, captured 4 of 4 views and stopped; no error in either log |
+| The preview | Built by Riven's factory from the server's definitions |
+| Tiles | Stored equal to wanted at every capture (658, 658, 642, 676); failed 0, refused 0 |
+| Arrival, nothing built before | First tiles about 27 s after sampling began, level 6 complete about 75 s, all 658 about 155 s; after a move, 15 to 45 s |
+| Drawn | 240 to 335 tiles, 1.14 to 1.61 million faces, 3 draws |
+| GPU time | 2.1 to 2.6 ms mean, 2.7 ms at most |
+| A tile | 292 to 455 ms to sample, 0.93 to 1.09 ms to mesh |
+| Arena | One page, 31.4 to 35.7 MiB |
+| Driver, during distant terrain | Notifications only (buffer placement) |
 
-**Builds**, each from its clean branch head, none needing the lease:
+**What it showed.** Land where the reference has sky: a range beyond the savanna, a plain with
+its river and a far sea, the far shore of a strait. Nothing distant drew over near terrain.
+Where near terrain is drawn the two runs agree pixel for pixel in two views (no pixel differs
+below the horizon band); in the third, near water differs only as its animated image does. The
+sky is identical in two views and differs by at most 4 of 255 in one, unexplained. The softer
+occlusion reads as fine contour lines.
+
+**What it did not settle.** Whether a band of sky stands between near and distant terrain. At a
+view distance of 12 chunks the game's fog is complete where the box ends, and fog is the
+horizon's color, so near terrain in full fog and empty sky look alike. The band of fog between
+near and distant terrain in `above_west` is the same in the reference and has fogged trees in
+it, so most of it is near terrain. The shared fog and the box view (section 8) are for this.
+
+**The dashed row on the water.** In `coast_strait` a one-pixel row of evenly spaced dark dashes
+ran along the join. Worked out afterwards, without a game: the box is where near terrain's
+meshes end (`NearCover` and its test), so there is no missing block. The cause is height. Near
+water is drawn a ninth of a block below distant water, and a sight line passing just over near
+water's edge runs under the distant water face to the unlit sea bed. The slot is a third of a
+pixel tall at that distance, which a slightly sloping edge samples as dashes. Distant water is
+now drawn at the game's level (section 8). Not yet seen in a game.
+
+**Two shapes in `high_down`**, sampled from the preview at full detail under the frame:
+
+- The straight brown strip is Riven's. It is a slot about 8 blocks wide and 280 long, open
+  from the surface at 81 down to between -20 and -116, straight to within a few blocks: a joint
+  slot of the broken basement, or a gallery where a dike weathered out, that reaches the
+  surface. The preview gives it at one-block cells, so it is not made by a level, a tile edge
+  or a tint. Whether generated cubes hold the same open slot was not checked.
+- The straight boundary between savanna and desert, with its rounded corner, is Riven's biome
+  boundary: `riven:savanna` against `riven:hot_desert`, grass against red sand, with the same
+  straight runs and rounded turns at one-block cells.
+
+**Also seen, not distant terrain's:** lighter patches of water at near terrain's outer edge in
+both runs, where near water has nothing opaque drawn behind it.
+
+## 11. The next run
+
+Not done. One short GPU turn under Riven's lease: a reference and a distant run on one fresh
+instance (a rebuilt jar needs a freshly prepared instance, and the Quadrature jar has changed).
+
+**Before it, without a game.** Gradle must run on Eclipse Adoptium 25.0.5 exactly
+(`JAVA_HOME`), or the build stops at once. The Mixin check needs OrthLib's `orthlib-mixinkit`
+jar: it looks for a sibling `OrthLib` checkout's build and otherwise takes `--mixinkit <jar>`.
 
 ```
-# Cubature feat/lod-client-sampler (802bab6d): the pinned jar already stands in
-#   <Quadrature>/pins/Cubature-1.12.2-0.1.4.0-cleanroom.jar, sha256 f73ed467...788c
-# Riven feat/lod-client-sampler (its lock pins the same jar):
-python tools/build_riven.py --freeze lod-first-frames --no-daemon
+# Riven feat/lod-client-sampler: the frozen jar of the second run stands (lod-first-frames).
 # Quadrature feat/lod:
-./gradlew build --no-daemon
-python tools/mixin_check.py --java <java 26>
+JAVA_HOME=<Adoptium 25.0.5> ./gradlew build --no-daemon
+JAVA_HOME=<Adoptium 25.0.5> python tools/mixin_check.py --java <java 26> --mixinkit <orthlib-mixinkit jar>
 ```
 
-**Instance**, from the Riven checkout of that branch, without Distant Horizons, with a
-settle of three minutes before each capture (3,600 ticks) so tiles can arrive. A rebuilt
-jar needs a freshly prepared instance; both runs then use it, since they differ only in the
-client's options:
+The check reports 36 hooks on 6 targets, ten of them distant terrain's: six projections, the
+draw, and the fog's three (the clouds' start and end, and `setupFog`).
+
+**Instance**, from the Riven checkout of that branch:
 
 ```
-python tools/runtime.py prepare --name quadrature-distant-03 --seed 2485331 --scale 4 \
+python tools/runtime.py prepare --name quadrature-distant-04 --seed 2485331 --scale 4 \
   --no-distant-horizons --capture-ticks 3600 \
-  --artifact .local/frozen/lod-first-frames/riven-cleanroom.jar \
+  --artifact <the frozen Riven jar, lod-first-frames> \
   --cubic-artifact <Quadrature>/pins/Cubature-1.12.2-0.1.4.0-cleanroom.jar \
   --client-mod <Quadrature>/build/libs/quadrature-0.1.0-dev.jar
 ```
 
-**Tour**, `tools/tours/distant-2485331.json`. Every view is far more than 9 blocks from
-the one before, which the launcher needs to capture it. Three stand where near terrain is
-meshed under the camera (the vertical reach is 128 blocks), so the box, depth against near
-terrain and the far distance are exercised; one is high.
+**Tour**, `tools/tours/distant-join-2485331.json`: `ground_west`, `above_west` and
+`coast_strait` as before, and `coast_join`, 33 blocks above the strait looking 20 degrees down,
+so the water join lies across the middle of the frame and not on the horizon. Consecutive views
+are 192 blocks, about 1,400 blocks and 30 blocks of height apart; the launcher captures a view
+only more than 8 blocks from the last, and waits 900 s a view against a settle of 180 s.
 
-| View | Where | Looks | For |
-|---|---|---|---|
-| `ground_west` | (-4991.5, 80, 12072.5), two blocks above savanna at 78 | West, level | The horizon over land: plains, then a range 800 to 2,000 blocks off that rises past 160 |
-| `above_west` | (-4799.5, 156, 12000.5), 80 above ground at 76 | West, 15 degrees down | Near terrain below, distant terrain beyond, the join between them in view |
-| `high_down` | (-4599.5, 340, 13200.5) | North, 45 degrees down | The first run's view again, to compare the softer occlusion; no near terrain |
-| `coast_strait` | (-3903.5, 66, 10920.5), three above the sea over shallows | North-east, level | Across about 600 blocks of water to the far shore |
-
-**Runs**, each `play --name quadrature-distant-03 --tour <Quadrature>/tools/tours/distant-2485331.json`
-with `JAVA_TOOL_OPTIONS` set, the client's `logs/latest.log` copied after each, and the
-lease left free three minutes between them:
+**Runs**, each `play --name quadrature-distant-04 --tour <the tour>` with `JAVA_TOOL_OPTIONS`
+set and bounded from outside at 24 minutes, the lease left free three minutes between them:
 
 1. Reference, distant off: `-Dquadrature.terrain=own -Dquadrature.reversedDepth=true
    -Dquadrature.frameLog=true`.
-2. Distant on: the same, and `-Dquadrature.distant=own -Dquadrature.distant.world=16384
-   -Dquadrature.glDebug=true`.
+2. Distant on, shared fog, box view: the same, and `-Dquadrature.distant=own
+   -Dquadrature.distant.world=16384 -Dquadrature.distant.debug=box -Dquadrature.glDebug=true`.
 
-About 16 minutes each: a minute and a half to start, four views of three minutes, about two
-minutes of moving between them, and the stop. 32 to 35 minutes under the lease in all.
-
-**Capture:** the four frames of each run, both logs, and GPU memory sampled once a second
-beside run 2.
+About 15 minutes each. If a third run fits a later turn: the same as run 2 with
+`-Dquadrature.distant.debug=level`.
 
 **Pass:**
 
-1. The game starts and finishes the tour in both runs.
-2. Run 2's log says distant terrain is on and sampling, never that it failed; Riven's preview
-   is built from the server's definitions, not declined.
-3. Tiles arrive at every view: stored counts reach the wanted counts, failed 0, refused 0.
-4. No driver message of error severity during distant terrain.
-5. In `ground_west`, `above_west` and `coast_strait`, run 2 shows land where run 1 shows sky
-   or fog beyond near terrain: the range to the west, the far shore of the strait.
-6. Where near terrain is drawn, the two runs' frames agree within `near.json`, apart from
-   pixels where distant terrain shows past it. A difference on near terrain is a depth or
-   far-distance fault and fails the run. So does a band of sky between near and distant
-   terrain, which means the box is the wrong size.
-7. Recorded, not judged: GPU time of the distant draw and of near terrain in both runs,
-   faces and draws, arena bytes, sample and mesh times, time to the coarsest level.
-
-**Expected and not failures:** a hard change from textured near terrain to flat colors; the
-game's fog on near terrain's far edge in front of unfogged distant terrain; empty ground
-until tiles arrive; leaves as solid blocks; water without a surface.
+1. Both runs start and finish the tour; run 2's log says the fog runs from 384 to 24,576
+   blocks and that the box view is on, and never that distant terrain failed.
+2. Tiles arrive at every view; failed 0, refused 0; no driver message of error severity.
+3. No magenta once a view has settled, in any of the four frames. Magenta along the box's edge
+   means the box is larger than what near terrain meshes; magenta patches inside mean near
+   terrain has holes there. Either is reported with where it lies.
+4. With the fog pushed out, near terrain's far edge is visible in `above_west` and
+   `coast_join`. Distant terrain begins where near terrain ends: no band of sky or of the
+   horizon's color between them.
+5. No row of dark dashes at the water join in `coast_strait` or `coast_join`.
+6. Within 144 blocks of the eye, where the game's fog had not begun, near terrain agrees with
+   the reference within `near.json`. Beyond that it differs by the fog alone: run 2 is clearer,
+   never displaced.
+7. Looked at and described: how the shared fog reads at the join and at the horizon, clouds
+   against clear terrain, the step from near water to flat distant water.
