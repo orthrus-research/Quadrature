@@ -55,6 +55,12 @@ public final class TerrainHook {
         /** The number of a state's row of the table, the row filled if the state was not met before. */
         int material(IBlockState state);
 
+        /** The frame's index: how many world passes own terrain has drawn. */
+        long frame();
+
+        /** The buffer the material table lies in, brought up to the table's version; 0 where there is none. */
+        int materialsBuffer();
+
         /** One line for the timing log. */
         String summary();
     }
@@ -152,6 +158,26 @@ public final class TerrainHook {
         return drawer == null ? -1 : drawer.material(state);
     }
 
+    /**
+     * The current frame's index: a count that moves by one each time own terrain begins a world pass,
+     * which is once a frame but for the game's two-colored stereo picture, which draws the world twice.
+     * {@code shadingTargets().drawnFrame()} is this count as it stood when the targets were last
+     * drawn. -1 when own terrain is off.
+     */
+    public static long frame() {
+        return drawer == null ? -1 : drawer.frame();
+    }
+
+    /**
+     * The name of the storage buffer the material table lies in, eight bytes a state, for reading
+     * only: the one the targets' stages read at shader storage binding 3. Asking brings it up to
+     * {@code materials().version()}, rows filled through {@link #material} included, so ask after
+     * the last row is filled and before drawing. 0 when own terrain is off or the targets are not drawn.
+     * Call on the client thread with the graphics context current.
+     */
+    public static int materialsBuffer() {
+        return drawer == null ? 0 : drawer.materialsBuffer();
+    }
     private static float fadeStart = Float.NaN;
     private static float fadeEnd = Float.NaN;
 

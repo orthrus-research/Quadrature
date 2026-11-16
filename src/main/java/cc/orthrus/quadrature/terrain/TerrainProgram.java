@@ -512,6 +512,14 @@ final class TerrainProgram {
         }
     }
 
+    /** The buffer the material table lies in, bound at shader storage binding 3 while the targets are drawn. */
+    int materialBuffer() {
+        if (program == 0) {
+            create();
+        }
+        return materialBuffer;
+    }
+
     /** Hands the driver the material table: eight bytes a state. */
     void uploadMaterials(byte[] table) {
         if (program == 0) {
