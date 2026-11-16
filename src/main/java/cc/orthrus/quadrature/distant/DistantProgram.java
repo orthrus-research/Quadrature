@@ -39,8 +39,8 @@ import org.lwjgl.opengl.GL45;
  * to anything drawn at its own depth or nearer, so a pixel is magenta only where distant terrain
  * has ground in the box and near terrain drew nothing in front of it. Near terrain's cut-out
  * leaves let it through between their texels, where distant terrain's solid crowns stand behind
- * them. The game draws its translucent layer afterwards, so near water with nothing opaque behind
- * it shows as magenta seen through water.
+ * them. Distant water is left out of that second draw, and the game draws its translucent layer
+ * afterwards, so near water with no near sea bed behind it shows as magenta seen through water.
  *
  * <p>The first box view drew those faces at their own depth and counted on near terrain to hide
  * them. Distant ground lies in the plane of near ground, so depth tied and magenta covered near
@@ -241,12 +241,14 @@ final class DistantProgram {
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, BIOMES_BINDING, materials.biomeBuffer());
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, commandBuffer);
         GL20.glUniform1i(overlayLocation, 0);
-        int draws = layers(list, arena);
+        int draws = layers(list, arena, true);
         if (DistantSettings.DEBUG == DistantSettings.DEBUG_BOX) {
             // The box view: the faces the box holds, in magenta, a little deeper than they lie.
             GL20.glUniform1i(overlayLocation, 1);
             GL20.glUniformMatrix4fv(projectionLocation, false, projection);
-            draws += layers(list, arena);
+            // Not the water: its faces lie over the sea bed, and near water, which writes no depth,
+            // cannot hide them. Without them, magenta seen through near water is a missing sea bed.
+            draws += layers(list, arena, false);
         }
         GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, 0);
         for (int binding = TILES_BINDING; binding <= BIOMES_BINDING; binding++) {
@@ -260,9 +262,12 @@ final class DistantProgram {
     }
 
     /** The frame's three layers, one indirect draw for each page that has commands in it. */
-    private int layers(TileDraws list, DistantArena arena) {
+    private int layers(TileDraws list, DistantArena arena, boolean water) {
         int draws = 0;
         for (int layer = 0; layer < TileDraws.LAYERS; layer++) {
+            if (layer == TileDraws.WATER && !water) {
+                continue;
+            }
             for (int page = 0; page < list.pages(); page++) {
                 int count = list.runCount(layer, page);
                 if (count == 0) {
