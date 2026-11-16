@@ -597,6 +597,7 @@ over 15, whatever its kind, but for lava and plain states.
 textures, their size and a generation that moves when they are made anew.
 `TerrainHook.materials()` gives the table and `TerrainHook.material(state)` a state's
 number, filling its row if near terrain has not met the state.
+`TerrainHook.mainView()` gives the player's view the frame's terrain was drawn through.
 `TerrainHook.materialsBuffer()` gives the storage buffer the table lies in, brought up to
 the table's version when asked. `TerrainHook.frame()` gives the frame's index, a count
 of the world passes own terrain has drawn, and `shadingTargets().drawnFrame()` that
@@ -692,6 +693,60 @@ and one with shadows and atmosphere (research R4). **Candidate.**
 - The interface a shader sees is the pass graph's: it names stages and resources, not GL
   objects. **Decided.**
 - Third-party shader pack formats are not loaded (D5).
+
+### 9.1 A stage handed over in a folder
+
+Built behind `-Dquadrature.stage=true`, with the folder named by
+`-Dquadrature.stage.dir`; it needs the targets for shading. The folder is data: a
+manifest, program sources, assets, and files that stand for the host's inputs and for
+what the stage should write from them.
+
+- **The manifest** (`StageManifest` and `StagePlan` in `core`) lists every file with its
+  size and hash, and a file is read only by a plain name the manifest gives and only if
+  its size and hash are the manifest's. From its fifth version it says what is to be
+  run: the textures it asks the host for, each with how it is sampled; the assets it
+  brings; its targets, each with a format, a divisor of the window's size and whether it
+  is kept from frame to frame; its passes in order, each with a program, where each
+  sampler reads from and where each output goes; and checks, each an output of a pass set
+  beside a file under a tolerance. A target with divisor n is ceil(width / n) by
+  ceil(height / n). A manifest of a version that is not known is refused, and so is
+  anything in a manifest the host does not do, by name: a format, a filter, a uniform
+  block other than the frame's, vertex buffers, depth or blending in a pass, a size of
+  the frame's block other than the one the host writes.
+- **A sampler's source** is one of `host:` a texture of the host's, `asset:` one the
+  folder brings, `target:` a target as a pass earlier in the frame wrote it, and
+  `history:` a kept target as the frame before left it. The host holds two textures for
+  a kept target and swaps them each frame. A pass may not read a target before it is
+  written in the frame, nor read and write one.
+- **The host gives** the four targets and the depth of 6.6, and the light's depth of 4.7
+  twice, once to be read and once to be compared; where no light's depth is drawn it
+  gives one texel at the farthest and counts no light view.
+- **The frame's block** (`FrameBlock` in `core`) is a std140 uniform block of 592 bytes:
+  the inverse view-projection with the eye at the origin; four light-view matrices and
+  their scales; the directions toward the sun and toward the light that casts shadows;
+  the eye's block and its place within it; the targets' size; rain, wetness, exposure and
+  a time in seconds that stands still while the game is paused; the frame's index,
+  whether history is dropped, the dimension and the count of light views; the frame
+  before's view-projection; how far the eye moved since; and how far clouds have
+  drifted, at 3.1 and 1.2 blocks a second. History is dropped (`FrameHistory`) on the
+  first frame, when the window's size or the dimension changes, when the stage's targets
+  are made anew, and when the eye has moved farther in a frame than the manifest allows.
+- **The host sets no uniform of a stage's program.** Where a sampler and the block are
+  bound is the program's own to declare. At load the host asks the driver how it lays
+  the block out for each program, logs it, and refuses a program whose block differs in
+  size, in a member's offset or in binding from what the host fills, or whose sampler is
+  bound to another unit than the manifest says.
+- **In the frame** the stage is a stage of its own, entered in front of the game's
+  entities, so its time and what it leaves changed are measured apart from terrain's.
+  A pass that writes `display` writes a texture of the host's. It is shown only with
+  `-Dquadrature.stage.show=true`: its color is then written over the whole of the game's
+  picture with the game's depth untouched, so that what the game draws after is drawn
+  over it by the game's own depth. Which pixels are sky is the stage's to decide.
+- **The check**, `-Dquadrature.stage.check=true`, runs the same passes once, before the
+  first frame, on the files that stand for the host's inputs and for the frame's block,
+  reads each checked output back right after its pass, and logs PASS or FAIL with counts;
+  passes the manifest lists as diagnostic are run after the frame's own. What differed is
+  written into the client's `quadrature-stage/`.
 
 ## 10. Mod interface
 

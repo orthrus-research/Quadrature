@@ -24,8 +24,13 @@ import java.util.Map;
  */
 public final class StageManifest {
 
-    /** The newest version of the manifest that is read. A later one may mean things this does not know of, and is refused. */
-    public static final int NEWEST = 3;
+    /**
+     * The newest version of the manifest that is read. A later one may mean things this does not know
+     * of, and is refused; so is version 4, which was never handed over.
+     */
+    public static final int NEWEST = 5;
+    /** The version from which a manifest says what is to be run, as a {@link StagePlan}. */
+    public static final int PLANNED_FROM = 5;
 
     /** The manifest's own name in the folder. */
     public static final String FILE = "manifest.json";
@@ -39,14 +44,17 @@ public final class StageManifest {
         public final int[] shape;
         public final long bytes;
         public final String sha256;
+        /** How many entries a list says it holds, or -1 where the manifest does not say. */
+        public final int entries;
 
-        Entry(String file, String role, String format, int[] shape, long bytes, String sha256) {
+        Entry(String file, String role, String format, int[] shape, long bytes, String sha256, int entries) {
             this.file = file;
             this.role = role;
             this.format = format;
             this.shape = shape;
             this.bytes = bytes;
             this.sha256 = sha256;
+            this.entries = entries;
         }
 
         /** The bytes of one number of the file by its format's name, or 0 where the format is text or not known. */
@@ -95,13 +103,15 @@ public final class StageManifest {
     private final String byteOrder;
     private final String rowOrder;
     private final int materialKindsRevision;
+    private final StagePlan plan;
 
     @SuppressWarnings("unchecked")
     private StageManifest(Path folder, Map<String, Object> root) {
         this.folder = folder;
         version = number(root.get("manifest"), "manifest");
-        if (version < 1 || version > NEWEST) {
-            throw new IllegalArgumentException("The manifest is of version " + version + "; versions 1 to " + NEWEST + " are read");
+        if (version < 1 || version > NEWEST || version == 4) {
+            throw new IllegalArgumentException("The manifest is of version " + version + "; versions 1 to 3 and " + NEWEST
+                + " are read");
         }
         byteOrder = String.valueOf(root.get("byteOrder"));
         rowOrder = String.valueOf(root.get("rowOrder"));
@@ -145,9 +155,34 @@ public final class StageManifest {
                 throw new IllegalArgumentException("A file's size is not a count of bytes: " + size);
             }
             String name = plain(text(entry.get("file"), "file"));
+            Object count = entry.get("entries");
             files.put(name, new Entry(name, text(entry.get("role"), "role"), text(entry.get("format"), "format"), shape,
-                ((Double) size).longValue(), text(entry.get("sha256"), "sha256").toLowerCase(Locale.ROOT)));
+                ((Double) size).longValue(), text(entry.get("sha256"), "sha256").toLowerCase(Locale.ROOT),
+                count instanceof Double && (Double) count >= 0 ? ((Double) count).intValue() : -1));
         }
+        // From the version that says what is to be run, it is read here and found sound or the manifest is refused.
+        plan = version >= PLANNED_FROM ? new StagePlan(root, files.keySet(), programs.keySet(), tolerance.keySet()) : null;
+    }
+
+    /** What is to be run, or null for a manifest of a version before {@link #PLANNED_FROM}, which does not say. */
+    public StagePlan plan() {
+        return plan;
+    }
+
+    /** A number of one of the tolerances by its key, or the fallback where the manifest does not give it as a number. */
+    public double toleranceNumber(String key, String field, double fallback) {
+        return tolerance(key, field, fallback);
+    }
+
+    /** A yes or no of one of the tolerances by its key, or the fallback where the manifest does not give one. */
+    public boolean toleranceFlag(String key, String field, boolean fallback) {
+        return tolerance(key, field, fallback);
+    }
+
+    /** Whether a tolerance is one of display's kind: by levels of 255, not by a part and a share. */
+    public boolean toleranceByLevels(String key) {
+        Object group = tolerance.get(key);
+        return group instanceof Map && ((Map<?, ?>) group).get("maxCodeValueDifference") instanceof Double;
     }
 
     /** Reads the manifest of a folder. Throws where there is none or it is not as described. */

@@ -37,6 +37,8 @@ public final class FrameHost {
             lastLogNanos = System.nanoTime();
             Quadrature.LOGGER.info("Frame graph compiled: {} hosted stages.", graph.size());
         }
+        // A stage handed over in a folder is checked once, before the frame's own work, where asked.
+        StageCheck.runOnce();
         seen.clear();
         timeline.beginFrame();
         if (audit != null) {
@@ -60,6 +62,14 @@ public final class FrameHost {
                 }
                 timeline.enter(Probe.STAGE);
                 Probe.run();
+            }
+            if (StageHost.REQUESTED && stage.equals(StageHost.BEFORE)) {
+                // The shading stage handed over in a folder: it reads what opaque terrain just drew.
+                if (audit != null) {
+                    audit.boundary(StageHost.STAGE);
+                }
+                timeline.enter(StageHost.STAGE);
+                StageHost.run();
             }
             if (audit != null) {
                 audit.boundary(stage);

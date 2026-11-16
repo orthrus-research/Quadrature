@@ -1352,15 +1352,22 @@ public final class Terrain
                     shadingTargets.set(targets.framebuffer(), targets.texture(0), targets.texture(1), targets.texture(2), targets.texture(3),
                         targets.depthTexture(), targets.width(), targets.height(), targets.bytes(), targets.generation(),
                         targets.drawnFrame());
-                    if (TARGET_IMAGES) {
+                    // The shading stage handed over in a folder runs after this stage, as one of its own; an
+                    // image of what it wrote is of the frame before, which where the player stands still is the same.
+                    if (TARGET_IMAGES || cc.orthrus.quadrature.frame.StageHost.IMAGES) {
                         long place = CubeKey.of((int) Math.floor(cameraX), (int) Math.floor(cameraY), (int) Math.floor(cameraZ));
                         if (place != targetStillAt || !dirty.isEmpty()) {
                             targetStillAt = place;
                             targetStill = 0;
                         } else if (++targetStill == STILL_FRAMES + 240 && targetImagedAt != place) {
                             targetImagedAt = place;
-                            targets.writeImages((int) Math.floor(cameraX) + "_" + (int) Math.floor(cameraY) + "_"
-                                + (int) Math.floor(cameraZ));
+                            String where = (int) Math.floor(cameraX) + "_" + (int) Math.floor(cameraY) + "_" + (int) Math.floor(cameraZ);
+                            if (TARGET_IMAGES) {
+                                targets.writeImages(where);
+                            }
+                            if (cc.orthrus.quadrature.frame.StageHost.IMAGES) {
+                                cc.orthrus.quadrature.frame.StageHost.writeImage(where);
+                            }
                         }
                     }
                 }
@@ -1494,6 +1501,7 @@ public final class Terrain
                     String.format("%.1f%%", 100 * built.recordShare()), String.format("%.0f%%", 100 * FACE_SHARE_LEAST));
             }
         }
+        line += cc.orthrus.quadrature.frame.StageHost.summary();
         if (TARGETS) {
             line += String.format("; shading targets %d by %d, %.1f MiB, drawn in %d frames, %d draws last frame%s",
                 targets.width(), targets.height(), targets.bytes() / 1048576.0, targetFrames, targetDraws,

@@ -260,17 +260,24 @@ class StageManifestTest {
         // The third version is read as the second is.
         Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 3").getBytes(StandardCharsets.UTF_8));
         assertEquals(3, StageManifest.read(folder).version());
-        // A version later than the newest that is read is refused.
+        // The fourth was never handed over, and a version later than the newest that is read is not known: both are refused.
+        Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 6").getBytes(StandardCharsets.UTF_8));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> StageManifest.read(folder)).getMessage().contains("version 6"));
+        // A manifest before the fifth does not say what is to be run.
+        assertEquals(null, old.plan());
         Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 4").getBytes(StandardCharsets.UTF_8));
         assertTrue(assertThrows(IllegalArgumentException.class, () -> StageManifest.read(folder)).getMessage().contains("version 4"));
     }
 
     @Test
-    void theStatedTolerancesDecideAndAlphaMayBeLeftOut() {
+    void theStatedTolerancesDecideAndAlphaIsExactOrComparedAsColor() {
         float[] expected = {1f, 1f, 1f, 1f};
         float[] got = {1.2f, 1f, 1f, 0f};
         assertFalse(StageCompare.radiance(got, expected, null, 0, 1, 1, 0.004, 0.01, true).passes());
-        assertTrue(StageCompare.radiance(got, expected, null, 0, 1, 1, 0.15, 0.1, false).passes());
+        // Alpha that need not be exact is compared as a color channel is: 0 is not within 0.25 of 1.
+        assertFalse(StageCompare.radiance(got, expected, null, 0, 1, 1, 0.15, 0.1, false).passes());
+        assertTrue(StageCompare.radiance(new float[] {1.2f, 1f, 1f, 0.8f}, expected, null, 0, 1, 1, 0.15, 0.1, false).passes());
+        assertFalse(StageCompare.radiance(new float[] {1.2f, 1f, 1f, 0.8f}, expected, null, 0, 1, 1, 0.15, 0.1, true).passes());
         byte[] want = {10, 10, 10, (byte) 255};
         byte[] has = {15, 10, 10, 0};
         assertFalse(StageCompare.display(has, want, null, 0, 1, 1, 2, false).passes());

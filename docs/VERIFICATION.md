@@ -526,6 +526,43 @@ forest tour, own terrain, each run scored against the game's terrain in the same
   waiting under that load, and lacks the farthest terrain. It is not a difference of
   coverage, which draws nothing.
 
+### A stage handed over in a folder
+
+One instance, the forest tour, own terrain with faces, reversed depth and the targets for
+shading, each run scored against the game's terrain in the same instance (2026-11-16).
+The folder's manifest is of the fifth version: two passes, lighting and display, and a
+diagnostic pass that probes the shadow lookup.
+
+| Run | Passing views | View 07 |
+|---|---|---|
+| The check, the stage not run on the frame | 17 of 17 | 174 pixels |
+| The stage run on the frame with the light's depth, not shown | 17 of 17 | 481 pixels |
+
+- **The check passes.** At 480 by 270, with files standing for the host's inputs: of
+  128,063 pixels compared, lighting's output differs from the expected at none, by at most
+  0.0019 a channel; display's at none, by at most one level of 255; of 129,600, the
+  probe's at none, by at most 0.0005. The driver reports no error.
+- **The frame's block is laid out as it is filled.** For each of the three programs the
+  driver gives the block 592 bytes at binding 0 and every one of its 13 members the
+  offset the host fills it at.
+- **Run on the frame**, the stage's two passes ran in all 42,966 frames at 1280 by 720
+  and dropped history in 27, the tour's teleports and the first frame. Not shown, it
+  leaves the player's picture as the game's. Its targets take 7.0 MiB and its display
+  3.5 MiB.
+- **Cost, medians over the run:** 0.043 ms on the CPU and 0.176 ms on the GPU for the
+  stage, timed as a stage of its own; the two passes are not timed apart.
+- **An earlier folder failed its check and the fault was the folder's.** Against a
+  manifest of the third version the host's output agreed at 99.0% of pixels and showed no
+  shadow at the other 1,283. The folder's program found the light view's layer in a
+  function that used its output parameter as the loop's counter and returned from inside
+  the loop; on this driver the caller was left with the next layer, whose scale is zero,
+  and the depth's span read as nothing. The block, its offsets and the textures were as
+  the host gives them now.
+- **Not verified here:** the stage shown, the built scene, a light that is not straight
+  overhead, a target
+  kept from frame to frame, an asset of three dimensions and a target smaller than the
+  window. The folder has none of the last three.
+
 ### The cube source at commit 24f5ad89
 
 One instance prepared with the cube source at that commit, the forest tour, own terrain

@@ -55,6 +55,10 @@ public final class BaselineGraph {
                     graph.add(new StageDefinition(Probe.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
                         true));
                 }
+                if (StageHost.REQUESTED && section[1].equals(StageHost.BEFORE)) {
+                    graph.add(new StageDefinition(StageHost.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
+                        true));
+                }
                 graph.add(StageDefinition.hosted(section[1], FRAME));
                 previous = section[1];
             }
