@@ -105,6 +105,13 @@ final class DistantProgram {
     private static final int PAGE_BINDING = 1;
     private static final int MATERIALS_BINDING = 2;
     private static final int BIOMES_BINDING = 3;
+    /**
+     * The mean of the game's occlusion over the tops of near crowns, measured in the targets (the
+     * ninth run): 57 % of their pixels open and the rest spread from 0.5 up, where leaves stand
+     * over leaves. Distant crowns wrote 0.999 beside it.
+     */
+    static final float LEAF_OCCLUSION = 0.936f;
+
     /** Near terrain's material table, a copy of distant terrain's own, for the shaded path. */
     private static final int SHADED_BINDING = 4;
 
@@ -310,6 +317,12 @@ final class DistantProgram {
         "    if (" + (DistantSettings.SHADED_LEAVES_PLAIN ? "true" : "false") + " && (material.y & 2u) != 0u && imaged == 1) {",
         "        light = min(light / max(faceCover, 0.25), vec3(1.0));",
         "        occlusion *= 0.8;",
+        "    } else if ((material.y & 2u) != 0u && imaged == 1) {",
+        "        // In the far color: leaves close each other in, which the game's occlusion shows on",
+        "        // near crowns and this mesher's does not, since it counts opaque cells only. Their",
+        "        // mean over near crowns' tops is written, so a crown is as bright inside the join as",
+        "        // outside it.",
+        "        occlusion *= " + LEAF_OCCLUSION + ";",
         "    }",
         "    targetA = vec4(NORMAL[faceDirection] * 0.5 + 0.5, roughness);",
         "    targetB = vec4(faceSky, emission, 0.0, 0.375);",

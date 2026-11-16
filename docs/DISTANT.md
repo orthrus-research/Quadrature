@@ -1304,7 +1304,13 @@ last step differs (`TARGETS_OUTPUT` for `FORWARD_OUTPUT`):
   `plain` writes the leaves' own albedo, the far color in light over the share of the image
   that is leaf, and multiplies D's alpha by 0.8 for the gaps. The ninth run measured `plain`
   three times brighter than near crowns in albedo (0.155 against 0.052 in green) and 0.80
-  against 0.94 in occlusion, so `far` is the default. Both sides are to go to `plain` when
+  against 0.94 in occlusion, so `far` is the default. With `far` the run after it measured
+  albedo equal across the join, (0.040, 0.053, 0.021) against (0.039, 0.052, 0.020), and
+  occlusion 0.999 against near terrain's 0.936: near crowns' tops are open on 57 % of their
+  pixels and closed in by other leaves on the rest, which the game's occlusion shows and this
+  mesher's, counting opaque cells only, does not. So in `far` a crown's occlusion is
+  multiplied by that mean, 0.936, in the targets only. A per-corner value for leaves over
+  leaves would need a place in the face record. Both sides are to go to `plain` when
   near terrain's images keep a leaf's color in their smaller copies; that waits on near
   terrain.
 
@@ -1466,6 +1472,46 @@ of the old place that lay inside a hole at the new one.
 **Still drawn twice:** tiles kept past their ring. Five seconds after the jump the level view
 shows several levels' colors mixed on far ground, kept tiles over what replaces them, for up
 to 30 seconds. Not seen as a fault in the normal look.
+
+### 17.3 The ninth run: the targets for shading
+
+Three tours on the build at af6332c and Cubature a8ebb701, with near terrain's targets on
+(`quadrature.faces`, `quadrature.gbuffer`): the near join from the ground and from above with
+the shaded pass on and the targets written as images, crowns `plain`, then a far jump; the
+join views again with crowns `far`; and the same with the shaded pass off, as a control. No
+error in any.
+
+**The targets hold distant terrain.** They were not refused, the pass drew into them from the
+first stored tile, class alpha is 0.376 on every written pixel near and distant, and depth is
+above 0 wherever something was written and 0 elsewhere.
+
+**Just inside and just outside the join**, from above, 120 seconds after arriving (albedo is
+C squared):
+
+| Surface | Side | Albedo | Normal | Roughness | Sky | Occlusion |
+|---|---|---|---|---|---|---|
+| Grass, tops | near | 0.156, 0.143, 0.031 | up | 0.851 | 0.995 | 0.992 |
+| Grass, tops | distant | 0.158, 0.143, 0.032 | up | 0.851 | 0.995 | 0.990 |
+| Crowns, tops | near | 0.039, 0.052, 0.020 | up | 0.851 | 0.995 | 0.936 |
+| Crowns, tops, `far` | distant | 0.040, 0.053, 0.021 | up | 0.851 | 1.000 | 0.999 |
+| Crowns, tops, `plain` | distant | 0.116, 0.155, 0.061 | up | 0.851 | 1.000 | 0.802 |
+
+What followed from it is in 16.8: `far` is the default, and a crown's occlusion takes near
+crowns' mean. This view has no sand or stone by the join.
+
+**The player's picture is the same with the pass on.** With it on and with it off, all else
+equal, every row of terrain in both views is identical pixel for pixel; the sky's clouds
+differ, and 21 pixels where an animal stood.
+
+**Cost.** The pass adds 1.9 ms of GPU time: the frame's stage that holds both passes reads
+3.98 ms with it and 2.05 without. Distant terrain's own timer ends before it.
+
+**After the far jump** the forward pass peaked at 2.7 ms mean and 3.3 at most with 380 tiles
+kept, where the eighth run reached 4.3 and 4.9: kept tiles now give way place by place. The
+level view of that moment was not taken.
+
+**The lease.** Between the first two tours another project's run took the lease in the gap;
+the second and third ran as a turn of their own.
 
 ## 18. Arrival: no hole and no wall
 
