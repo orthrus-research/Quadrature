@@ -103,6 +103,25 @@ class FramesTest(unittest.TestCase):
         self.assertEqual(report["identicalPairs"], 0)
         self.assertAlmostEqual(report["worst"]["changedFraction"], 16 / (64 * 48))
 
+    def test_a_frame_captured_facing_elsewhere_is_suspect_and_a_settling_difference_is_not(self) -> None:
+        settled = gradient()
+        settling = gradient()
+        settling[0:4, 0:16] = [0, 0, 0]
+        elsewhere = np.flip(gradient(), axis=1)
+        save(self.reference, "a.png", settled)
+        save(self.reference, "b.png", settled)
+        save(self.candidate, "a.png", settling)
+        save(self.candidate, "b.png", elsewhere)
+        found = frames.suspects(self.candidate, self.reference)
+        self.assertEqual([frame["frame"] for frame in found], ["b.png"])
+        self.assertGreater(found[0]["changedFraction"], 0.5)
+
+    def test_check_passes_a_run_that_matches_and_fails_one_that_does_not(self) -> None:
+        save(self.reference, "a.png", gradient())
+        save(self.candidate, "a.png", gradient())
+        self.assertEqual(frames.main(["check", str(self.candidate), str(self.reference)]), 0)
+        save(self.candidate, "a.png", np.flip(gradient(), axis=1))
+        self.assertEqual(frames.main(["check", str(self.candidate), str(self.reference)]), 1)
 
 if __name__ == "__main__":
     unittest.main()

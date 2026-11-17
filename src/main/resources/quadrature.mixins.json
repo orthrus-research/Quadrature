@@ -4,6 +4,6 @@
   "package": "cc.orthrus.quadrature.mixin",
   "refmap": "quadrature.mixins.refmap.json",
   "compatibilityLevel": "JAVA_25",
-  "client": ["MixinEntityRenderer", "MixinFramebuffer", "MixinMinecraft"],
+  "client": ["MixinEntityRenderer", "MixinFramebuffer", "MixinMinecraft", "MixinRenderGlobal", "RenderGlobalAccess", "RenderInfoAccess", "ViewFrustumAccess"],
   "injectors": {"defaultRequire": 1}
 }

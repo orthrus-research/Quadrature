@@ -53,6 +53,9 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
   the graph is compiled, never per draw. **Decided.**
 - Mesh shaders are one capability, satisfied by the NVIDIA extension or the cross-vendor
   one added to the registry in October 2025. **Decided.**
+- What terrain memory and submission use is named: persistently mapped buffers, sync
+  objects, indirect multi-draw, shader storage buffers, and draw parameters in shaders.
+  All are present on the supported platform.
 
 ## 4. The frame
 
@@ -169,6 +172,91 @@ only when the driver reports them available, from a ring a few frames deep, so r
 never stalls the frame. **Decided.** The baseline could not time the GPU at all; this
 closes that gap from the first frame Quadrature owns.
 
+### 4.7 Views
+
+A view is what terrain is drawn for: an origin in double precision, a model-view and a
+projection matrix in single precision as the driver holds them, the planes of the volume
+they see, the depth convention, a reach in cubes across and upward, whether terrain may
+hide terrain, and a purpose (the frame the player sees, or depth alone). Visibility and
+drawing take a view; nothing in them reads the player's camera. **Decided.** Built as
+`View` in `core`.
+
+- The player's view is filled once a frame from the matrices the game has just set for
+  the world, at the point where the game is about to draw its first terrain layer. Its
+  projection, fog, alpha test and textures are still the game's state at draw time; a
+  view of Quadrature's own has to set them itself.
+- A view along the light is derived from the player's view each frame, toward the sun or,
+  while the sun is down, the moon. What it sees is found every frame.
+- Hosted drawing is not yet drawn for any view but the player's.
+
+**The light's depth.** Built behind `-Dquadrature.shadow=true`, off otherwise. The view
+along the light is drawn for depth alone into a target of Quadrature's own, before the
+player's first terrain layer. Nothing samples it yet, so the player's image is the same
+with it on.
+
+- **The box** is a plain orthographic cube of a fixed side centered on the player, never
+  warped: at a reach of twelve chunks 544 blocks, the diagonal of the square the client
+  holds cubes in, so every cube held is inside it at any hour and whichever way the player
+  faces. It is moved to a whole texel along the light's own axes, measured from the
+  world's origin, so that the map does not shift by part of a texel as the player moves.
+- **The light's direction** is the sun's while it is above the horizon and the moon's
+  otherwise. `-Dquadrature.sun.tilt=<degrees>`, 0 unless set, leans their path toward the
+  south: with east +x, up +y, south +z, `a` the game's celestial angle as an angle (0 at
+  noon, a quarter turn at sunset) and `t` the tilt, the sun stands at
+  `(-sin a, cos a * cos t, cos a * sin t)` and the moon opposite. It leans the directions
+  published and the box the map is drawn in; the game draws its own sky without it.
+  `SunPath` in `core`.
+- **The target** is an array texture of 24-bit depth, 4,096 texels a side, 64 MiB a layer,
+  counted in the shading pool. A texel of the wide box is 0.13 of a block. It can be
+  sampled through either of two sampler objects: compared with a reference and filtered,
+  or as the depth itself.
+- **The near layer**, behind `-Dquadrature.shadow.near=true` (off unless set), adds a box
+  192 blocks across, centered on the player and moved to a whole texel of its own, 0.047
+  of a block a texel. Along the light it is as deep as the wide box, 544 blocks, so its
+  side toward the light is the wide box's: what stands far toward a low light, outside
+  the 192-block square, still casts onto the ground in it. 24 bits of depth over 544
+  blocks are steps of a thirty-thousandth of a block. It is layer 0 and the wide box
+  layer 1, 128 MiB in all; with it off the wide box is the only layer, layer 0. Each
+  layer's side across and its depth are published (`boxSide`, `boxDepth`), and the frame
+  block's `qShadowScale[i]` holds blocks a texel in x and the depth's span in y. The near
+  layer is searched and commanded as a view of its own through that whole depth, its cube
+  count logged in the terrain summary, and drawn again by the same rules as the wide one,
+  measured from its own last drawing, so each layer is redrawn only when its own rules
+  are met. A layer that is kept holds what it held, and its matrix is carried to the
+  frame's origin, which every layer's matrix is relative to. `ShadowLayers` in `core`.
+- **What is drawn:** the three opaque layers of every meshed cube in the box, from the
+  same pages and by the same indirect draws as the player's view, each cube under the
+  same composition of matrices. A fragment of a cutout layer is dropped where the block
+  texture's alpha fails the game's own threshold, read where the game sets it. Faces are
+  not culled by facing. Translucent terrain is left out.
+- **Which meshes are resident** does not follow the player's frustum: a mesh is held for
+  every loaded cube that has its six neighbors, so what the light sees and the player
+  does not is there to draw. Terrain beyond what the client holds, and the outermost row
+  of cubes it holds, which is never meshed, cast nothing.
+- **No bias** is applied but a polygon offset, none unless
+  `quadrature.shadow.polygonOffset=factor,units` is set. A sampler biases as it sees fit.
+- **Published each frame** (`ShadowMaps` in `core`, from `TerrainHook.shadowMaps()`): the
+  texture and the two samplers, each layer's matrix from a position relative to the
+  frame's origin to the layer's clip space, the frame before's matrix and origin, the
+  box's side, the direction toward the light, and two generations. One changes whenever
+  the texture is drawn. The other changes only when its content can differ apart from the
+  light's own motion: a mesh was placed, replaced or released, or the box moved to another
+  texel.
+- **The map is kept between frames.** It is drawn again only when a mesh was placed,
+  replaced or released, when the player has moved into another texel of it, or when the
+  light has turned more than 0.1 degree since it was drawn
+  (`quadrature.shadow.turn`, in degrees). A frame that keeps it costs nothing: the light's
+  view is not searched and no commands are written for it. The matrices and origin
+  published are always the ones the map was drawn with, a kept layer's carried to the
+  origin of the frame the latest layer was drawn in; the direction toward the light of the
+  moment is published beside them, since shading uses that.
+- **Entities move every frame**, which a kept map does not allow for. The plan, of which
+  nothing is built: the terrain's depth stays one layer, drawn on the conditions above,
+  and entities go either on top of a copy of it made each frame or into a second layer
+  holding them alone, which a sampler compares against as well, taking the nearer.
+
+Not covered yet: entities and block entities in a light's view, which reaches into hosted
+drawing; jitter in the frame's contract.
 ## 5. Scene sources
 
 | Source | Owner | Gives Quadrature |
@@ -185,6 +273,71 @@ closes that gap from the first frame Quadrature owns.
 - Each source reports when it is settled: no build, load or refinement outstanding for
   the current view. The capture harness waits on this instead of discarding a first run
   ([VERIFICATION.md](VERIFICATION.md)). **Decided.**
+
+### 5.1 The scene for lighting
+
+Built behind `-Dquadrature.scene=true`, off otherwise: the world as lighting needs it,
+independent of any view. `LightScene` in `core`, from `TerrainHook.lightScene()`.
+
+- **A cell holds one number**, 16 bits: the game's identity for the block state there,
+  0 for air. It is taken from the snapshot the cube is meshed from, in the loop that
+  already reads every cell; that adds 0.01 ms to the 1.11 ms a cube takes.
+- **What a state does to light is kept once for the state**, not per cell: whether it
+  blocks light as an opaque whole cube does, its emission and how much light it holds
+  back, each 0 to 15. The values are the state's own; a block whose light depends on
+  where it stands is taken at those. A state past the 65,536 that 16 bits name is kept as
+  something solid and dark, and logged.
+- **Three answers for a cell:** air, a block, or not available. A cube not taken, because
+  it is not loaded or has not been meshed, is not available and never reads as empty.
+  Only meshed cubes are taken: a loaded cube without its six neighbors is not meshed, so
+  the outermost row of what the client holds is not available.
+- **A cube of one state keeps no cells.** The others keep 8 KiB of cells and a 512-byte
+  mask of the cells that block light, which is the mask the face links are found from.
+- **Change.** Every change advances one counter and the cube takes its value as its
+  generation. A consumer remembers the value it last saw and is told each cube changed
+  since, once, as updated or removed; one further behind than the 16,384 changes
+  remembered is told to take everything again. The unit of change is the cube.
+
+**For a shader**, behind `-Dquadrature.scene.gpu=true` as well: `PublishedScene`, from
+`TerrainHook.publishedScene()`. Two buffers of unsigned 32-bit integers, written through
+the driver and never mapped, each also the store of a buffer texture read with
+`texelFetch`.
+
+- **A lookup** with an entry for every cube position in the box the client holds cubes
+  in, 25 a side at a reach of twelve chunks, addressed by cube position wrapped by the
+  box's size, so that moving the box moves nothing. An entry says that nothing is known
+  of the cube, or that every cell holds the state named in it, or that the cube has a
+  brick at a slot. 61 KiB.
+- **Occupancy bricks**, one for each cube whose cells differ: a bit for each cell that
+  blocks light, cells ordered x fastest, then z, then y, and after them a bit for each
+  block of two cells a side in which any cell blocks light. 576 bytes; room is taken for
+  a brick for every cube of the box, 8.6 MiB.
+- **The state of each cell**, with `-Dquadrature.scene.states=true` as well, in three more
+  buffers. For each brick slot an unsigned byte a cell, naming a place in the cube's own
+  list of the states it holds, and the list, 256 state numbers of 16 bits: 4,096 and 512
+  bytes a slot. A cube holding more than 256 states is clamped, the cells of states past
+  the 255th naming the last place, and counted. For each of 65,536 states, four 16-bit
+  numbers: the first holds what the state does to light and three are kept for color.
+  Room is taken for every cube of the box: 61.0 MiB of cells, 7.6 MiB of lists and
+  0.5 MiB for the table.
+- **Room for every cube is more than is used.** With the lookup and occupancy bricks the
+  buffers take 77.8 MiB, inside the 128 MiB the shading work allows for materials and
+  visibility. The buffers are to be sized to about one and a half times the most slots
+  seen in use, once that has been measured in different places: forest, a cave system, a
+  built-up area, ocean. Only the forest tour has been measured: 6,406 slots at most. The
+  most slots in use is published and logged.
+- **Copying is bounded:** at most 64 bricks a frame, with their cells and lists, bricks
+  before the entries that name them, and the whole lookup in one call when many entries
+  change. Cubes are taken from the scene 512 a frame, so that a jump of the box's origin,
+  as on a teleport, fills the box over some thirty frames; a cube that left the box or the
+  scene is dropped at once. Each frame the box's origin cube, a generation and the entries
+  copied are published.
+- **The first copy is the dear one:** the first frame that writes into the new buffers
+  takes about 9 ms on the client thread, all in the driver's writes; after it 64 bricks a
+  frame cost a few hundredths of a millisecond. It happens once a run.
+
+Not built: the color of light a state emits or passes, shapes smaller than a cell,
+entities.
 
 ## 6. Near terrain
 
@@ -210,7 +363,8 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
 
 - Builds run on Cubature's executor (Quadrature starts no threads), ordered by distance
   and by whether the cube is in view, and cancelled when their snapshot is superseded.
-  **Decided.**
+  **Decided.** Until that executor exists, builds run on the client thread within a time
+  budget, nearest first.
 - A build writes into native memory it owns and hands the result to the context thread.
   It allocates nothing on the Java heap per face. **Decided.**
 - The context thread spends a bounded time per frame placing finished builds into GPU
@@ -218,26 +372,165 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
 
 ### 6.3 GPU memory
 
-One persistently mapped arena per stream, sub-allocated per cube, with a free list and
-compaction that moves at most a bounded amount per frame. Per-cube records (bounds,
-arena offsets, counts, state) live in one shader storage buffer. **Default.**
+**Built** for the game's vertex format, which is what cubes are meshed in until the two
+streams of 6.1 exist.
+
+- **Pages.** Terrain meshes lie in an arena of pages, each an immutable buffer of 64 MiB
+  shared by the three opaque layers; a page is added when no block is free, up to 24, the
+  near-terrain budget. A mesh takes one block, its layers one after another, so a cube is
+  one allocation and a layer is a range of it.
+- **Pages are not mapped.** A mesh is written into its page through the driver. The driver
+  keeps storage that stays mapped for writing in system memory and draws from it there:
+  drawing from mapped pages cost 2.4 to 3 ms of GPU time per million vertices, against
+  0.3 ms from pages that are never mapped, which the driver reports it keeps in video
+  memory ([VERIFICATION.md](VERIFICATION.md)). Writing through the driver costs the client
+  thread what copying into a mapped page did.
+- **Blocks.** Sizes step by a granule of 146 vertices, 4,088 bytes, so every block starts
+  on a whole vertex of its page. A mesh takes the smallest free range that holds it and
+  leaves the rest free; a block given back joins the free ranges beside it in its page.
+  Space never handed out is a free range like any other. Nothing is moved.
+- **Pages ahead of need.** When the largest free range falls below 8 MiB a page is made
+  after the frame's terrain is drawn, so that making one is never in the way of placing a
+  mesh. Making a page takes 0.06 ms.
+- **Placing within a frame.** Meshing stops for a frame once placing has taken 1 ms; the
+  cubes left keep the meshes they have and come first in the next frame. That bounds the
+  sum of a frame's placements and not one of them. The budget is met but for one
+  placement a run: the first mesh placed takes 1.6 to 3.5 ms, about half in the driver's
+  first write into the first page and half in the placement code running for the first
+  time. Both are costs of first use and do not recur. Touching the first page and placing
+  one mesh of nothing before a world appears would move them out of the first frames; it
+  is not built.
+- **A mesh is written straight into its page.** Staging a frame's meshes in one buffer and
+  copying them into their pages on the GPU was measured and is not used: it took longer,
+  and the driver moved the pages from video memory to host memory
+  ([VERIFICATION.md](VERIFICATION.md)).
+- **Reuse waits for the driver.** A freed block is not reused until a fence placed after
+  the frame's last terrain draw has signalled, one fence per frame. Mapped pages need
+  that, since a write to mapped memory is not ordered against draws already issued; pages
+  written through the driver may not, which is not yet measured.
+- **Slots and records.** Every loaded cube holds a slot that stays the same while it is
+  loaded, naming its block and each layer's range. Each frame a record per visible cube,
+  its model-view matrix and room for the previous frame's, is written to one shader
+  storage buffer; a draw names its record by base instance.
+
+Memory taken follows the most that was in use: over the forest tour 10 pages, 640 MiB,
+for 592 MiB at the end and 594.5 MiB at most, where reuse by exact size took 14 pages.
+
+Not built: compaction that moves a bounded amount per frame, and giving a page back when
+use falls; between the tour's views use falls to a few tens of mebibytes and the pages
+stay. The slot table and the budget cover terrain only.
 
 ### 6.4 Visibility and submission
 
-Nothing here is decided per cube on the client thread. **Default**, following Haar and
-Aaltonen's GPU-driven pipeline.
+Visibility is found once per view per frame, and every layer drawn for that view reads
+the same result. Per-cube work on the client thread is confined to the coarse step, whose
+cost is bounded by the cubes within the view's reach; every step after it is on the GPU.
+**Default**, following Haar and Aaltonen's GPU-driven pipeline.
 
-1. **Coarse, on the CPU.** A connectivity walk from the camera over cubes, using
-   precomputed face-to-face visibility per cube, as the game does per section. It is cheap
-   and removes sealed caves. Its output is a bit per cube.
+All views read one table: for each loaded cube, which pairs of its six faces see each
+other through blocks that are not opaque, fifteen bits found when the cube is meshed. A
+cube not yet meshed, or holding nothing, joins every pair. A cube that is not loaded is
+known as such: a search passes through it as though it held nothing and lists nothing
+for it.
+
+1. **Coarse, on the CPU.** **Built.** Two functions over the table.
+   - *A view from a point inside the world* is searched outward from the cube its eye is
+     in, breadth first. The search leaves a cube through a face only if that moves away
+     from the eye's cube on that axis and the face is joined to one the cube was entered
+     by; it enters only cubes within reach and inside the view's volume. A cube entered
+     by several faces is left through all that any of them allows. This admits every
+     path the game's own search takes, so it draws no less than the game; the game lets
+     only the first way into a section decide, which leaves out sections that can be
+     seen. The reach bounds a search through cubes that have not arrived. A search is
+     kept while the view and the table stand still.
+   - *A view with no such point*, as a light's, takes every meshed cube within its volume
+     and reach. Occlusion from a point does not apply to it.
 2. **Fine, on the GPU.** A compute stage tests each surviving cube against the frustum
    and against a depth pyramid, and writes draw commands and their count.
 3. **Two phases.** Cubes visible last frame are drawn first; the depth pyramid is built
    from them; cubes rejected in the first phase are retested against it and the survivors
    drawn. This removes the one-frame lag of testing against last frame's depth.
 4. **Draw.** One indirect multi-draw per stream and layer, with the count read on the GPU.
+   **Built in part:** the commands are written on the client thread from the list step 1
+   gives, grouped by layer and page, and each layer is drawn with one indirect multi-draw
+   per page: 35 draws a settled frame on average where one call per cube and layer made
+   938.
 
-The client thread's cost is then independent of how many cubes are visible.
+**Coverage, and the edge of the box.** What draws terrain beyond the box near terrain
+holds, or in place of what has not arrived, is told two things.
+
+- *Whether a search came to the edge.* A search stops where its way on would leave the
+  box. It notes through which of the box's six faces that happened with the view still
+  seeing the cube beyond, how many times, and how many cubes inside the box it passed
+  through that are not loaded. Only where it came to the edge can anything beyond be
+  seen. Where terrain is drawn without a search, nothing is known and everything beyond
+  counts as seen. `SearchEdge` in `core`, from `TerrainHook.searchEdge()`.
+- *Coverage*, behind `-Dquadrature.coverage=true`: for every chunk column of the box,
+  whether its surface is loaded and meshed. `CoverageMap` in `core`, from
+  `TerrainHook.coverage()`. The cube source says nothing of where a column's surface is,
+  so it is found from what is known of the column's cubes, from the top of the box down:
+  a cube that has been meshed and draws nothing is taken as air, and the first cube under
+  such air that is not one is the surface cube. The surface band is that cube and the one
+  beneath it. A column is *not loaded* when none of its cubes is held; has *no surface*
+  when all that is known is air, so the ground lies below the box, or when nothing is
+  known above the highest cube that holds something, so the ground may lie above it; has
+  its *surface waiting* when the surface cube or the one beneath is held and not meshed,
+  whether it waits its turn or lacks a neighbor and cannot be meshed; and has its
+  *surface meshed* when the surface cube holds a mesh and the cube beneath does not wait.
+  The map also gives each column's surface cube. It is worked out again when what is held
+  changes, no oftener than every twenty frames, and then it is brought up to date and not
+  filled anew: only the cubes that arrived, left or were meshed since the last time are
+  told of, and only their columns are judged again. It is filled anew when the box is
+  another, and every 64th time as a guard.
+- *The highest cubes held are never meshed*, for want of a neighbor above, so nothing
+  would be known to be air and every column would read as having no surface. With
+  coverage on, a cube that cannot be meshed is therefore asked whether it is empty, and
+  an empty one counts as air.
+- *Where the cube source says more, it is used.* The host looks once for the cube
+  source's surface heights, surface version and cube content by name. Where they are
+  present a column's band comes from the heights, a column is judged by the band's cubes,
+  and emptiness is one look-up; where they are absent the scan above stands and emptiness
+  is asked of a snapshot. The cube source pinned has them. A column's heights are asked
+  for when a cube of it is meshed, beside the mesh, and kept until a cube of the column
+  changes; the pass itself asks only for a column left without an answer, the nearest
+  first, and stops asking after 0.15 ms. One ask is a call into the cube source and is
+  not bounded by this.
+- *What the rule cannot tell:* a cube that is solid and wholly enclosed draws nothing and
+  reads as air, which matters only above the surface, where there is none; and a roof
+  over a column, an overhang or a tree's crown, is taken for its surface. A height for
+  each column from the cube source settles both.
+
+**The walk over a model's quads.** The game's dispatcher writes a block's vertices and
+keeps nothing of the quad they came from. Behind `-Dquadrature.faces=true` or
+`-Dquadrature.faces.check=true` the mesher walks a model's quads itself, in the game's
+order, and hands each to the game's lighter and consumer, so the vertices are the game's
+and each four are known by sprite, face, tint, layer and block state. A block the game
+would not draw by its model through its lighting pipeline is left to the dispatcher. With
+the check on every cube is meshed both ways and the two compared byte for byte. A builder
+then sorts the quads into records of 32 bytes for whole faces of a cell and kept vertices
+for the rest, expanding each record to see that it gives the game's vertices back.
+
+- **A record's texture is a rectangle of the atlas, the quad's own.** The game does not
+  give a quad its sprite's corners: it draws each a little toward the sprite's middle. So
+  the rectangle is taken from the quad's four coordinates, which must be two values of u
+  and two of v with each of the four corners once, and kept in a table of rectangles the
+  vertex stage reads. Quads of one sprite baked alike share a rectangle.
+- **Records are drawn with no vertex attributes.** The vertex stage finds its record by
+  vertex number and builds the vertex; the main pass and the light's depth pass both draw
+  so, with indirect multi-draw of quads from pages of records of their own.
+- **What it holds.** Over the forest tour 92.1% of quads are records. They take 165 MiB
+  and the kept vertices 44 MiB, where the game's vertices alone take 592 MiB.
+- **A guard.** Once a million quads are sorted, a share of records under half is logged
+  as a failure: a run that draws nothing from records proves nothing about them.
+
+The table serves visibility only. Light that reaches past what is seen needs more of each
+cube than fifteen bits: opacity per block, which the mesher finds on its way to those bits
+and does not keep, material and emission, a generation per cube, and the regions that
+changed. None of that is kept yet.
+
+Steps 2 and 3 are not built, and the commands of step 4 are still written on the client
+thread, in 0.11 ms a frame. Once a compute stage writes them, the client thread's cost no
+longer grows with how many cubes are visible.
 
 **Technique choice.** Two techniques implement the draw: compact faces expanded in the
 vertex shader with indirect multi-draw, and meshlets with task and mesh shaders, where the
@@ -258,6 +551,113 @@ Translucent faces are a separate layer, drawn after opaque geometry and hosted s
 Per-cube back-to-front order is established on the CPU from cube positions; faces within a
 cube are sorted when the camera crosses into a different octant of it. **Default.** A
 weighted blended method that needs no sorting is the alternative if sorting cost shows up.
+
+### 6.6 Targets for shading
+
+Behind `-Dquadrature.gbuffer=true`, with faces and reversed depth on, each opaque layer is
+drawn a second time into four targets of 8 bits a channel and a depth of Quadrature's own,
+the size of the window, from the commands and records the player's view already made. No
+lit color is written.
+
+| Target | Color | Alpha |
+|---|---|---|
+| A | world normal as n * 0.5 + 0.5 | perceptual roughness |
+| B | sky light and block light, each 0 to 1 over the game's 0 to 15; in green the emission strength of the texel's kind and color | 0.375 on terrain, 0 where nothing was written |
+| C | the square root of linear albedo after tint; the texel is decoded by the exact sRGB curve | 1 for a conductor |
+| D | reflectance and subsurface, or for a metal its colored reflectance, the texel's linear albedo after tint (D18) | the game's vertex occlusion |
+
+- Depth is reversed, 32-bit float: 1 nearest, 0 farthest and where nothing was written.
+- A fragment of a cutout layer is dropped where the texel's alpha is at or under 0.5.
+- A face that is a record has its own normal; a quad that is none takes the normal of the
+  surface as drawn, turned toward the viewer.
+- The game's shading of a face by the way it is turned, and its tint, are divided out of
+  the vertex color to leave the game's occlusion.
+- Only terrain is written: entities and what mods draw are not in the targets.
+
+**The material table.** What a state's surface is like where no texture says, eight bytes a
+state: roughness, reflectance, subsurface, emission, flags for a conductor and for foliage,
+and the state's kind. A state's row is at the game's own number for it, the block's
+identity and its variant in 16 bits, the number the scene for lighting uses. The kind
+comes from a list, `block.<kind>=` followed by block names, a name
+taking `:property=value` once or more for the states that have every value named. The
+list is the one the build ships, or the file `material_kinds.properties` of the folder
+named by `-Dquadrature.stage.dir` where that is set and holds one, so that a new revision
+of the list needs no new build; which was read, its revision line and its hash are logged.
+The list is read as a properties file is: a line that ends in a backslash goes on in the
+next, and a key ends at an equals sign, a colon or a space. Where the folder has a
+manifest that names the list, the list read must have the hash the manifest gives, and
+the list shipped is used where it has not. A list that gives fewer names than it states,
+or than its revision is known to hold, is logged as `MATERIAL KINDS FAILED`: read short,
+it would give most blocks the wrong surface and nothing else would show it.
+A block
+the list does not name is given a kind by what the game says of it: leaves, plants, glass
+and ice by material, the game's own water, lava, and anything else that gives light as an
+emitter. That rule never calls a block a metal, and a block of the game's iron or anvil
+material that the list does not name has no kind and no emission.
+
+| Kind | Meaning | What it sets |
+|---|---|---|
+| 100, 101 | water, lava | lava: emission 0.10, low since it is also lit by the light it gives |
+| 110 to 117 | leaves; single, tall (lower, upper), hanging, floating, stiff and submerged plants | subsurface 0.55, foliage |
+| 118 | ground cover | the defaults |
+| 120, 121 | dim and bright emitters; an unnamed block that gives light is 121 from light 12, 120 below | nothing of their own in the table |
+| 130, 131 | glass, ice | roughness 0.12 |
+| 140 | metals | roughness 0.32, conductor |
+| 199 | plain | the defaults, and no emission whatever light is given |
+
+The defaults are roughness 0.85 and reflectance 0.04. The table's emission byte is the
+light a state gives over 15, whatever its kind, but for lava and plain states; it is kept
+for readers of the table and is not what the targets hold.
+
+**Emission in the targets.** Target B's green is worked out for each texel where the
+targets are written, from the state's kind and the texel's linear albedo after tint, by
+`KindEmission` and the same rule in GLSL. With m the greatest channel of the albedo:
+
+| Kind | Emission |
+|---|---|
+| 101 lava | 0.10 |
+| 120 dim emitter | 0.65 * smoothstep(0.20, 0.70, m) |
+| 121 bright emitter | 0.90 * smoothstep(0.12, 0.65, m) |
+| any other | 0 |
+
+The target stores it to the nearest of 255.
+
+**What is published.** `TerrainHook.shadingTargets()` gives the framebuffer, the five
+textures, their size and a generation that moves when they are made anew.
+`TerrainHook.materials()` gives the table and `TerrainHook.material(state)` a state's
+number, filling its row if near terrain has not met the state.
+`TerrainHook.mainView()` gives the player's view the frame's terrain was drawn through.
+`TerrainHook.materialsBuffer()` gives the storage buffer the table lies in, brought up to
+the table's version when asked. `TerrainHook.frame()` gives the frame's index, a count
+of the world passes own terrain has drawn, and `shadingTargets().drawnFrame()` that
+count when the targets were last cleared and drawn; `generation()` moves only when the
+textures are made anew. The targets are cleared and drawn once in a world pass, so once
+a frame but for the game's two-colored stereo picture, which draws the world twice.
+
+**The near edge.** Behind `-Dquadrature.terrain.fade=true` the player's view gives its
+pixels up, across a band before the edge of what near terrain holds, to what is drawn
+beyond: by the pattern of `FadePattern`, near terrain the complement side, frame 0. The
+measure is the fragment's horizontal distance from the view's position, the greater of
+that along x and that along z, in blocks; the band is set with `TerrainHook.fadeBand` and
+is otherwise the last 16 blocks before the last chunk of the view distance. The depth
+drawn along the light takes no part. Off, the stages are unchanged to the character.
+`TerrainHook.fadeBandInUse()` gives the band a frame was drawn with and
+`TerrainHook.fadeOrigin()` the place its distance was measured from, the camera's, which in
+a view from behind is not the player's; both are null where no fade was drawn. The sums
+are `NearFade`'s, in `core`. Near translucent terrain is still drawn by the game and does
+not fade. It is built and has not been exercised with distant terrain.
+
+**Not built**, and where each belongs in the frame:
+
+- *Distant opaque terrain* draws into the targets after near terrain's last cutout layer
+  and before anything reads them, through the published framebuffer, with the depth test
+  nearer-or-equal in reversed depth, writing the same four targets by the same contract
+  and the same table.
+- *Shading* reads the targets and the depth and writes lit color. Until it exists the
+  player's picture is the forward one and the targets are a second, unused image.
+- *Water and other translucent surfaces* draw after shading, reading the lit opaque color
+  and the opaque depth beneath them; both are to be published as textures once shading
+  writes them.
 
 ## 7. Distant terrain
 
@@ -323,6 +723,71 @@ and one with shadows and atmosphere (research R4). **Candidate.**
   objects. **Decided.**
 - Third-party shader pack formats are not loaded (D5).
 
+### 9.1 A stage handed over in a folder
+
+Built behind `-Dquadrature.stage=true`, with the folder named by
+`-Dquadrature.stage.dir`; it needs the targets for shading. The folder is data: a
+manifest, program sources, assets, and files that stand for the host's inputs and for
+what the stage should write from them.
+
+- **The manifest** (`StageManifest` and `StagePlan` in `core`) lists every file with its
+  size and hash, and a file is read only by a plain name the manifest gives and only if
+  its size and hash are the manifest's. From its fifth version it says what is to be
+  run: the textures it asks the host for, each with how it is sampled; the assets it
+  brings; its targets, each with a format, a divisor of the window's size and whether it
+  is kept from frame to frame; its passes in order, each with a program, where each
+  sampler reads from and where each output goes; and checks, each an output of a pass set
+  beside a file under a tolerance. A target with divisor n is ceil(width / n) by
+  ceil(height / n). A manifest of a version that is not known is refused, and so is
+  anything in a manifest the host does not do, by name: a format, a filter, a uniform
+  block other than the frame's, vertex buffers, depth or blending in a pass, a size of
+  the frame's block other than the one the host writes.
+- **A sampler's source** is one of `host:` a texture of the host's, `asset:` one the
+  folder brings, `target:` a target as a pass earlier in the frame wrote it, and
+  `history:` a kept target as the frame before left it. The host holds two textures for
+  a kept target and swaps them each frame. A pass may not read a target before it is
+  written in the frame, nor read and write one.
+- **The host gives** the four targets and the depth of 6.6, and the light's depth of 4.7
+  twice, once to be read and once to be compared; where no light's depth is drawn it
+  gives one texel at the farthest and counts no light view.
+- **The frame's block** (`FrameBlock` in `core`) is a std140 uniform block of 592 bytes:
+  the inverse view-projection with the eye at the origin; four light-view matrices and
+  their scales; the directions toward the sun and toward the light that casts shadows;
+  the eye's block and its place within it; the targets' size; rain, wetness, exposure and
+  a time in seconds that stands still while the game is paused; the frame's index,
+  whether history is dropped, the dimension and the count of light views; the frame
+  before's view-projection; how far the eye moved since; and how far clouds have
+  drifted, at 3.1 and 1.2 blocks a second. History is dropped (`FrameHistory`) on the
+  first frame, when the window's size or the dimension changes, when the stage's targets
+  are made anew, and when the eye has moved farther in a frame than the manifest allows.
+- **The host sets no uniform of a stage's program.** Where a sampler and the block are
+  bound is the program's own to declare. At load the host asks the driver how it lays
+  the block out for each program, logs it, and refuses a program whose block differs in
+  size, in a member's offset or in binding from what the host fills, or whose sampler is
+  bound to another unit than the manifest says.
+- **In the frame** the stage is a stage of its own, entered in front of the game's
+  entities, so its time and what it leaves changed are measured apart from terrain's.
+  A pass that writes `display` writes a texture of the host's. It is shown only with
+  `-Dquadrature.stage.show=true`: its color is then written over the whole of the game's
+  picture with the game's depth untouched, so that what the game draws after is drawn
+  over it by the game's own depth. Which pixels are sky is the stage's to decide.
+- **The check**, `-Dquadrature.stage.check=true`, runs the same passes once, before the
+  first frame, on the files that stand for the host's inputs and for the frame's block,
+  reads each checked output back right after its pass, and logs PASS or FAIL with counts;
+  passes the manifest lists as diagnostic are run after the frame's own. What differed is
+  written into the client's `quadrature-stage/`.
+- **Images and the probe**, `-Dquadrature.stage.image=true`: for each frame images are
+  written of, the stage's display and its diagnostic outputs are written into
+  `quadrature-stage/`, and the light's depth is probed in each layer at a pixel low in the
+  middle of the picture and at the pixels of `-Dquadrature.stage.probePixels=x,y;x,y`,
+  counted from the bottom left (unless set, eight pixels at the edges of the built
+  scene's views; empty, the middle one alone). For each it logs the reference depth and
+  the stored one, where the eye's ray meets the world and the map's texel lies there,
+  inverted from the layer's matrix, with the block at each, and for the cube of each what
+  near terrain holds: its mesh and its version, and whether each layer listed it when last
+  drawn. `-Dquadrature.stage.targetsRaw=true` writes targets B, C and D of the same frame
+  beside the image as raw floats.
+
 ## 10. Mod interface
 
 In OrthLib. A mod declares an extra terrain layer, marks emissive geometry, adds a stage at
@@ -357,11 +822,15 @@ measurement; each line is revised when the phase that fills it measures its real
 | Left for the desktop, other programs and the driver | 2.0 GiB | |
 | Reserve: framebuffers, geometry buffer, depth pyramid, texture arrays, the game's own textures | 1.5 GiB | Phase 1 |
 | Near terrain arenas | 1.5 GiB | Phase 2 |
-| Distant terrain arenas | 2.0 GiB | Phase 4 |
-| Shading: shadow maps, light volumes | 1.0 GiB | Phase 5 |
+| Distant terrain arenas | 512 MiB | Phase 4 |
+| Shading: shadow maps, light volumes. The light's depth takes 64 MiB of it, 128 MiB with the near layer | 1.0 GiB | Phase 5 |
+| Not assigned | 1.5 GiB | |
 
 The first line is not arbitrary: the test machine had 2.2 GiB in use before the game
-started. The budget is computed at startup from the memory the driver reports as free, so
+started. The distant terrain line was 2.0 GiB until a survey for its design measured its
+use: 28 to 112.5 MiB at the default reach, about 123 MiB unclipped, 200 MiB at the high
+setting, and about a quarter more for crossfade. What that freed is not given to another
+line. The budget is computed at startup from the memory the driver reports as free, so
 a card with more memory, or a quieter desktop, gets larger pools in the same proportions.
 Streamed pools load freely below half their budget, evict unused data above it, and stop
 loading at nine tenths.
@@ -386,6 +855,12 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | State envelope: assume nothing on entry, neutral values on leaving; state mirroring | Decided; built and measured with a development stage (research R1, 9a.7) | Mirroring, from Phase 5 |
 | Reversed depth for the whole frame, with hosted depth calls translated where they are made | Decided (D17); prototype built | Depth read back by mods, cost, a larger pack (research R1, 2.2) |
 | Two geometry streams, texture array, no merging | Default | Phase 2 measurements |
+| A view as the input to visibility and drawing | Decided; built | |
+| Coverage of chunk columns, and whether a search came to the edge of the box | Built; coverage behind a switch | A surface height from the cube source |
+| The scene for lighting: a state number per cell, light properties per state, occupancy and state bricks under a wrapped lookup | Built, behind switches | Color; shapes smaller than a cell |
+| The light's depth: fixed, texel-snapped orthographic boxes, a near one 192 blocks across and 544 deep behind its own switch and a wide one, each drawn into a layer of an array texture and kept between frames | Built, behind switches | Entities in it; what samples it |
+| Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
+| Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |
 | Compact faces with indirect multi-draw, first | Default | Phase 2 measurements |
 | Meshlets as a second technique | Candidate | The mesh shader measurement, on distant terrain |

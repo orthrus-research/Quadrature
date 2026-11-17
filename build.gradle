@@ -40,9 +40,67 @@ java {
 
 evaluationDependsOn(':core')
 
+ext.cubaturePin = file("pins/${platform.cubature.jar}")
+ext.sha256Of = { File file ->
+    java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
+}
+
 dependencies {
     implementation cleanroom.userdev(cleanroom_version)
     implementation project(':core')
+    // Cubature's public API, for the cube source. Compile only: Cubature supplies it at runtime.
+    // The JAR is pinned in platform.json by commit and hash and kept in pins/, which is not in the
+    // repository. Instances are prepared with the same file, so the build and the game read one JAR.
+    compileOnly files(cubaturePin)
+}
+
+// The pinned Cubature JAR is checked when something compiles against it, not when the build is
+// configured, so that refreshCubature can run while it is missing or out of date.
+tasks.register('verifyCubature') {
+    def pin = platform.cubature
+    def jar = cubaturePin
+    inputs.property('pinned', pin.sha256)
+    doLast {
+        if (!jar.exists()) {
+            throw new GradleException("Cubature's pinned JAR is missing at ${jar}. Build ../Cubature at commit " +
+                "${pin.commit} and run ./gradlew refreshCubature.")
+        }
+        def found = sha256Of(jar)
+        if (found != pin.sha256) {
+            throw new GradleException("${jar} has sha256 ${found}; platform.json pins ${pin.sha256}. Run " +
+                "./gradlew refreshCubature to copy the sibling checkout's build, or record the new commit and " +
+                "hash in platform.json.")
+        }
+    }
+}
+tasks.named('compileJava') { dependsOn 'verifyCubature' }
+
+// Copies the Cubature JAR built in the sibling checkout (or the one named with -PcubatureCheckout)
+// into pins/, and prints the commit and hash to record in platform.json. The checkout must be clean,
+// so that the pin names a commit; build it there first, since this cannot tell what the JAR was built from.
+tasks.register('refreshCubature') {
+    def pin = platform.cubature
+    def jar = cubaturePin
+    def checkout = file(providers.gradleProperty('cubatureCheckout').getOrElse('../Cubature'))
+    def commitText = providers.exec { commandLine 'git', '-C', checkout.path, 'rev-parse', 'HEAD' }.standardOutput.asText
+    def statusText = providers.exec { commandLine 'git', '-C', checkout.path, 'status', '--porcelain' }.standardOutput.asText
+    doLast {
+        def commit = commitText.get().trim()
+        if (!statusText.get().trim().isEmpty()) {
+            throw new GradleException("${checkout} has uncommitted changes; a pin must name a commit.")
+        }
+        def built = new File(checkout, "cleanroom/build/cleanroom/libs/${pin.jar}")
+        if (!built.exists()) {
+            throw new GradleException("No build at ${built}; run ./gradlew build in ${checkout}/cleanroom first.")
+        }
+        jar.parentFile.mkdirs()
+        java.nio.file.Files.copy(built.toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        def found = sha256Of(jar)
+        logger.lifecycle("Copied ${built} to ${jar}\n  commit ${commit}\n  sha256 ${found}")
+        logger.lifecycle(commit == pin.commit && found == pin.sha256 ? 'This is what platform.json pins.'
+            : "platform.json pins commit ${pin.commit}, sha256 ${pin.sha256}: record the values above there " +
+                'to build against this JAR.')
+    }
 }
 
 def constantsDirectory = layout.buildDirectory.dir('generated/sources/quadrature')

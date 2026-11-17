@@ -111,6 +111,13 @@ measurement) and its date.
   and mods' own renderers inside stages Quadrature controls.
 - In multiplayer, the client holds the seed and definitions and computes ungenerated
   distant terrain itself (decision D12); define what the server sends for changed terrain.
+- **Scene for lighting:** provide the scene to lighting independently of the camera. For
+  every cell of a resident cube: whether it blocks light, its material identity, its
+  emission and its transmission, taken from the same cube snapshots that feed meshing.
+- Keep three states apart for every cell: known air, resident solid, and not available.
+  Lighting treats a cube that is not loaded as unknown, never as empty.
+- Give each cube's scene data a generation and report the regions that changed, so a
+  consumer updates only what changed. The unit of change is the cube, 16 cells a side.
 
 **Research**
 - Snapshot designs that avoid copying: versioned sections, copy-on-write, borrow rules.
@@ -126,6 +133,10 @@ measurement) and its date.
   layers, and block renderers that draw outside the model system.
 - Schedule builds on Cubature's executor by priority, cancel stale work, and bound memory.
 - Emit a vertex format small enough for the memory budget and rich enough for materials.
+- Carry in that format, for every face, what shading needs and the game's 28-byte vertex
+  lacks: the face normal, a material identity, and the position within the sprite, so
+  the top of a plant can be told from its base. They may be stored per face or derived
+  from a block identity; a shader does not recover them from the texture.
 
 **Research**
 - Current meshing approaches for voxel terrain: per-face, greedy merging, meshlets, and
@@ -141,6 +152,14 @@ measurement) and its date.
 - Decide what is drawn each frame: view frustum, occlusion through solid terrain in three
   dimensions, and distance.
 - Submit terrain with a draw-call count that does not grow with visible section count.
+- Draw the same terrain, with the same vertex deformation, into more than one view in a
+  frame: the camera and at least one light view. Which meshes are resident is not decided
+  by the camera's frustum alone.
+- In a light view, draw cutout geometry with its texture's alpha, and draw entities, so
+  foliage and creatures cast shadows.
+- Near terrain owns a coverage map: for each chunk column, whether its surface band is
+  loaded and meshed. It reports whether a view's search reaches the edge of the loaded
+  box.
 - Sort or otherwise resolve translucent geometry correctly.
 - Manage GPU memory for geometry: allocation, reuse, defragmentation, budget.
 
