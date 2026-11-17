@@ -320,6 +320,63 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Taken: nothing from another renderer or from a shader pack's format.
 - Added: 2026-11-16
 
+### Writers into the targets, and how far they reach
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/frame/TargetWriters.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/view/NearEdge.java`, `addTargetWriter` and
+  `targetsEdge` in `src/main/java/cc/orthrus/quadrature/terrain/TerrainHook.java`, the edge and
+  the cloud height in `core/src/main/java/cc/orthrus/quadrature/core/stage/FrameBlock.java`
+- Source: original. Facts used: the game's public interface for the height at which a world
+  keeps its clouds.
+- Taken: nothing from another renderer. Writers are a list called in order on the thread that
+  draws, and the reach is the distance from the eye to the nearest side of the box of cubes
+  that can be meshed.
+- Added: 2026-11-16
+
+### Timing each pass of a shading stage
+- Code: the pass timers in `src/main/java/cc/orthrus/quadrature/frame/StageRunner.java`
+- Source: OpenGL 4.6 specification (timestamp queries, `glQueryCounter`, result availability).
+- Taken: two timestamps a pass, kept in a ring of four frames' slots and read only once the
+  driver reports them available, so reading never stalls.
+- Added: 2026-11-16
+
+### The depth target written from the frame that is shaded
+- Code: the depth image in `src/main/java/cc/orthrus/quadrature/terrain/GBufferTarget.java` and
+  the images that wait for the shading stage in `TerrainHook.java` and `StageHost.java`
+- Source: original. Facts used: the OpenGL 4.6 specification (reading a depth texture's image
+  as floats).
+- Taken: the stored depth written as the raw floats and as a gray image of its fourth root, so
+  that near depths stay apart, in the same frame the stage's images are written of.
+- Added: 2026-11-16
+
+### Audit of the occlusion in the targets
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/material/OcclusionAudit.java`, its use in
+  `src/main/java/cc/orthrus/quadrature/terrain/QuadWalk.java` and `FaceBuilder.java`
+- Source: original. Facts used: the game's smooth lighting as its public behavior shows it (a
+  corner's occlusion is the mean of four cells in front of the face, 0.2 where closed) and its
+  public interfaces for a state's ambient occlusion light value and material.
+- Taken: nothing from another renderer. The occlusion is the vertex color divided by the tint
+  and the face's shading, counted by direction and by what stands in front.
+- Added: 2026-11-16
+
+### The host's self-test of kept and smaller targets
+- Code: `src/main/java/cc/orthrus/quadrature/frame/StageSelfTest.java`
+- Source: original. Facts used: the OpenGL 4.6 and GLSL 4.60 specifications (a triangle that
+  covers the viewport from `gl_VertexID`, reading a texture's image).
+- Taken: nothing from another renderer. A stage of its own adds an eighth to a kept target each
+  frame, so its value after each frame shows the history swapped, read and zeroed.
+- Added: 2026-11-16
+
+### Quads drawn by something other than a model
+- Code: `foreign` in `src/main/java/cc/orthrus/quadrature/terrain/QuadWalk.java`, its calls in
+  `CubeMesher.java`, and the header written for such quads in `FaceBuilder.java`
+- Source: original. Facts used: the game's public interfaces for a block's render type and for
+  drawing a fluid or a block with a renderer of its own into a buffer builder, and the buffer
+  builder's vertex count.
+- Taken: nothing from another renderer. The quads a block wrote outside the walk over a model
+  are noted with the block's state, so that lava and other fluids read their own row of the
+  material table rather than the first.
+- Added: 2026-11-16
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed
