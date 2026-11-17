@@ -181,16 +181,9 @@ final class StageCheck {
             }
             runner.size(width, height);
 
-            if (plan.frameBlockFile() == null) {
+            if (plan.frames().isEmpty()) {
                 throw new IllegalStateException("the manifest names no file for the frame's block");
             }
-            byte[] frame = manifest.load(plan.frameBlockFile());
-            if (frame.length != FrameBlock.BYTES) {
-                throw new IllegalStateException("the frame block is " + frame.length + " bytes, not " + FrameBlock.BYTES);
-            }
-            runner.block(direct(frame));
-            ByteBuffer held = runner.blockHeld();
-            blockHeld(held);
 
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDisable(GL11.GL_BLEND);
@@ -216,16 +209,12 @@ final class StageCheck {
                         lightRows, lightColumns);
                 }
             }
-            // A frame whose block says history is dropped starts as the live stage starts such a frame.
-            if (held.getInt(FrameBlock.OFFSET_FRAME + 4) != 0) {
-                runner.reset();
-            }
-
             List<Made> made = new ArrayList<>();
             StageRunner running = runner;
+            int[] frameNow = new int[1];
             java.util.function.Consumer<StagePlan.Pass> after = pass -> {
                 for (StagePlan.Check check : plan.checks()) {
-                    if (check.pass.equals(pass.name)) {
+                    if (check.pass.equals(pass.name) && check.frame == frameNow[0]) {
                         try {
                             made.add(compare(manifest, running, pass, check));
                         } catch (java.io.IOException unread) {
@@ -237,9 +226,37 @@ final class StageCheck {
                     shadowProbe(running, pass);
                 }
             };
-            runner.run(plan.passes(), after);
-            for (StagePlan.Pass diagnostic : plan.diagnosticPasses()) {
-                runner.run(Collections.singletonList(diagnostic), after);
+            // The frames the manifest lists, one after another as the live stage runs them: what a target
+            // kept is carried from each to the next, swap and all.
+            int frames = plan.frames().size();
+            for (int frame = 0; frame < frames; frame++) {
+                frameNow[0] = frame;
+                byte[] block = manifest.load(plan.frames().get(frame));
+                if (block.length != FrameBlock.BYTES) {
+                    throw new IllegalStateException("the block of frame " + frame + " is " + block.length + " bytes, not "
+                        + FrameBlock.BYTES);
+                }
+                runner.block(direct(block));
+                ByteBuffer held = runner.blockHeld();
+                blockHeld(held);
+                // A frame whose block says history is dropped starts as the live stage starts such a frame.
+                if (held.getInt(FrameBlock.OFFSET_FRAME + 4) != 0) {
+                    runner.reset();
+                }
+                runner.run(plan.passes(), after);
+                // A diagnostic pass is run after the frame a check of it names, and all of them after the last.
+                for (StagePlan.Pass diagnostic : plan.diagnosticPasses()) {
+                    boolean due = frame == frames - 1;
+                    for (StagePlan.Check check : plan.checks()) {
+                        due |= check.pass.equals(diagnostic.name) && check.frame == frame;
+                    }
+                    if (due) {
+                        runner.run(Collections.singletonList(diagnostic), after);
+                    }
+                }
+                if (frame < frames - 1) {
+                    runner.endFrame();
+                }
             }
             GL11.glFinish();
             int error = GL11.glGetError();
@@ -248,7 +265,8 @@ final class StageCheck {
             StringBuilder verdict = new StringBuilder();
             for (Made one : made) {
                 passes &= one.result.passes();
-                verdict.append(String.format(" %s output %d (%s) %s.", one.check.pass, one.check.output, one.rule, one.result));
+                verdict.append(String.format(" %s output %d%s (%s) %s.", one.check.pass, one.check.output,
+                    frames == 1 ? "" : " after frame " + one.check.frame, one.rule, one.result));
             }
             String line = String.format("Stage check: %s.%s Driver error 0x%s. %d of %d checks made, at %d by %d.",
                 passes ? "PASS" : "FAIL", verdict, Integer.toHexString(error), made.size(), plan.checks().size(), width, height);
@@ -581,7 +599,23 @@ final class StageCheck {
                             one.wantBytes[pixel * 4 + 2] & 0xFF, one.wantBytes[pixel * 4 + 3] & 0xFF));
                     }
                 }
-                String name = one.check.pass + "-" + one.check.output;
+                if (!one.result.passes()) {
+                    // Where the failures lie by row, for a fault that shows only in part of the picture.
+                    text.append(String.format("%s output %d, rows %d to %d hold its differing pixels; by row (row: pixels):%n",
+                        one.check.pass, one.check.output, one.result.minY, one.result.maxY));
+                    StringBuilder rows = new StringBuilder();
+                    for (int y = one.result.minY; y <= one.result.maxY; y++) {
+                        int count = 0;
+                        for (int x = 0; x < width; x++) {
+                            count += one.result.difference[y * width + x] != 0 ? 1 : 0;
+                        }
+                        if (count != 0) {
+                            rows.append(rows.length() == 0 ? "  " : ", ").append(y).append(": ").append(count);
+                        }
+                    }
+                    text.append(rows).append(String.format("%n"));
+                }
+                String name = one.check.pass + "-" + one.check.output + (one.check.frame == 0 ? "" : "-frame" + one.check.frame);
                 gray(new File(directory, name + "-difference.png"), one.result.difference, width, one.height);
                 if (one.gotBytes != null) {
                     color(new File(directory, name + "-got.png"), one.gotBytes, width, one.height);

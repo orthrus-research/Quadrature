@@ -20,8 +20,11 @@ import java.nio.ByteOrder;
  *               views are given, which is 0 where no light's depth is drawn: nothing is then in shadow
  * 496  mat4     the view-projection of the frame before, that frame's eye at the origin; this frame's
  *               own on a frame that drops history
- * 560  vec4     how far the eye moved since the frame before, in blocks: this eye less that one
- * 576  vec4     how far the clouds have drifted, in blocks: x by the faster drift, y by the slower
+ * 560  vec4     how far the eye moved since the frame before, in blocks: this eye less that one; in w,
+ *               the horizontal distance in blocks to the far edge of what was written into the
+ *               targets, or 0 where it is not known
+ * 576  vec4     how far the clouds have drifted, in blocks: x by the faster drift, y by the slower; in
+ *               z, the height the world keeps its clouds at, in blocks
  * </pre>
  *
  * Matrices are column-major. The inverse view-projection takes clip x and y in -1 to 1 and the

@@ -201,6 +201,28 @@ final class GBufferTarget {
                 return;
             }
         }
+        // The depth, twice: as it is stored, 32-bit floats from the bottom row up, little-endian, for
+        // whoever needs the numbers; and as a gray image to look at, the fourth root of the stored depth,
+        // which under reversed depth is 0 where nothing was drawn and brighter the nearer.
+        try {
+            java.nio.ByteBuffer stored = ByteBuffer.allocateDirect(width * height * 4).order(java.nio.ByteOrder.nativeOrder());
+            GL45.glGetTextureImage(depth, 0, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, stored);
+            byte[] raw = new byte[width * height * 4];
+            java.nio.ByteBuffer out = java.nio.ByteBuffer.wrap(raw).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            BufferedImage gray = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    float value = stored.getFloat((y * width + x) * 4);
+                    out.putFloat((y * width + x) * 4, value);
+                    gray.getRaster().setSample(x, height - 1 - y, 0,
+                        (int) Math.round(255 * Math.sqrt(Math.sqrt(Math.max(0, Math.min(1, value))))));
+                }
+            }
+            java.nio.file.Files.write(new File(directory, String.format("gbuffer-%02d-%s-depth.f32", images, name)).toPath(), raw);
+            ImageIO.write(gray, "png", new File(directory, String.format("gbuffer-%02d-%s-depth.png", images, name)));
+        } catch (java.io.IOException | RuntimeException error) {
+            Quadrature.LOGGER.warn("Shading targets' depth not written: {}", error.toString());
+        }
         Quadrature.LOGGER.info("Shading target images written: set {} at {}.", images, name);
         images++;
     }

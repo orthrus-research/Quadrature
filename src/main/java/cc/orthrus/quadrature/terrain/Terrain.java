@@ -1352,8 +1352,9 @@ public final class Terrain
                     shadingTargets.set(targets.framebuffer(), targets.texture(0), targets.texture(1), targets.texture(2), targets.texture(3),
                         targets.depthTexture(), targets.width(), targets.height(), targets.bytes(), targets.generation(),
                         targets.drawnFrame());
-                    // The shading stage handed over in a folder runs after this stage, as one of its own; an
-                    // image of what it wrote is of the frame before, which where the player stands still is the same.
+                    // The shading stage handed over in a folder runs after this stage, as one of its own. Where it
+                    // is on, the images are written after it has run, so that its picture and the targets' are
+                    // of one frame.
                     if (TARGET_IMAGES || cc.orthrus.quadrature.frame.StageHost.IMAGES) {
                         long place = CubeKey.of((int) Math.floor(cameraX), (int) Math.floor(cameraY), (int) Math.floor(cameraZ));
                         if (place != targetStillAt || !dirty.isEmpty()) {
@@ -1362,11 +1363,10 @@ public final class Terrain
                         } else if (++targetStill == STILL_FRAMES + 240 && targetImagedAt != place) {
                             targetImagedAt = place;
                             String where = (int) Math.floor(cameraX) + "_" + (int) Math.floor(cameraY) + "_" + (int) Math.floor(cameraZ);
-                            if (TARGET_IMAGES) {
+                            if (cc.orthrus.quadrature.frame.StageHost.REQUESTED) {
+                                imagesDue = where;
+                            } else if (TARGET_IMAGES) {
                                 targets.writeImages(where);
-                            }
-                            if (cc.orthrus.quadrature.frame.StageHost.IMAGES) {
-                                cc.orthrus.quadrature.frame.StageHost.writeImage(where);
                             }
                         }
                     }
@@ -1450,6 +1450,71 @@ public final class Terrain
         return sceneBuffers == null ? null : sceneBuffers.published();
     }
 
+    /**
+     * How far near terrain reaches from the viewer, twice over: by the cubes held, which is what a
+     * stage is told, and by what is meshed now, which is the square of chunk columns around the
+     * viewer's own in which every column holds a mesh. Worked out only for the log.
+     */
+    private String edgeSummary() {
+        it.unimi.dsi.fastutil.longs.LongOpenHashSet columns = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+        for (LongIterator it = meshes.keySet().iterator(); it.hasNext();) {
+            long key = it.nextLong();
+            columns.add((long) CubeKey.x(key) << 32 | CubeKey.z(key) & 0xFFFFFFFFL);
+        }
+        int originX = mainView.originCubeX();
+        int originZ = mainView.originCubeZ();
+        int across = mainView.across();
+        // The first ring outward that has a column with no mesh: the square within it is whole.
+        int whole = 0;
+        rings:
+        for (int ring = 0; ring <= across; ring++) {
+            for (int z = -ring; z <= ring; z++) {
+                boolean side = z == -ring || z == ring;
+                for (int x = -ring; x <= ring; x += side || ring == 0 ? 1 : 2 * ring) {
+                    if (!columns.contains((long) (originX + x) << 32 | originZ + z & 0xFFFFFFFFL)) {
+                        break rings;
+                    }
+                }
+            }
+            whole = ring + 1;
+        }
+        return String.format("; near terrain's half side %.0f blocks by the cubes held and %.0f by the columns meshed",
+            cc.orthrus.quadrature.core.view.NearEdge.blocks(originX, originZ, across, mainView.originX(), mainView.originZ()),
+            whole == 0 ? 0f : cc.orthrus.quadrature.core.view.NearEdge.blocks(originX, originZ, whole, mainView.originX(),
+                mainView.originZ()));
+    }
+
+    private long auditCornersLogged;
+
+    /** The name of the images to write once the shading stage has run in this frame, or null. */
+    private String imagesDue;
+
+    @Override
+    public boolean imagesDue() {
+        return imagesDue != null;
+    }
+
+    @Override
+    public int lightViewCubes() {
+        return lit.count();
+    }
+
+    /** Writes the images that waited for the shading stage: the targets' and the stage's picture, of one frame. */
+    @Override
+    public void writeImagesDue() {
+        String where = imagesDue;
+        if (where == null) {
+            return;
+        }
+        imagesDue = null;
+        if (TARGET_IMAGES) {
+            targets.writeImages(where);
+        }
+        if (cc.orthrus.quadrature.frame.StageHost.IMAGES) {
+            cc.orthrus.quadrature.frame.StageHost.writeImage(where);
+        }
+    }
+
     @Override
     public String summary() {
         String line = String.format("terrain: %d meshes, %d waiting, %d built (%.3f ms each), %d empty, "
@@ -1502,6 +1567,15 @@ public final class Terrain
             }
         }
         line += cc.orthrus.quadrature.frame.StageHost.summary();
+        line += edgeSummary();
+        if (QuadWalk.OCCLUSION != null) {
+            line += "; " + QuadWalk.OCCLUSION.summary() + "; quads kept with no state " + FaceBuilder.UNSTATED.get();
+            if (QuadWalk.OCCLUSION.corners() != auditCornersLogged) {
+                // The whole table when it has changed, a line for each way a face is turned.
+                auditCornersLogged = QuadWalk.OCCLUSION.corners();
+                Quadrature.LOGGER.info("Occlusion audit, corners nearest each tenth from 0 to 1:{}", QuadWalk.OCCLUSION.table());
+            }
+        }
         if (TARGETS) {
             line += String.format("; shading targets %d by %d, %.1f MiB, drawn in %d frames, %d draws last frame%s",
                 targets.width(), targets.height(), targets.bytes() / 1048576.0, targetFrames, targetDraws,

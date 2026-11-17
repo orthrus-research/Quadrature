@@ -63,6 +63,20 @@ public final class TerrainHook {
 
         /** One line for the timing log. */
         String summary();
+
+        /** Writes the images that waited for the shading stage to run. */
+        default void writeImagesDue() {
+        }
+
+        /** Whether images wait to be written once the shading stage has run in this frame. */
+        default boolean imagesDue() {
+            return false;
+        }
+
+        /** How many cubes the light's view drew when it was last drawn, or -1 where that is not known. */
+        default int lightViewCubes() {
+            return -1;
+        }
     }
 
     private static Drawer drawer;
@@ -169,6 +183,122 @@ public final class TerrainHook {
     public static View mainView() {
         return mainView;
     }
+
+    private static final cc.orthrus.quadrature.core.frame.TargetWriters targetWriters =
+        new cc.orthrus.quadrature.core.frame.TargetWriters();
+
+    /**
+     * Adds something that writes into the targets for shading besides near terrain. It is called on
+     * the client thread once in every world pass in which the targets were drawn, so that
+     * {@code shadingTargets().drawnFrame() == frame()} inside the call, after near terrain's cutout
+     * layer has written the targets and before a shading stage reads them, whether or not a stage is
+     * on; with the game's two-colored stereo picture, once for each eye. Writers are called in the
+     * order they were added. One added or removed from inside a call takes effect from the next
+     * pass. A writer that throws is removed and logged once.
+     *
+     * <p>On entry the game's framebuffer is bound and the viewport is the window's; no program, no
+     * vertex array and none of shader storage bindings 0 to 3 is bound; the depth test and depth
+     * writes are on, as the game holds them in front of its entities. The writer binds
+     * {@code shadingTargets().framebuffer()} and whatever else it needs, and puts back everything it
+     * changed. Nothing that draws after it trusts a binding it could have changed.
+     */
+    public static void addTargetWriter(Runnable writer) {
+        targetWriters.add(writer);
+    }
+
+    /** Removes a writer added by {@link #addTargetWriter}; from inside a call, from the next pass. */
+    public static void removeTargetWriter(Runnable writer) {
+        targetWriters.remove(writer);
+    }
+
+    /** For the frame's host, after the shading stage has run: writes the images that waited for it. */
+    public static void writeImagesDue() {
+        if (drawer != null) {
+            drawer.writeImagesDue();
+        }
+    }
+
+    /** Whether images wait to be written once the shading stage has run in this frame. */
+    public static boolean imagesDue() {
+        return drawer != null && drawer.imagesDue();
+    }
+
+    /** How many cubes the light's view drew when it was last drawn, or -1 where that is not known. */
+    public static int lightViewCubes() {
+        return drawer == null ? -1 : drawer.lightViewCubes();
+    }
+
+    /** Whether writers are to be called in this pass: there is one, and the targets were drawn in it. */
+    public static boolean targetWritersDue() {
+        if (targetWriters.size() == 0 || drawer == null) {
+            return false;
+        }
+        ShadingTargets targets = drawer.shadingTargets();
+        return targets != null && targets.texture(0) != 0 && targets.drawnFrame() == drawer.frame();
+    }
+
+    /**
+     * Calls the writers. For the frame's host, at the boundary in front of the game's entities.
+     *
+     * @param before called before each writer with its place in the order, or null
+     */
+    public static void runTargetWriters(java.util.function.IntConsumer before) {
+        writersFarEdge = 0;
+        writersFrame = drawer == null ? -1 : drawer.frame();
+        inWriters = true;
+        try {
+            targetWriters.run(before, (writer, thrown) -> cc.orthrus.quadrature.Quadrature.LOGGER.error(
+                "A writer of the targets for shading threw and is removed: {}: {}", writer, thrown.toString()));
+        } finally {
+            inWriters = false;
+        }
+    }
+
+    private static boolean inWriters;
+    private static boolean edgeOutsideLogged;
+
+    private static float writersFarEdge;
+    private static long writersFrame = -1;
+
+    /**
+     * For a writer, from inside its call: the smallest horizontal distance in blocks from the eye,
+     * along x or along z, to the far edge of what it wrote into the targets in this pass, which is
+     * half the side of the square it covers around the eye. It holds for that world pass only. With
+     * several writers the greatest is kept; with none, or nothing above 0 from any, near terrain's own
+     * stands. A call from outside a writer's call is ignored and logged once.
+     */
+    public static void targetsEdge(float blocks) {
+        if (!inWriters) {
+            if (!edgeOutsideLogged) {
+                edgeOutsideLogged = true;
+                cc.orthrus.quadrature.Quadrature.LOGGER.warn("The targets' edge was given from outside a writer's call and is "
+                    + "ignored; it is said once.");
+            }
+            return;
+        }
+        if (blocks > writersFarEdge) {
+            writersFarEdge = blocks;
+        }
+    }
+
+    /**
+     * The smallest horizontal distance in blocks from the eye, along x or along z, to the far edge of
+     * what was written into the targets in the current frame: near terrain's own, as {@code NearEdge}
+     * measures it to the nearest side of the cubes that can be meshed, or the greatest a writer gave
+     * through {@link #targetsEdge} in this frame's pass where that is farther. 0 means it is not
+     * known: own terrain is off or no view has been taken.
+     */
+    public static float targetsFarEdge() {
+        View view = mainView;
+        if (drawer == null || view == null) {
+            return 0;
+        }
+        double[] eye = cc.orthrus.quadrature.core.fade.NearFade.origin(view.originX(), view.originY(), view.originZ(),
+            view.modelView());
+        float near = cc.orthrus.quadrature.core.view.NearEdge.blocks(view.originCubeX(), view.originCubeZ(), view.across(),
+            eye[0], eye[2]);
+        return Math.max(writersFrame == drawer.frame() ? writersFarEdge : 0, near);
+    }
     /**
      * The current frame's index: a count that moves by one each time own terrain begins a world pass,
      * which is once a frame but for the game's two-colored stereo picture, which draws the world twice.
@@ -213,7 +343,17 @@ public final class TerrainHook {
     static void fadeDrawn(float[] band, double[] origin) {
         fadeBandInUse = band;
         fadeOrigin = origin;
+        if (band != null && (band[0] != fadeLogged[0] || band[1] != fadeLogged[1])) {
+            // Said once each time the band is another, so that a log shows the fade is on and where.
+            fadeLogged[0] = band[0];
+            fadeLogged[1] = band[1];
+            cc.orthrus.quadrature.Quadrature.LOGGER.info("Near fade: on, near terrain whole to {} blocks and gone from {}, by the "
+                + "greater of the distances along x and along z from {}.", band[0], band[1],
+                origin == null ? "the eye" : String.format("%.1f, %.1f, %.1f", origin[0], origin[1], origin[2]));
+        }
     }
+
+    private static final float[] fadeLogged = {Float.NaN, Float.NaN};
 
     /**
      * The band the near fade was drawn with in the current frame: start and end in blocks. Null where
@@ -245,7 +385,17 @@ public final class TerrainHook {
 
     /** The timing log's line, or null when own terrain is off. */
     public static String summary() {
-        return drawer == null ? null : drawer.summary();
+        if (drawer == null) {
+            return null;
+        }
+        String line = drawer.summary();
+        float[] band = fadeBandInUse;
+        double[] origin = fadeOrigin;
+        if (band != null && origin != null) {
+            line += String.format("; near fade from %.0f to %.0f blocks, measured from %.1f, %.1f, %.1f", band[0], band[1], origin[0],
+                origin[1], origin[2]);
+        }
+        return line;
     }
 
     /** Starts own terrain if it was asked for; call only where Cubature is installed. */

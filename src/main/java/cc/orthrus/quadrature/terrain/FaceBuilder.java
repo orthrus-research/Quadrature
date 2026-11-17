@@ -109,7 +109,7 @@ final class FaceBuilder {
                     next[layer] = nextNote(walk, note + 1, layer);
                 }
                 quads++;
-                if (noted && record(data, at, walk, note, layer)) {
+                if (noted && walk.quad(note) != null && record(data, at, walk, note, layer)) {
                     compact++;
                     continue;
                 }
@@ -120,6 +120,12 @@ final class FaceBuilder {
             }
         }
     }
+
+    /** How many quads were kept with no state number, and so read the first row of the material table. None is expected. */
+    static final java.util.concurrent.atomic.AtomicLong UNSTATED = new java.util.concurrent.atomic.AtomicLong();
+
+    /** The game's shading of a face by the way it is turned, in the game's order of the six: down, up, north, south, west, east. */
+    private static final float[] FACE_SHADE = {0.5f, 1f, 0.8f, 0.8f, 0.6f, 0.6f};
 
     private static int nextNote(QuadWalk walk, int from, int layer) {
         while (from < walk.count() && walk.layer(from) != layer) {
@@ -156,6 +162,19 @@ final class FaceBuilder {
         if (located < 0) {
             notAFace++;
             return false;
+        }
+        if (QuadWalk.AUDIT && walk.face(note) >= 0) {
+            // A whole face of a cell: the occlusion each corner's color holds, as the targets' stage takes it out.
+            int tint = walk.tint(note);
+            float most = Math.max(Math.max(tint & 0xFF, tint >> 8 & 0xFF), tint >> 16 & 0xFF) / 255f;
+            int flags = walk.flags(note);
+            for (int vertex = 0; vertex < 4; vertex++) {
+                int color = colors[vertex];
+                float greatest = Math.max(Math.max(color & 0xFF, color >> 8 & 0xFF), color >> 16 & 0xFF) / 255f;
+                QuadWalk.OCCLUSION.corner(walk.face(note), walk.front(note), cc.orthrus.quadrature.core.material.OcclusionAudit
+                    .occlusion(greatest, most, FACE_SHADE[walk.face(note)], (flags & FaceRecord.OCCLUDED) != 0,
+                        (flags & FaceRecord.SHADED) != 0));
+            }
         }
         int corners = FaceRecord.rectangle(coordinates, rect);
         if (corners < 0) {
@@ -216,7 +235,13 @@ final class FaceBuilder {
         int[] header = headers[layer];
         int word = quad * HEADER_WORDS;
         if (walk == null) {
+            // Nothing is known of the block it belongs to: it reads the table's first row.
+            UNSTATED.incrementAndGet();
             header[word] = NO_SPRITE;
+            header[word + 1] = 0xFFFFFF;
+        } else if (walk.quad(note) == null) {
+            // Drawn by something other than a model: its block's state, no sprite, no tint.
+            header[word] = NO_SPRITE | walk.state(note) << 16;
             header[word + 1] = 0xFFFFFF;
         } else {
             TextureAtlasSprite sprite = walk.quad(note).getSprite();

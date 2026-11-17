@@ -39,6 +39,7 @@ public final class FrameHost {
         }
         // A stage handed over in a folder is checked once, before the frame's own work, where asked.
         StageCheck.runOnce();
+        StageSelfTest.runOnce();
         seen.clear();
         timeline.beginFrame();
         if (audit != null) {
@@ -63,6 +64,16 @@ public final class FrameHost {
                 timeline.enter(Probe.STAGE);
                 Probe.run();
             }
+            if (stage.equals(StageHost.BEFORE) && cc.orthrus.quadrature.terrain.TerrainHook.targetWritersDue()) {
+                // What writes into the targets besides near terrain, before anything reads them. Each
+                // writer is a stretch of its own to the state audit, so one that leaves state changed is named.
+                timeline.enter(TARGET_WRITERS);
+                cc.orthrus.quadrature.terrain.TerrainHook.runTargetWriters(place -> {
+                    if (audit != null) {
+                        audit.boundary(TARGET_WRITERS + " " + place);
+                    }
+                });
+            }
             if (StageHost.REQUESTED && stage.equals(StageHost.BEFORE)) {
                 // The shading stage handed over in a folder: it reads what opaque terrain just drew.
                 if (audit != null) {
@@ -70,6 +81,7 @@ public final class FrameHost {
                 }
                 timeline.enter(StageHost.STAGE);
                 StageHost.run();
+                cc.orthrus.quadrature.terrain.TerrainHook.writeImagesDue();
             }
             if (audit != null) {
                 audit.boundary(stage);
@@ -79,6 +91,9 @@ public final class FrameHost {
     }
 
     private static int currentStage = -1;
+
+    /** The stage in which what writes into the targets for shading besides near terrain is called. */
+    static final String TARGET_WRITERS = "target writers";
 
     /** The world pass ends. */
     public static void endPass() {

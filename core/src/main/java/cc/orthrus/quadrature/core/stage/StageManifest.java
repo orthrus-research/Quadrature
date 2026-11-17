@@ -28,7 +28,7 @@ public final class StageManifest {
      * The newest version of the manifest that is read. A later one may mean things this does not know
      * of, and is refused; so is version 4, which was never handed over.
      */
-    public static final int NEWEST = 5;
+    public static final int NEWEST = 6;
     /** The version from which a manifest says what is to be run, as a {@link StagePlan}. */
     public static final int PLANNED_FROM = 5;
 
@@ -110,8 +110,8 @@ public final class StageManifest {
         this.folder = folder;
         version = number(root.get("manifest"), "manifest");
         if (version < 1 || version > NEWEST || version == 4) {
-            throw new IllegalArgumentException("The manifest is of version " + version + "; versions 1 to 3 and " + NEWEST
-                + " are read");
+            throw new IllegalArgumentException("The manifest is of version " + version + "; versions 1 to 3 and " + PLANNED_FROM
+                + " to " + NEWEST + " are read");
         }
         byteOrder = String.valueOf(root.get("byteOrder"));
         rowOrder = String.valueOf(root.get("rowOrder"));

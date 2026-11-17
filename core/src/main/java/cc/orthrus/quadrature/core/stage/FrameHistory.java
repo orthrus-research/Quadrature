@@ -76,7 +76,6 @@ public final class FrameHistory {
         block.eyeMovement[0] = (float) movedX;
         block.eyeMovement[1] = (float) movedY;
         block.eyeMovement[2] = (float) movedZ;
-        block.eyeMovement[3] = 0;
 
         // Drift goes on across a reset: clouds do not jump back when history is dropped.
         double passed = timed ? Math.max(0, seconds - this.seconds) : 0;
@@ -84,8 +83,6 @@ public final class FrameHistory {
         slow = (slow + passed * DRIFT_SLOW) % DRIFT_WRAP;
         block.cloudDrift[0] = (float) fast;
         block.cloudDrift[1] = (float) slow;
-        block.cloudDrift[2] = 0;
-        block.cloudDrift[3] = 0;
 
         System.arraycopy(viewProjectionAtEye, 0, viewProjection, 0, 16);
         this.eyeX = eyeX;

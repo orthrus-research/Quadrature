@@ -154,22 +154,34 @@ final class ShadowTarget {
         GL11.glDisable(GL11.GL_CULL_FACE);
         // What stands nearer the light than the view's box still casts into it.
         GL11.glEnable(GL32.GL_DEPTH_CLAMP);
+        // The depth is drawn with the offset set for it and no other: what the game holds at this point
+        // is read and put back, never drawn with. An offset left on by the game would move every stored
+        // depth by the slope of its surface, which at a low light is most of a block on flat ground.
+        offset = GL11.glIsEnabled(GL11.GL_POLYGON_OFFSET_FILL);
+        offsetFactor = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_FACTOR);
+        offsetUnits = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_UNITS);
+        if (offset && (offsetFactor != 0 || offsetUnits != 0) && !offsetFound) {
+            offsetFound = true;
+            Quadrature.LOGGER.warn("Shadow target: the game holds a polygon offset of {}, {} switched on where the light's depth is "
+                + "drawn; the depth is drawn without it. It is said once.", offsetFactor, offsetUnits);
+        }
         if (POLYGON_OFFSET[0] != 0 || POLYGON_OFFSET[1] != 0) {
-            offset = GL11.glIsEnabled(GL11.GL_POLYGON_OFFSET_FILL);
-            offsetFactor = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_FACTOR);
-            offsetUnits = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_UNITS);
             GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
             GL11.glPolygonOffset(POLYGON_OFFSET[0], POLYGON_OFFSET[1]);
+        } else {
+            GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
         }
     }
 
+    private boolean offsetFound;
+
     /** Puts back what {@link #begin} changed. The framebuffer and viewport are the envelope's to restore. */
     void end() {
-        if (POLYGON_OFFSET[0] != 0 || POLYGON_OFFSET[1] != 0) {
-            GL11.glPolygonOffset(offsetFactor, offsetUnits);
-            if (!offset) {
-                GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
-            }
+        GL11.glPolygonOffset(offsetFactor, offsetUnits);
+        if (offset) {
+            GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
+        } else {
+            GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
         }
         GL11.glDisable(GL32.GL_DEPTH_CLAMP);
         if (DepthCalls.active()) {

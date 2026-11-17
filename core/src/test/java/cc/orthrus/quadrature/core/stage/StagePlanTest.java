@@ -123,6 +123,94 @@ class StagePlanTest {
     }
 
     @Test
+    void aPassMayBlendByFactorsOfAClosedListAndBelongToAGroup() {
+        // A pass that names neither does not blend and belongs to no group.
+        StagePlan plain = plan(WHOLE);
+        assertEquals(null, plain.passes().get(1).blend);
+        assertFalse(plain.passes().get(1).blending);
+        assertEquals(null, plain.passes().get(1).group);
+        assertTrue(plain.groups().isEmpty());
+
+        String blend = "\"blend\":{\"equation\":\"add\",\"colorSource\":\"one\",\"colorDestination\":\"sourceAlpha\","
+            + "\"alphaSource\":\"zero\",\"alphaDestination\":\"one\"},\"group\":\"indirect\",";
+        String blended = WHOLE.replace("{\"name\":\"lighting\",\"program\"", "{\"name\":\"lighting\"," + blend + "\"program\"")
+            .replace("{\"name\":\"keep\",\"program\"", "{\"name\":\"keep\",\"group\":\"indirect\",\"program\"");
+        StagePlan plan = plan(blended);
+        StagePlan.Pass lighting = plan.passes().get(1);
+        assertTrue(lighting.blending);
+        assertEquals(StagePlan.Factor.ONE, lighting.blend.colorSource);
+        assertEquals(StagePlan.Factor.SOURCE_ALPHA, lighting.blend.colorDestination);
+        assertEquals(StagePlan.Factor.ZERO, lighting.blend.alphaSource);
+        assertEquals(StagePlan.Factor.ONE, lighting.blend.alphaDestination);
+        assertEquals("indirect", lighting.group);
+        assertEquals(java.util.List.of("indirect"), plan.groups());
+        assertEquals(null, plan.passes().get(2).group);
+
+        // Every factor of the list is taken; anything else, and any equation but adding, is refused by name.
+        for (String factor : new String[] {"zero", "one", "sourceAlpha", "oneMinusSourceAlpha", "destinationAlpha",
+            "oneMinusDestinationAlpha"}) {
+            plan(blended.replace("\"colorSource\":\"one\"", "\"colorSource\":\"" + factor + "\""));
+        }
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> plan(blended.replace("\"colorSource\":\"one\"",
+            "\"colorSource\":\"sourceColor\""))).getMessage().contains("sourceColor"));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> plan(blended.replace("\"equation\":\"add\"",
+            "\"equation\":\"max\""))).getMessage().contains("max"));
+        // Blending asked for without saying how is still refused.
+        assertTrue(refused("\"blending\":false", "\"blending\":true").contains("does not say how"));
+    }
+
+    @Test
+    void aCheckMayRunSeveralFramesAndNameTheOneItReadsAfter() {
+        // With one file named for the frame's block there is one frame, and every check is of it.
+        StagePlan one = plan(WHOLE);
+        assertEquals(java.util.List.of("frame.std140"), one.frames());
+        assertEquals(0, one.checks().get(0).frame);
+
+        String several = WHOLE.replace("\"frameBlockFile\": \"frame.std140\",",
+            "\"frames\": [\"frame.std140\", \"frame.std140\", \"frame.std140\"],")
+            .replace("{\"pass\":\"display\",\"output\":0", "{\"pass\":\"display\",\"frame\":2,\"output\":0");
+        StagePlan plan = plan(several);
+        assertEquals(3, plan.frames().size());
+        assertEquals(0, plan.checks().get(0).frame);
+        assertEquals(2, plan.checks().get(1).frame);
+        // A frame that is not there, a frame's file that is not listed, and an empty list are refused.
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> plan(several.replace("\"frame\":2", "\"frame\":3")))
+            .getMessage().contains("frame that is not there"));
+        assertTrue(refused("{\"pass\":\"display\",\"output\":0", "{\"pass\":\"display\",\"frame\":1,\"output\":0")
+            .contains("frame that is not there"));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> plan(several.replace(
+            "[\"frame.std140\", \"frame.std140\", \"frame.std140\"]", "[\"frame.std140\", \"absent.std140\"]")))
+            .getMessage().contains("absent.std140"));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> plan(several.replace(
+            "[\"frame.std140\", \"frame.std140\", \"frame.std140\"]", "[]"))).getMessage().contains("empty"));
+    }
+
+    @Test
+    void aPassMayBlendIntoATargetWrittenEarlierWithoutReadingIt() {
+        // Three outputs of one size, two of them kept; then a pass that adds to what lighting wrote and does not sample it.
+        String more = WHOLE.replace("{\"name\":\"kept\",\"format\":\"RGBA8\"",
+            "{\"name\":\"guide\",\"format\":\"RGBA8\",\"sizeDivisor\":2,\"persistent\":true,\"clear\":\"zero on reset\",\"sampler\":"
+                + NEAREST + "},  {\"name\":\"shade\",\"format\":\"R8\",\"sizeDivisor\":2,\"persistent\":false,\"clear\":\"none\","
+                + "\"sampler\":" + NEAREST + "},  {\"name\":\"kept\",\"format\":\"RGBA8\"")
+            .replace("\"outputs\":[{\"location\":0,\"target\":\"kept\"}]", "\"outputs\":[{\"location\":0,\"target\":\"kept\"},"
+                + "{\"location\":1,\"target\":\"guide\"},{\"location\":2,\"target\":\"shade\"}]")
+            .replace("  {\"name\":\"display\",\"program\"", "  {\"name\":\"resolve\",\"program\":\"lighting\",\"vertex\":"
+                + "\"fullscreen.vert\",\"fragment\":\"lighting.frag\",\"blend\":{\"equation\":\"add\",\"colorSource\":\"one\","
+                + "\"colorDestination\":\"sourceAlpha\",\"alphaSource\":\"zero\",\"alphaDestination\":\"one\"},\"inputs\":"
+                + "[{\"sampler\":\"qShade\",\"unit\":0,\"source\":\"target:shade\"},{\"sampler\":\"qGuide\",\"unit\":1,"
+                + "\"source\":\"history:guide\"}],\"outputs\":[{\"location\":0,\"target\":\"sceneRadiance\"}]},"
+                + "  {\"name\":\"display\",\"program\"");
+        StagePlan plan = plan(more);
+        assertEquals(4, plan.passes().size());
+        assertEquals(3, plan.passes().get(0).outputs.size());
+        assertEquals("resolve", plan.passes().get(2).name);
+        assertTrue(plan.passes().get(2).blending);
+        assertEquals("sceneRadiance", StagePlan.target(plan.passes().get(2), 0));
+        // 480 by 270: radiance 8 bytes; kept and guide at half size, 4 bytes, twice each; shade at half size, 1 byte.
+        assertEquals(480L * 270 * 8 + 240L * 135 * 4 * 2 * 2 + 240L * 135, plan.targetBytes(480, 270));
+    }
+
+    @Test
     void aSideIsDividedAndRoundedUp() {
         assertEquals(480, StagePlan.side(480, 1));
         assertEquals(240, StagePlan.side(480, 2));

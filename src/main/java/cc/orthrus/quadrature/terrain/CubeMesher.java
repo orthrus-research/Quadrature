@@ -147,6 +147,11 @@ final class CubeMesher {
                                     // The dispatcher takes a block's actual state before it asks for the model.
                                     walk.render(dispatcher, snapshot, state.getActualState(snapshot, pos), pos, builders[layer],
                                         LightScene.index(x, y, z), layer, Block.getStateId(state) & 0xFFFF);
+                                } else if (FACES) {
+                                    // Not a model: what is drawn is still noted, with the block's state.
+                                    int from = builders[layer].getVertexCount();
+                                    dispatcher.renderBlock(state, pos, snapshot, builders[layer]);
+                                    walk.foreign(builders[layer], from, LightScene.index(x, y, z), layer, Block.getStateId(state) & 0xFFFF);
                                 } else {
                                     dispatcher.renderBlock(state, pos, snapshot, builders[layer]);
                                 }
@@ -207,7 +212,9 @@ final class CubeMesher {
                 walk.render(dispatcher, snapshot, actual, pos, walked[layer], cell, layer, Block.getStateId(state) & 0xFFFF);
                 blocksWalked++;
             } else {
+                int from = walked[layer].getVertexCount();
                 dispatcher.renderBlock(state, pos, snapshot, walked[layer]);
+                walk.foreign(walked[layer], from, cell, layer, Block.getStateId(state) & 0xFFFF);
                 blocksLeftToTheDispatcher++;
             }
         } catch (RuntimeException e) {

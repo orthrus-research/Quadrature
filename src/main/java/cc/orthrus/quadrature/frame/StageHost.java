@@ -90,6 +90,9 @@ public final class StageHost {
     private static int noShadow;
     private static long targetsGeneration = -1;
     private static long runs;
+    private static long lastRun = Long.MIN_VALUE;
+    /** The passes run each frame: the manifest's, less those of the groups left out. */
+    private static java.util.List<StagePlan.Pass> passes;
     private static int images;
     private static final FrameBlock frame = new FrameBlock();
     private static final FrameClock clock = new FrameClock();
@@ -144,6 +147,11 @@ public final class StageHost {
             Minecraft minecraft = Minecraft.getMinecraft();
             World world = minecraft.world;
             boolean drawn = shadows != null && shadows.texture() != 0;
+            if (index != lastRun + 1) {
+                // The stage did not run in the frame before: what it kept is of some earlier frame.
+                history.drop();
+            }
+            lastRun = index;
             boolean reset = fill(targets, drawn ? shadows : null, view, index, world, minecraft.getRenderPartialTicks());
             blockBytes.clear();
             frame.write(blockBytes);
@@ -165,24 +173,28 @@ public final class StageHost {
             if (reset) {
                 runner.reset();
             }
-            runner.run(runner.plan().passes(), null);
+            runner.run(passes, null);
 
             if (SHOW && displayed) {
                 // Over the whole of the game's picture, color alone: the game's depth stays as terrain left it.
                 GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, minecraft.getFramebuffer().framebufferObject);
                 GL11.glViewport(0, 0, minecraft.displayWidth, minecraft.displayHeight);
+                GL11.glDisable(GL11.GL_BLEND);
                 GL45.glBindTextureUnit(0, runner.display());
                 GL33.glBindSampler(0, nearest);
                 GL30.glBindVertexArray(presentArray);
                 GL20.glUseProgram(present);
                 GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, 3);
             }
+            if (IMAGES && TerrainHook.imagesDue()) {
+                probe(drawn ? shadows : null, targets);
+            }
             runner.endFrame();
             runs++;
             if (runs == 1) {
                 int error = GL11.glGetError();
                 Quadrature.LOGGER.info("Stage: the first frame ran, {} passes at {} by {}, light depth {}, shown {}; driver error "
-                    + "0x{}.", runner.plan().passes().size(), runner.width(), runner.height(),
+                    + "0x{}.", passes.size(), runner.width(), runner.height(),
                     drawn ? "read" : "not drawn, everything lit", SHOW && displayed, Integer.toHexString(error));
             }
         } catch (Throwable failure) {
@@ -200,6 +212,103 @@ public final class StageHost {
             GL11.glColorMask(colorMask.get(0) != 0, colorMask.get(1) != 0, colorMask.get(2) != 0, colorMask.get(3) != 0);
             // The program, the vertex array, the framebuffer and the viewport, as the game holds them.
             StateEnvelope.leave();
+        }
+    }
+
+    /** What a diagnostic pass wrote in the frame images are written of: the pass, the output, its size and its numbers. */
+    private static final java.util.List<Object[]> probed = new java.util.ArrayList<>();
+
+    /**
+     * For the frame images are about to be written of: runs the manifest's diagnostic passes on this
+     * frame's inputs, keeps what each wrote to be written beside the images, and logs what the stage
+     * was told of the light, so that a shadow that is missing from the picture can be traced.
+     */
+    private static void probe(ShadowMaps shadows, ShadingTargets targets) {
+        probed.clear();
+        for (StagePlan.Pass diagnostic : runner.plan().diagnosticPasses()) {
+            runner.run(java.util.Collections.singletonList(diagnostic), pass -> {
+                int divisor = runner.plan().divisor(pass);
+                int width = StagePlan.side(runner.width(), divisor);
+                int height = StagePlan.side(runner.height(), divisor);
+                for (StagePlan.Output output : pass.outputs) {
+                    ByteBuffer read = ByteBuffer.allocateDirect(width * height * 16).order(ByteOrder.nativeOrder());
+                    GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
+                    GL45.glGetTextureImage(runner.texture(output.target), 0, GL11.GL_RGBA, GL11.GL_FLOAT, read);
+                    float[] values = new float[width * height * 4];
+                    read.asFloatBuffer().get(values);
+                    probed.add(new Object[] {pass.name, output.location, width, height, values});
+                }
+            });
+        }
+        StringBuilder matrix = new StringBuilder();
+        for (float value : frame.lightViews[0]) {
+            matrix.append(matrix.length() == 0 ? "" : " ").append(String.format("%.6g", value));
+        }
+        float[] drawnToward = shadows == null ? null : shadows.drawnTowardLight();
+        Quadrature.LOGGER.info("Stage probe: {} diagnostic outputs kept; toward the sun {} {} {}, toward the light {} {} {}; {} light "
+            + "views given; the first, column-major: {}; its scales {} {}; the light's view generation {}, content {}, drawn "
+            + "toward {}, {} cubes; half side {}, cloud height {}.", probed.size(), frame.sun[0], frame.sun[1], frame.sun[2],
+            frame.light[0], frame.light[1], frame.light[2], frame.frame[3], matrix, frame.lightScales[0][0], frame.lightScales[0][1],
+            shadows == null ? "none" : shadows.generation(), shadows == null ? "none" : shadows.contentGeneration(),
+            drawnToward == null ? "nothing" : drawnToward[0] + " " + drawnToward[1] + " " + drawnToward[2],
+            TerrainHook.lightViewCubes(), frame.eyeMovement[3], frame.cloudDrift[2]);
+        if (shadows != null) {
+            lightDepth(shadows, targets);
+        }
+    }
+
+    private static ByteBuffer mapRead;
+
+    /**
+     * Says what the light's depth holds in the frame images are written of, and for one pixel low in
+     * the middle of the picture, where a tour's views show ground: where it lies in the light's view,
+     * its depth there by the matrix the stage was given, and the depth the map holds at that texel.
+     * A stored depth well below the reference means something stands between that ground and the light
+     * in the map; one a hair below it means the ground shadows itself.
+     */
+    private static void lightDepth(ShadowMaps shadows, ShadingTargets targets) {
+        try {
+            int side = shadows.side();
+            if (mapRead == null || mapRead.capacity() != side * side * 4) {
+                mapRead = ByteBuffer.allocateDirect(side * side * 4).order(ByteOrder.nativeOrder());
+            }
+            mapRead.clear();
+            GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
+            GL45.glGetTextureSubImage(shadows.texture(), 0, 0, 0, 0, side, side, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, mapRead);
+            float least = Float.MAX_VALUE;
+            float most = -Float.MAX_VALUE;
+            long below = 0;
+            for (int i = 0; i < side * side; i++) {
+                float value = mapRead.getFloat(i * 4);
+                least = Math.min(least, value);
+                most = Math.max(most, value);
+                below += value < 1f ? 1 : 0;
+            }
+            int x = targets.width() / 2;
+            int y = targets.height() / 6;
+            ByteBuffer one = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
+            GL45.glGetTextureSubImage(targets.depthTexture(), 0, x, y, 0, 1, 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, one);
+            float depth = one.getFloat(0);
+            double[] place = FrameBlock.apply(FrameBlock.doubles(frame.inverseViewProjection), (x + 0.5) / targets.width() * 2 - 1,
+                (y + 0.5) / targets.height() * 2 - 1, depth, 1);
+            double[] lit = FrameBlock.apply(FrameBlock.doubles(frame.lightViews[0]), place[0] / place[3], place[1] / place[3],
+                place[2] / place[3], 1);
+            double u = lit[0] * 0.5 + 0.5;
+            double v = lit[1] * 0.5 + 0.5;
+            int texelX = (int) Math.floor(u * side);
+            int texelY = (int) Math.floor(v * side);
+            boolean inside = texelX >= 0 && texelX < side && texelY >= 0 && texelY < side;
+            Quadrature.LOGGER.info("Stage probe: the light's depth, {} by {}: least {}, greatest {}, {} of {} texels below 1. The pixel "
+                + "({}, {}) counted from the bottom left: stored depth {}, {} {} {} blocks from the eye; in the light's view u {} v {}, "
+                + "reference depth {}; the map holds {} at texel ({}, {}); the depth's span is {} blocks, so the reference lies {} "
+                + "blocks behind what the map holds.", side, side, least, most, below, (long) side * side, x, y, depth,
+                String.format("%.2f", place[0] / place[3]), String.format("%.2f", place[1] / place[3]),
+                String.format("%.2f", place[2] / place[3]), String.format("%.5f", u), String.format("%.5f", v),
+                String.format("%.6f", lit[2]), inside ? String.format("%.6f", mapRead.getFloat((texelY * side + texelX) * 4)) : "nothing",
+                texelX, texelY, frame.lightScales[0][1],
+                inside ? String.format("%.3f", (lit[2] - mapRead.getFloat((texelY * side + texelX) * 4)) * frame.lightScales[0][1]) : "?");
+        } catch (RuntimeException failure) {
+            Quadrature.LOGGER.warn("Stage probe: the light's depth could not be read: {}", failure.toString());
         }
     }
 
@@ -266,6 +375,10 @@ public final class StageHost {
         int dimension = world.provider.getDimension();
         boolean reset = history.advance(viewProjection, eye[0], eye[1], eye[2], targets.width(), targets.height(), dimension,
             runner.plan().teleportResetBlocks(), seconds, frame);
+        // Beside the eye's movement, how far what was written into the targets reaches; beside the
+        // clouds' drift, the height the world keeps its clouds at.
+        frame.eyeMovement[3] = TerrainHook.targetsFarEdge();
+        frame.cloudDrift[2] = world.provider.getCloudHeight();
         // The count of light views is what lets the stage look a shadow up at all: none drawn, none counted.
         frame.frame(index, reset, dimension, layers);
         return reset;
@@ -305,6 +418,30 @@ public final class StageHost {
         ByteBuffer far = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
         far.putFloat(0, 1f);
         GL45.glTextureSubImage3D(noShadow, 0, 0, 0, 0, 1, 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, far);
+        // -Dquadrature.stage.skip=group,group leaves out every pass of the groups named, all of a group or none.
+        java.util.List<String> skipped = new java.util.ArrayList<>();
+        for (String group : System.getProperty("quadrature.stage.skip", "").split(",")) {
+            if (!group.trim().isEmpty()) {
+                skipped.add(group.trim());
+            }
+        }
+        java.util.List<String> groups = made.plan().groups();
+        for (String group : skipped) {
+            if (!groups.contains(group)) {
+                Quadrature.LOGGER.warn("Stage: no pass belongs to a group named {}; the manifest's groups are {}.", group, groups);
+            }
+        }
+        passes = new java.util.ArrayList<>();
+        for (StagePlan.Pass pass : made.plan().passes()) {
+            if (pass.group == null || !skipped.contains(pass.group)) {
+                passes.add(pass);
+            }
+        }
+        if (passes.size() != made.plan().passes().size()) {
+            Quadrature.LOGGER.info("Stage: the groups {} are left out: {} of {} passes run.", skipped, passes.size(),
+                made.plan().passes().size());
+        }
+        made.timePasses();
         runner = made;
         Quadrature.LOGGER.info("Stage: {} passes are compiled from {}, manifest {}; the result is {}.", made.plan().passes().size(),
             named, manifest.version(), SHOW && displayed ? "shown" : "not shown");
@@ -334,14 +471,42 @@ public final class StageHost {
             File file = new File(directory, String.format("stage-%02d-%s.png", images++, name));
             ImageIO.write(image, "png", file);
             Quadrature.LOGGER.info("Stage image written: {}.", file.getName());
+            // What the diagnostic passes wrote in the same frame: the numbers as they are, four 32-bit
+            // floats a pixel from the bottom row up, little-endian, and the first three as an image to look at.
+            for (Object[] probe : probed) {
+                int probeWidth = (Integer) probe[2];
+                int probeHeight = (Integer) probe[3];
+                float[] values = (float[]) probe[4];
+                byte[] raw = new byte[values.length * 4];
+                ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().put(values);
+                String stem = String.format("stage-%02d-%s-%s-%d", images - 1, name, probe[0], (Integer) probe[1]);
+                java.nio.file.Files.write(new File(directory, stem + ".rgba32f").toPath(), raw);
+                BufferedImage shown = new BufferedImage(probeWidth, probeHeight, BufferedImage.TYPE_INT_RGB);
+                for (int y = 0; y < probeHeight; y++) {
+                    for (int x = 0; x < probeWidth; x++) {
+                        int at = ((probeHeight - 1 - y) * probeWidth + x) * 4;
+                        shown.setRGB(x, y, level(values[at]) << 16 | level(values[at + 1]) << 8 | level(values[at + 2]));
+                    }
+                }
+                ImageIO.write(shown, "png", new File(directory, stem + ".png"));
+            }
+            if (!probed.isEmpty()) {
+                Quadrature.LOGGER.info("Stage probe written: {} outputs beside {}.", probed.size(), file.getName());
+                probed.clear();
+            }
         } catch (java.io.IOException | RuntimeException failure) {
             Quadrature.LOGGER.warn("Stage image not written: {}", failure.toString());
         }
     }
 
+    private static int level(float value) {
+        return Math.max(0, Math.min(255, Math.round(value * 255)));
+    }
+
     /** One line for the timing log, or nothing where the stage is off. */
     public static String summary() {
         return !REQUESTED ? "" : failed ? "; stage failed and is off" : String.format("; stage run in %d frames, history dropped "
-            + "in %d, %s", runs, history.resets(), SHOW && displayed ? "shown" : "not shown");
+            + "in %d, %s%s", runs, history.resets(), SHOW && displayed ? "shown" : "not shown",
+            runner == null ? "" : ", its passes at the median: " + runner.passTimes());
     }
 }
