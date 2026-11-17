@@ -243,8 +243,9 @@ public final class Terrain
 
     /**
      * Off unless {@code -Dquadrature.shadow.near=true}, with the light's depth on: a second layer, a box
-     * 192 blocks across centered on the player, drawn by the same rules as the wide one and each when
-     * its own are met. It is layer 0 and the wide box layer 1.
+     * 192 blocks across centered on the player and as deep along the light as the wide box, searched
+     * through that whole depth, drawn by the same rules as the wide one and each when its own are met.
+     * It is layer 0 and the wide box layer 1.
      */
     private static final boolean NEAR_SHADOW = SHADOW && ShadowTarget.LAYOUT.near();
     private final View nearView = new View();
@@ -264,6 +265,8 @@ public final class Terrain
     private long nearResnaps;
     private long nearTurns;
     private int nearDraws;
+    /** The near box's depth along the light when it was last drawn: the wide box's side. */
+    private double nearDepth;
     private final Visibility visible = new Visibility();
     private final Visibility lit = new Visibility();
     /** Counts changes to {@link #links}; a search holds while it and the view stand still. */
@@ -1149,7 +1152,7 @@ public final class Terrain
      * the light turned more than the set angle. Called after {@link #shadowDue}, which finds the light.
      */
     private boolean nearShadowDue() {
-        ShadowLayers.nearBox(nearCandidate, mainView, towardLight[0], towardLight[1], towardLight[2]);
+        ShadowLayers.nearBox(nearCandidate, mainView, towardLight[0], towardLight[1], towardLight[2], lightSide);
         boolean due = nearMeshVersion != meshVersion;
         nearResnapped = false;
         nearTurned = false;
@@ -1163,6 +1166,7 @@ public final class Terrain
         due |= nearResnapped || nearTurned || nearMeshVersion < 0;
         if (due) {
             nearView.copy(nearCandidate);
+            nearDepth = lightSide;
         }
         return due;
     }
@@ -1224,7 +1228,7 @@ public final class Terrain
                 nearOriginY = mainView.originY();
                 nearOriginZ = mainView.originZ();
                 System.arraycopy(towardLight, 0, nearToward, 0, 3);
-                shadowMaps.layer(nearLayer, nearView, ShadowLayers.NEAR_SIDE, nearContent);
+                shadowMaps.layer(nearLayer, nearView, ShadowLayers.NEAR_SIDE, nearDepth, nearContent);
                 nearMeshVersion = meshVersion;
                 if (nearResnapped) {
                     nearResnaps++;
@@ -1720,9 +1724,9 @@ public final class Terrain
                 lightSide, shadowFrames, shadowKept, shadowResnaps, shadowTurns, shadowMaps.generation(),
                 shadowMaps.contentGeneration(), shadow.gpuMillisTotal() / Math.max(1, shadowFrames + shadowKept));
             if (NEAR_SHADOW) {
-                line += String.format("; near layer %.0f blocks, %.3f blocks a texel, %d cubes, %d commands, %d draws, drawn in "
+                line += String.format("; near layer %.0f blocks across and %.0f deep, %.3f blocks a texel, %d cubes, %d commands, %d draws, drawn in "
                         + "%d frames, %d for another texel, %d for the light turning",
-                    ShadowLayers.NEAR_SIDE, ShadowLayers.texel(ShadowLayers.NEAR_SIDE), nearLit.count(),
+                    ShadowLayers.NEAR_SIDE, nearDepth, ShadowLayers.texel(ShadowLayers.NEAR_SIDE), nearLit.count(),
                     nearList.commandCount(), nearDraws, nearFrames, nearResnaps, nearTurns);
             }
         }

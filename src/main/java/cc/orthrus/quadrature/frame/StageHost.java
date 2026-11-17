@@ -362,7 +362,7 @@ public final class StageHost {
                 double[] matrix = FrameBlock.lightViewFromEye(shadows.viewProjection(layer), eye[0] - origin[0], eye[1] - origin[1],
                     eye[2] - origin[2]);
                 frame.lightView(layer, FrameBlock.floats(matrix), (float) (shadows.boxSide(layer) / shadows.side()),
-                    (float) shadows.boxSide(layer));
+                    (float) shadows.boxDepth(layer));
             }
             // The light's direction given is this frame's; how far the map lags it is in the matrix alone.
         }

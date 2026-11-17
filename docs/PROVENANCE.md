@@ -389,17 +389,19 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Added: 2026-11-17
 
 ### The near layer of the light's depth
-- Code: `core/src/main/java/cc/orthrus/quadrature/core/view/ShadowLayers.java`, `keep` in
-  `ShadowMaps.java`; the near layer in `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java`
-  and `ShadowTarget.java`
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/view/ShadowLayers.java`, `keep` and
+  `boxDepth` in `ShadowMaps.java`, the box of its own depth in `View.java`; the near layer in
+  `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` and `ShadowTarget.java`
 - Source: Valient, "Stable Rendering of Cascaded Shadow Maps", ShaderX6, 2008, for boxes of
   fixed size moved by whole texels; Dimitrov, "Cascaded Shadow Maps", NVIDIA, 2007, and Engel,
   "Cascaded Shadow Maps", ShaderX5, 2006, for several boxes of different size about the eye,
   drawn into layers of one texture; the OpenGL 4.6 specification (attaching one layer of an
   array texture to a framebuffer).
 - Taken: the ideas. A smaller box near the player in a second layer, each box drawn again only
-  when its own conditions are met. A kept layer's matrix is carried to the frame's origin by
-  translating it, which is plain linear algebra.
+  when its own conditions are met; the near box narrow across the light and extended along it
+  to the wide box's side toward the light, so that casters far toward a low light are drawn into
+  it, as cascades are commonly extended toward the light to hold their casters. A kept layer's
+  matrix is carried to the frame's origin by translating it, which is plain linear algebra.
 - Not taken: any renderer's source, and boxes fitted to the camera's frustum: both boxes are
   fixed cubes centered on the player.
 - Added: 2026-11-17

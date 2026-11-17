@@ -5,16 +5,17 @@ package cc.orthrus.quadrature.core.view;
  * side, in an array texture of 24-bit depth kept in 4 bytes a texel, 64 MiB a layer.
  *
  * <p>With the near layer on there are two: layer 0, a box 192 blocks across centered on the player,
- * 0.047 of a block a texel; and layer 1, the box that holds every cube the client has. With it off
- * there is one, that wide box, as layer 0. Each box is moved to a whole texel of its own along the
+ * 0.047 of a block a texel, and as deep along the light as the wide box, so that what stands far
+ * toward a low light casts into it; and layer 1, the box that holds every cube the client has. With it
+ * off there is one, that wide box, as layer 0. Each box is moved to a whole texel of its own along the
  * light's axes, measured from the world's origin, by {@link View#alongLight(View, View, double, double,
- * double, double, int)}.
+ * double, double, double, int)}.
  */
 public final class ShadowLayers {
 
     /** Texels along a side of every layer. */
     public static final int TEXELS = 4096;
-    /** The near box's side, in blocks: it is as deep as it is wide. */
+    /** The near box's side across the light, in blocks; along the light it is as deep as the wide box. */
     public static final double NEAR_SIDE = 192;
     /** Bytes a texel takes: 24 bits of depth in 4 bytes. */
     public static final int BYTES_A_TEXEL = 4;
@@ -62,12 +63,15 @@ public final class ShadowLayers {
 
     /**
      * Fills {@code out} as the near box along the light, centered on {@code main}'s origin and moved to
-     * a whole texel of its own.
+     * a whole texel of its own: {@link #NEAR_SIDE} across, and as deep along the light as the wide box,
+     * so that what stands far toward a low light, outside the near box's square, still casts into it.
      *
-     * @return the box's side, in blocks
+     * @param depth the box's extent along the light, in blocks: the wide box's side
+     * @return the box's side across, in blocks
      */
-    public static double nearBox(View out, View main, double towardLightX, double towardLightY, double towardLightZ) {
-        View.alongLight(out, main, towardLightX, towardLightY, towardLightZ, NEAR_SIDE, TEXELS);
+    public static double nearBox(View out, View main, double towardLightX, double towardLightY, double towardLightZ,
+        double depth) {
+        View.alongLight(out, main, towardLightX, towardLightY, towardLightZ, NEAR_SIDE, depth, TEXELS);
         return NEAR_SIDE;
     }
 

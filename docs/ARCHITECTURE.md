@@ -211,10 +211,16 @@ with it on.
   sampled through either of two sampler objects: compared with a reference and filtered,
   or as the depth itself.
 - **The near layer**, behind `-Dquadrature.shadow.near=true` (off unless set), adds a box
-  192 blocks across and as deep, centered on the player and moved to a whole texel of its
-  own, 0.047 of a block a texel. It is layer 0 and the wide box layer 1, 128 MiB in all;
-  with it off the wide box is the only layer, layer 0. The near layer is searched and
-  commanded as a view of its own, and drawn again by the same rules as the wide one,
+  192 blocks across, centered on the player and moved to a whole texel of its own, 0.047
+  of a block a texel. Along the light it is as deep as the wide box, 544 blocks, so its
+  side toward the light is the wide box's: what stands far toward a low light, outside
+  the 192-block square, still casts onto the ground in it. 24 bits of depth over 544
+  blocks are steps of a thirty-thousandth of a block. It is layer 0 and the wide box
+  layer 1, 128 MiB in all; with it off the wide box is the only layer, layer 0. Each
+  layer's side across and its depth are published (`boxSide`, `boxDepth`), and the frame
+  block's `qShadowScale[i]` holds blocks a texel in x and the depth's span in y. The near
+  layer is searched and commanded as a view of its own through that whole depth, its cube
+  count logged in the terrain summary, and drawn again by the same rules as the wide one,
   measured from its own last drawing, so each layer is redrawn only when its own rules
   are met. A layer that is kept holds what it held, and its matrix is carried to the
   frame's origin, which every layer's matrix is relative to. `ShadowLayers` in `core`.
@@ -841,7 +847,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | A view as the input to visibility and drawing | Decided; built | |
 | Coverage of chunk columns, and whether a search came to the edge of the box | Built; coverage behind a switch | A surface height from the cube source |
 | The scene for lighting: a state number per cell, light properties per state, occupancy and state bricks under a wrapped lookup | Built, behind switches | Color; shapes smaller than a cell |
-| The light's depth: fixed, texel-snapped orthographic boxes, a near one of 192 blocks behind its own switch and a wide one, each drawn into a layer of an array texture and kept between frames | Built, behind switches | Entities in it; what samples it |
+| The light's depth: fixed, texel-snapped orthographic boxes, a near one 192 blocks across and 544 deep behind its own switch and a wide one, each drawn into a layer of an array texture and kept between frames | Built, behind switches | Entities in it; what samples it |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |

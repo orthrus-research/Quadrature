@@ -27,6 +27,7 @@ public final class ShadowMaps {
     private final float[][] viewProjection;
     private final float[][] previousViewProjection;
     private final double[] boxSide;
+    private final double[] boxDepth;
     private final double[] origin = new double[3];
     private final double[] previousOrigin = new double[3];
     private final float[] towardLight = new float[3];
@@ -49,6 +50,7 @@ public final class ShadowMaps {
         viewProjection = new float[layers][16];
         previousViewProjection = new float[layers][16];
         boxSide = new double[layers];
+        boxDepth = new double[layers];
     }
 
     // What the host sets.
@@ -101,6 +103,11 @@ public final class ShadowMaps {
      *                       released, or the box moved to another texel
      */
     public void layer(int layer, View view, double boxSide, boolean contentChanged) {
+        layer(layer, view, boxSide, boxSide, contentChanged);
+    }
+
+    /** As {@link #layer(int, View, double, boolean)}, for a box whose depth along the light is not its side. */
+    public void layer(int layer, View view, double boxSide, double boxDepth, boolean contentChanged) {
         float[] out = viewProjection[layer];
         float[] p = view.projection();
         float[] m = view.modelView();
@@ -114,6 +121,7 @@ public final class ShadowMaps {
             }
         }
         this.boxSide[layer] = boxSide;
+        this.boxDepth[layer] = boxDepth;
         boolean moved = !drawn || origin[0] != previousOrigin[0] || origin[1] != previousOrigin[1]
             || origin[2] != previousOrigin[2] || !java.util.Arrays.equals(out, previousViewProjection[layer]);
         if (moved || contentChanged) {
@@ -128,7 +136,7 @@ public final class ShadowMaps {
     /**
      * Keeps a layer that is not drawn again in a frame begun by {@link #beginFrame}: what it holds
      * stays, and its matrix is carried from the frame before's origin to this frame's, so that every
-     * layer's matrix is relative to the one origin published. Its box's side stays.
+     * layer's matrix is relative to the one origin published. Its box's side and depth stay.
      */
     public void keep(int layer) {
         float[] before = previousViewProjection[layer];
@@ -186,9 +194,14 @@ public final class ShadowMaps {
         return previousViewProjection[layer];
     }
 
-    /** The side of the layer's box, in blocks; it is as deep as it is wide. */
+    /** The side of the layer's box across the light, in blocks. */
     public double boxSide(int layer) {
         return boxSide[layer];
+    }
+
+    /** The extent of the layer's box along the light, in blocks: the span its depth from 0 to 1 covers. */
+    public double boxDepth(int layer) {
+        return boxDepth[layer];
     }
 
     /** The world position the frame's matrices are relative to. */

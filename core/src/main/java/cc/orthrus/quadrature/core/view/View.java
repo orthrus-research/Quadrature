@@ -185,6 +185,18 @@ public final class View {
      */
     public static View alongLight(View out, View main, double towardLightX, double towardLightY,
         double towardLightZ, double side, int texels) {
+        return alongLight(out, main, towardLightX, towardLightY, towardLightZ, side, side, texels);
+    }
+
+    /**
+     * As {@link #alongLight(View, View, double, double, double, double, int)}, with a depth along the
+     * light of its own: the box is {@code side} across and {@code depth} deep, centered on the same
+     * place, so that a narrow box can still hold what stands far toward the light.
+     *
+     * @param depth the box's extent along the light, in blocks
+     */
+    public static View alongLight(View out, View main, double towardLightX, double towardLightY,
+        double towardLightZ, double side, double depth, int texels) {
         double length = Math.sqrt(towardLightX * towardLightX + towardLightY * towardLightY
             + towardLightZ * towardLightZ);
         double lx = towardLightX / length;
@@ -230,10 +242,11 @@ public final class View {
         box[0] = (float) (1 / half);
         box[5] = (float) (1 / half);
         // Eye space looks down its negative third axis: the nearest point is the one most toward the light.
-        box[10] = (float) (-1 / half);
+        double deep = depth / 2;
+        box[10] = (float) (-1 / deep);
         box[12] = (float) (-centerA / half);
         box[13] = (float) (-centerB / half);
-        box[14] = (float) (centerL / half);
+        box[14] = (float) (centerL / deep);
         box[15] = 1;
         out.purpose = Purpose.DEPTH_ONLY;
         out.depth = Depth.CONVENTIONAL;
