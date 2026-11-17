@@ -261,6 +261,12 @@ corrected, before the records move into PROVENANCE.md; until then they are unver
   specification (timestamp queries, sync objects, buffer storage).
 - Added: 2026-11-15
 
+### Writer audit
+- Code: `src/main/java/cc/orthrus/quadrature/distant/WriterAudit.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification's state query
+  names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
+- Added: 2026-11-17
+
 ## 8. First frames
 
 Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
@@ -274,7 +280,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.fog` | `own` | `own`: one fog for near and distant terrain. `game`: the game's fog on near terrain and none on distant terrain, as the first two runs drew |
 | `quadrature.distant.fogStart` | the reach (384) | Where the shared fog begins, in blocks from the eye |
 | `quadrature.distant.fogEnd` | the outermost ring's reach less one of its tiles (20,480) | Where the shared fog is complete: no farther than the nearest side of the outermost square can be (section 16.10) |
-| `quadrature.distant.debug` | none | `box` or `level` (see Debug views) |
+| `quadrature.distant.debug` | none | `box`, `level` or `join` (see Debug views) |
 | `quadrature.distant.crossfade` | `on` | `on`: two levels are drawn over a band where they meet and fade into each other, and a tile fades in when it arrives. `off`: each level ends on a line |
 | `quadrature.distant.fill` | `on` | `on`: every level also takes the tiles inside its own hole and draws them until finer tiles are stored, so no hole is open while distant terrain arrives (section 18). `off`: each level its ring only |
 | `quadrature.distant.order` | `near` | `near`: the coarsest level's fill tiles, then every level from the finest outward. `coarse`: the coarsest level first. Needs fill tiles (sections 18, 19) |
@@ -285,6 +291,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
 | `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it, and one more when the place is whole, `travel-<jump>-whole-<ms>ms.png` (section 17) |
+| `quadrature.distant.writerAudit` | off | A diagnostic: reads a wide list of the driver's state before and after the first three passes into the targets and logs what was left changed (section 16.9) |
 | `quadrature.distant.frameTail` | off | A diagnostic: once a second, the tail of the last 120 whole frame intervals as Cubature's preview governor reads it, and what made the long ones (section 19.2) |
 
 **Source.** The terrain preview comes from Cubature's cube source (`terrainPreview()`). It is
@@ -473,6 +480,11 @@ second draw: its faces lie over the sea bed, and near water, which writes no dep
 hide them (the fourth run's water read purple all over for that reason). Without them, near
 water with no near sea bed behind it shows as magenta seen through water, which is a fault. The
 tiles the box holds whole are drawn for this view only, and the log says how many.
+
+`-Dquadrature.distant.debug=join` paints in orange, in flat color, each pixel distant terrain
+keeps over a column near terrain has meshed: the pixels it trades with near terrain in the
+join's band (section 20). Outside the band, and wherever the band is not read, it draws as
+usual.
 
 The first box view (section 11) drew those faces at their own depth. Distant ground lies in
 the plane of near ground, so depth tied and magenta covered near terrain almost everywhere.
@@ -1436,8 +1448,14 @@ of numbers: every listed slot reads afterwards as found, only changed ones are w
 the list's order where one write disturbs another, and a slot not listed is not touched.
 There is no recording stand-in for the driver in this tree, so nothing offline shows that
 each slot reads and writes the driver's state it names, or that the list is complete. The
-frame's state audit (`-Dquadrature.stateAudit=true`) reads state at stage boundaries in a
-run and is the check for that, in the next turn with the game.
+frame's state audit (`-Dquadrature.stateAudit=true`) reads state at stage boundaries, but in
+a window of 120 frames that begins 240 frames after a world is joined, which on a cold
+client is before any tile is stored: it does not see this pass draw. So the pass has a check
+of its own, `-Dquadrature.distant.writerAudit=true` (`WriterAudit`): the first three times it
+draws, a list of state made apart from the pass's own and wider than it (bindings on every
+storage and uniform point to 7 and every texture unit to 9, the blend functions, masks,
+tests and stacks, 80-odd items) is read just before and just after, and whatever reads
+differently is logged, with the state found on entry once.
 
 **When the writer point arrives.** The writer is registered and the call from the Mixin for
 the shaded path goes. Three things move with it:

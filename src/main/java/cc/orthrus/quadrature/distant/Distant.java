@@ -102,7 +102,13 @@ final class Distant {
     private final Runnable targetWriter = this::writeTargets;
     private final StateGuard writerGuard = new StateGuard(WriterState.all());
     private final WriterState writerState = new WriterState(DistantProgram.COVER_UNIT, DistantProgram.IMAGES_UNIT);
+    private final WriterAudit writerAudit = WriterAudit.ENABLED ? new WriterAudit() : null;
     private float writerPartialTicks;
+    /** Passes that listed, those in which near terrain's band was read and its origin, and the most the origin was apart. */
+    private long joinPasses;
+    private long joinRead;
+    private long joinOrigins;
+    private double joinApart;
     private boolean writerFading;
     private boolean wrote;
     private final long[] boxBlocks = new long[6];
@@ -377,6 +383,10 @@ final class Distant {
         }
         inFlight.clear();
         travel.forget();
+        joinPasses = 0;
+        joinRead = 0;
+        joinOrigins = 0;
+        joinApart = 0;
         schedule.reset();
         release();
         selectedX = Long.MIN_VALUE;
@@ -583,9 +593,11 @@ final class Distant {
         double eyeY = view.originY() + Minecraft.getMinecraft().getRenderViewEntity().getEyeHeight();
         double eyeZ = view.originZ();
         float[] band = DistantHook.joinBand();
+        joinPasses++;
         if (band == null) {
             joinBand = null;
         } else {
+            joinRead++;
             // The band, and where its distance is measured from, from the view's origin.
             double[] origin = DistantHook.joinOrigin();
             joinX = origin == null ? view.originX() : origin[0];
@@ -594,6 +606,10 @@ final class Distant {
             joinValues[1] = band[1];
             joinValues[2] = (float) (joinX - view.originX());
             joinValues[3] = (float) (joinZ - view.originZ());
+            if (origin != null) {
+                joinOrigins++;
+                joinApart = Math.max(joinApart, Math.max(Math.abs(joinX - view.originX()), Math.abs(joinZ - view.originZ())));
+            }
             joinBand = joinValues;
         }
         draws.begin(arena.pages());
@@ -698,6 +714,10 @@ final class Distant {
         if (table == 0 || minecraft.world == null || draws.commandCount() == 0) {
             return;
         }
+        boolean audited = writerAudit != null && writerAudit.due();
+        if (audited) {
+            writerAudit.before();
+        }
         writerGuard.save(writerState);
         try {
             GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, targets.framebuffer());
@@ -715,6 +735,9 @@ final class Distant {
             wrote = true;
         } finally {
             writerGuard.restore(writerState);
+        }
+        if (audited) {
+            writerAudit.after();
         }
     }
 
@@ -795,8 +818,16 @@ final class Distant {
             : String.format("%n  shaded path: on; opaque layers %s near terrain's targets, %d draws",
                 DistantHook.shaded() ? "drawn into" : "not drawn into (none made this frame)", lastShadedDraws));
         line.append(joinBand == null ? String.format("%n  join fade: off")
-            : String.format("%n  join fade: distant terrain fades in from %.0f to %.0f blocks over near terrain's columns%s",
-                joinBand[0], joinBand[1], DistantSettings.JOIN_FADE_DEBUG != null ? " (debug band, whatever near terrain does)" : ""));
+            : String.format("%n  join fade: distant terrain fades in from %.3f to %.3f blocks over near terrain's columns%s; "
+                    + "measured from %.4f %.4f, which is %+.4f %+.4f from this view's origin %.4f %.4f%s",
+                joinBand[0], joinBand[1], DistantSettings.JOIN_FADE_DEBUG != null ? " (debug band, whatever near terrain does)" : "",
+                joinX, joinZ, joinX - view.originX(), joinZ - view.originZ(), view.originX(), view.originZ(),
+                DistantHook.joinOrigin() == null ? " (near terrain gave no origin: this view's is used)" : ""));
+        if (DistantSettings.JOIN_FADE) {
+            line.append(String.format("%n  join fade: near terrain's band was read in %d of %d passes since the world was "
+                    + "joined and its origin in %d; the origin was at most %.4f blocks from this view's along x or z",
+                joinRead, joinPasses, joinOrigins, joinApart));
+        }
         line.append(DistantSettings.FILL
             ? String.format("%n  fill tiles: on, each level's hole is drawn from that level until finer tiles are stored; "
                 + "%d let go once covered; order %s", tilesSpared,

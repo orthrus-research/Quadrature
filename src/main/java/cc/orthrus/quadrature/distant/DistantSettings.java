@@ -144,7 +144,10 @@ final class DistantSettings {
     /** Every face takes a color for its tile's level, and no fog. */
     static final int DEBUG_LEVEL = 2;
 
-    /** {@code quadrature.distant.debug}: {@code box}, {@code level} or unset. */
+    /** Orange where distant terrain keeps a pixel over a column near terrain has meshed: the join's band. */
+    static final int DEBUG_JOIN = 3;
+
+    /** {@code quadrature.distant.debug}: {@code box}, {@code level}, {@code join} or unset. */
     static final int DEBUG = debug(System.getProperty("quadrature.distant.debug", ""));
 
     private DistantSettings() {
@@ -163,6 +166,7 @@ final class DistantSettings {
     }
 
     private static int debug(String value) {
-        return "box".equals(value) ? DEBUG_BOX : "level".equals(value) ? DEBUG_LEVEL : DEBUG_NONE;
+        return "box".equals(value) ? DEBUG_BOX : "level".equals(value) ? DEBUG_LEVEL
+            : "join".equals(value) ? DEBUG_JOIN : DEBUG_NONE;
     }
 }
