@@ -44,6 +44,28 @@ public final class StagePlan {
 
     public enum Source { HOST, ASSET, TARGET, HISTORY }
 
+    /** What a blend multiplies a color by. */
+    public enum Factor { ZERO, ONE, SOURCE_ALPHA, ONE_MINUS_SOURCE_ALPHA, DESTINATION_ALPHA, ONE_MINUS_DESTINATION_ALPHA }
+
+    /**
+     * How a pass's outputs are added to what their targets hold: what is written times a source factor
+     * plus what is held times a destination factor, for color and for alpha apart. It applies to
+     * every output of the pass.
+     */
+    public static final class Blend {
+        public final Factor colorSource;
+        public final Factor colorDestination;
+        public final Factor alphaSource;
+        public final Factor alphaDestination;
+
+        Blend(Factor colorSource, Factor colorDestination, Factor alphaSource, Factor alphaDestination) {
+            this.colorSource = colorSource;
+            this.colorDestination = colorDestination;
+            this.alphaSource = alphaSource;
+            this.alphaDestination = alphaDestination;
+        }
+    }
+
     /** How a texture is read. */
     public static final class Sampler {
         public final Filter filter;
@@ -167,10 +189,14 @@ public final class StagePlan {
         public final boolean depthWrite;
         public final boolean clear;
         public final boolean diagnostic;
+        /** How the pass blends, or null where it does not. */
+        public final Blend blend;
+        /** The group the pass belongs to, which the host may leave out whole, or null. */
+        public final String group;
 
         Pass(String name, String program, String vertex, String fragment, Map<String, Integer> uniformBlocks, List<Input> inputs,
             List<Output> outputs, int vertices, boolean blending, boolean depthTest, boolean depthWrite, boolean clear,
-            boolean diagnostic) {
+            boolean diagnostic, Blend blend, String group) {
             this.name = name;
             this.program = program;
             this.vertex = vertex;
@@ -184,6 +210,8 @@ public final class StagePlan {
             this.depthWrite = depthWrite;
             this.clear = clear;
             this.diagnostic = diagnostic;
+            this.blend = blend;
+            this.group = group;
         }
 
         /** Whether the pass writes the host's presentation target. */
@@ -206,13 +234,16 @@ public final class StagePlan {
         public final String mask;
         /** The key of the manifest's tolerance that the comparison goes by. */
         public final String tolerance;
+        /** Which of the check's frames the output is read after, counted from 0. */
+        public final int frame;
 
-        Check(String pass, int output, String expected, String mask, String tolerance) {
+        Check(String pass, int output, String expected, String mask, String tolerance, int frame) {
             this.pass = pass;
             this.output = output;
             this.expected = expected;
             this.mask = mask;
             this.tolerance = tolerance;
+            this.frame = frame;
         }
     }
 
@@ -222,6 +253,7 @@ public final class StagePlan {
     private final List<Pass> passes = new ArrayList<>();
     private final List<Pass> diagnosticPasses = new ArrayList<>();
     private final List<Check> checks = new ArrayList<>();
+    private final List<String> frames = new ArrayList<>();
     private final int frameBlockBytes;
     private final String frameBlockFile;
     private final double teleportResetBlocks;
@@ -241,6 +273,21 @@ public final class StagePlan {
         frameBlockFile = root.get("frameBlockFile") instanceof String ? (String) root.get("frameBlockFile") : null;
         if (frameBlockFile != null && !files.contains(frameBlockFile)) {
             throw new IllegalArgumentException("The frame block's file is not listed: " + frameBlockFile);
+        }
+        // The frames a check runs, each a file of the frame's block: a list of them, or the one file.
+        if (root.get("frames") != null) {
+            for (Object item : list(root.get("frames"), "frames")) {
+                String file = text(item, "a frame's file");
+                if (!files.contains(file)) {
+                    throw new IllegalArgumentException("A frame's file is not listed: " + file);
+                }
+                frames.add(file);
+            }
+            if (frames.isEmpty()) {
+                throw new IllegalArgumentException("The manifest's list of frames is empty");
+            }
+        } else if (frameBlockFile != null) {
+            frames.add(frameBlockFile);
         }
         Object teleport = root.get("teleportResetBlocks");
         if (!(teleport instanceof Double) || (Double) teleport <= 0) {
@@ -348,7 +395,11 @@ public final class StagePlan {
                 if (!tolerances.contains(tolerance)) {
                     throw new IllegalArgumentException("The check of " + pass + " names a tolerance that is not stated: " + tolerance);
                 }
-                checks.add(new Check(pass, output, expected, mask, tolerance));
+                int frame = entry.containsKey("frame") ? whole(entry.get("frame"), "the frame of the check of " + pass) : 0;
+                if (frame < 0 || frame >= Math.max(1, frames.size())) {
+                    throw new IllegalArgumentException("The check of " + pass + " names a frame that is not there: " + frame);
+                }
+                checks.add(new Check(pass, output, expected, mask, tolerance, frame));
             }
         }
     }
@@ -467,8 +518,43 @@ public final class StagePlan {
             inputs.add(new Input(sampler, unit, source, what));
         }
         written.addAll(writes);
-        return new Pass(name, program, vertex, fragment, blocks, inputs, outputs, vertices, flag(entry, defaults, "blending", false),
-            false, false, flag(entry, defaults, "clear", false), diagnostic);
+        Blend blend = entry.get("blend") == null ? null : blend(entry.get("blend"), name);
+        if (blend == null && flag(entry, defaults, "blending", false)) {
+            throw new IllegalArgumentException("Pass " + name + " asks for blending and does not say how");
+        }
+        String group = entry.get("group") == null ? null : text(entry.get("group"), "the group of pass " + name);
+        return new Pass(name, program, vertex, fragment, blocks, inputs, outputs, vertices, blend != null, false, false,
+            flag(entry, defaults, "clear", false), diagnostic, blend, group);
+    }
+
+    private static Blend blend(Object value, String pass) {
+        Map<String, Object> entry = map(value, "the blend of pass " + pass);
+        String equation = text(entry.get("equation"), "the blend's equation in pass " + pass);
+        if (!equation.equals("add")) {
+            throw new IllegalArgumentException("Pass " + pass + " blends by an equation that is not made: " + equation);
+        }
+        return new Blend(factor(entry.get("colorSource"), pass), factor(entry.get("colorDestination"), pass),
+            factor(entry.get("alphaSource"), pass), factor(entry.get("alphaDestination"), pass));
+    }
+
+    private static Factor factor(Object value, String pass) {
+        String name = text(value, "a blend factor in pass " + pass);
+        switch (name) {
+            case "zero":
+                return Factor.ZERO;
+            case "one":
+                return Factor.ONE;
+            case "sourceAlpha":
+                return Factor.SOURCE_ALPHA;
+            case "oneMinusSourceAlpha":
+                return Factor.ONE_MINUS_SOURCE_ALPHA;
+            case "destinationAlpha":
+                return Factor.DESTINATION_ALPHA;
+            case "oneMinusDestinationAlpha":
+                return Factor.ONE_MINUS_DESTINATION_ALPHA;
+            default:
+                throw new IllegalArgumentException("Pass " + pass + " blends by a factor that is not made: " + name);
+        }
     }
 
     private static void require(boolean there, String pass, String sampler, String source) {
@@ -589,6 +675,22 @@ public final class StagePlan {
 
     public List<Check> checks() {
         return checks;
+    }
+
+    /** The files of the frames a check runs, in order: one where the manifest names a single frame's block, none where it names none. */
+    public List<String> frames() {
+        return frames;
+    }
+
+    /** The groups the passes of every frame belong to, each once, in the order first met. */
+    public List<String> groups() {
+        List<String> groups = new ArrayList<>();
+        for (Pass pass : passes) {
+            if (pass.group != null && !groups.contains(pass.group)) {
+                groups.add(pass.group);
+            }
+        }
+        return groups;
     }
 
     /** A pass of either list by name, or null. */

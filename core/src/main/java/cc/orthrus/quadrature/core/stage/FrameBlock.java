@@ -20,8 +20,11 @@ import java.nio.ByteOrder;
  *               views are given, which is 0 where no light's depth is drawn: nothing is then in shadow
  * 496  mat4     the view-projection of the frame before, that frame's eye at the origin; this frame's
  *               own on a frame that drops history
- * 560  vec4     how far the eye moved since the frame before, in blocks: this eye less that one
- * 576  vec4     how far the clouds have drifted, in blocks: x by the faster drift, y by the slower
+ * 560  vec4     how far the eye moved since the frame before, in blocks: this eye less that one; in w,
+ *               the horizontal distance in blocks to the far edge of what was written into the
+ *               targets, or 0 where it is not known
+ * 576  vec4     how far the clouds have drifted, in blocks: x by the faster drift, y by the slower; in
+ *               z, the height the world keeps its clouds at, in blocks
  * </pre>
  *
  * Matrices are column-major. The inverse view-projection takes clip x and y in -1 to 1 and the
@@ -318,6 +321,25 @@ public final class FrameBlock {
         // Depth from -1 to 1 becomes 0 to 1: z' = z / 2 + w / 2.
         double[] depth = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 1};
         return multiply(depth, multiply(doubles(drawn), move));
+    }
+
+    /**
+     * Where a texel of a light view's depth lies: the inverse of {@link #lightViewFromEye}'s matrix
+     * applied to the texel's place and the depth it holds.
+     *
+     * @param fromEye the light view's matrix for the block, from a place relative to the eye
+     * @param u       across the map, 0 to 1 from its first column
+     * @param v       up the map, 0 to 1 from its first row
+     * @param depth   the depth, 0 nearest the light to 1
+     * @return the place relative to the eye, in blocks, or null where the matrix has no inverse
+     */
+    public static double[] fromLight(double[] fromEye, double u, double v, double depth) {
+        double[] inverse = inverse(fromEye);
+        if (inverse == null) {
+            return null;
+        }
+        double[] place = apply(inverse, u * 2 - 1, v * 2 - 1, depth, 1);
+        return new double[] {place[0] / place[3], place[1] / place[3], place[2] / place[3]};
     }
 
     /** A matrix applied to a point, column-major: x, y, z and w. */

@@ -206,10 +206,24 @@ with it on.
   `(-sin a, cos a * cos t, cos a * sin t)` and the moon opposite. It leans the directions
   published and the box the map is drawn in; the game draws its own sky without it.
   `SunPath` in `core`.
-- **The target** is an array texture of 24-bit depth, 4,096 texels a side, one layer,
-  64 MiB, counted in the shading pool. A texel is 0.13 of a block. Further layers with
-  boxes of other sizes can be added; none is built. It can be sampled through either of
-  two sampler objects: compared with a reference and filtered, or as the depth itself.
+- **The target** is an array texture of 24-bit depth, 4,096 texels a side, 64 MiB a layer,
+  counted in the shading pool. A texel of the wide box is 0.13 of a block. It can be
+  sampled through either of two sampler objects: compared with a reference and filtered,
+  or as the depth itself.
+- **The near layer**, behind `-Dquadrature.shadow.near=true` (off unless set), adds a box
+  192 blocks across, centered on the player and moved to a whole texel of its own, 0.047
+  of a block a texel. Along the light it is as deep as the wide box, 544 blocks, so its
+  side toward the light is the wide box's: what stands far toward a low light, outside
+  the 192-block square, still casts onto the ground in it. 24 bits of depth over 544
+  blocks are steps of a thirty-thousandth of a block. It is layer 0 and the wide box
+  layer 1, 128 MiB in all; with it off the wide box is the only layer, layer 0. Each
+  layer's side across and its depth are published (`boxSide`, `boxDepth`), and the frame
+  block's `qShadowScale[i]` holds blocks a texel in x and the depth's span in y. The near
+  layer is searched and commanded as a view of its own through that whole depth, its cube
+  count logged in the terrain summary, and drawn again by the same rules as the wide one,
+  measured from its own last drawing, so each layer is redrawn only when its own rules
+  are met. A layer that is kept holds what it held, and its matrix is carried to the
+  frame's origin, which every layer's matrix is relative to. `ShadowLayers` in `core`.
 - **What is drawn:** the three opaque layers of every meshed cube in the box, from the
   same pages and by the same indirect draws as the player's view, each cube under the
   same composition of matrices. A fragment of a cutout layer is dropped where the block
@@ -233,8 +247,9 @@ with it on.
   light has turned more than 0.1 degree since it was drawn
   (`quadrature.shadow.turn`, in degrees). A frame that keeps it costs nothing: the light's
   view is not searched and no commands are written for it. The matrices and origin
-  published are always the ones the map was drawn with; the direction toward the light of
-  the moment is published beside them, since shading uses that.
+  published are always the ones the map was drawn with, a kept layer's carried to the
+  origin of the frame the latest layer was drawn in; the direction toward the light of the
+  moment is published beside them, since shading uses that.
 - **Entities move every frame**, which a kept map does not allow for. The plan, of which
   nothing is built: the terrain's depth stays one layer, drawn on the conditions above,
   and entities go either on top of a copy of it made each frame or into a second layer
@@ -547,9 +562,9 @@ lit color is written.
 | Target | Color | Alpha |
 |---|---|---|
 | A | world normal as n * 0.5 + 0.5 | perceptual roughness |
-| B | sky light, emission strength, block light, each 0 to 1 over the game's 0 to 15 | 0.375 on terrain, 0 where nothing was written |
+| B | sky light and block light, each 0 to 1 over the game's 0 to 15; in green the emission strength of the texel's kind and color | 0.375 on terrain, 0 where nothing was written |
 | C | the square root of linear albedo after tint; the texel is decoded by the exact sRGB curve | 1 for a conductor |
-| D | reflectance and subsurface, or for a metal its colored reflectance | the game's vertex occlusion |
+| D | reflectance and subsurface, or for a metal its colored reflectance, the texel's linear albedo after tint (D18) | the game's vertex occlusion |
 
 - Depth is reversed, 32-bit float: 1 nearest, 0 farthest and where nothing was written.
 - A fragment of a cutout layer is dropped where the texel's alpha is at or under 0.5.
@@ -585,13 +600,27 @@ material that the list does not name has no kind and no emission.
 | 100, 101 | water, lava | lava: emission 0.10, low since it is also lit by the light it gives |
 | 110 to 117 | leaves; single, tall (lower, upper), hanging, floating, stiff and submerged plants | subsurface 0.55, foliage |
 | 118 | ground cover | the defaults |
-| 120, 121 | dim and bright emitters | nothing of their own |
+| 120, 121 | dim and bright emitters; an unnamed block that gives light is 121 from light 12, 120 below | nothing of their own in the table |
 | 130, 131 | glass, ice | roughness 0.12 |
 | 140 | metals | roughness 0.32, conductor |
 | 199 | plain | the defaults, and no emission whatever light is given |
 
-The defaults are roughness 0.85 and reflectance 0.04. Emission is the light a state gives
-over 15, whatever its kind, but for lava and plain states.
+The defaults are roughness 0.85 and reflectance 0.04. The table's emission byte is the
+light a state gives over 15, whatever its kind, but for lava and plain states; it is kept
+for readers of the table and is not what the targets hold.
+
+**Emission in the targets.** Target B's green is worked out for each texel where the
+targets are written, from the state's kind and the texel's linear albedo after tint, by
+`KindEmission` and the same rule in GLSL. With m the greatest channel of the albedo:
+
+| Kind | Emission |
+|---|---|
+| 101 lava | 0.10 |
+| 120 dim emitter | 0.65 * smoothstep(0.20, 0.70, m) |
+| 121 bright emitter | 0.90 * smoothstep(0.12, 0.65, m) |
+| any other | 0 |
+
+The target stores it to the nearest of 255.
 
 **What is published.** `TerrainHook.shadingTargets()` gives the framebuffer, the five
 textures, their size and a generation that moves when they are made anew.
@@ -747,6 +776,17 @@ what the stage should write from them.
   reads each checked output back right after its pass, and logs PASS or FAIL with counts;
   passes the manifest lists as diagnostic are run after the frame's own. What differed is
   written into the client's `quadrature-stage/`.
+- **Images and the probe**, `-Dquadrature.stage.image=true`: for each frame images are
+  written of, the stage's display and its diagnostic outputs are written into
+  `quadrature-stage/`, and the light's depth is probed in each layer at a pixel low in the
+  middle of the picture and at the pixels of `-Dquadrature.stage.probePixels=x,y;x,y`,
+  counted from the bottom left (unless set, eight pixels at the edges of the built
+  scene's views; empty, the middle one alone). For each it logs the reference depth and
+  the stored one, where the eye's ray meets the world and the map's texel lies there,
+  inverted from the layer's matrix, with the block at each, and for the cube of each what
+  near terrain holds: its mesh and its version, and whether each layer listed it when last
+  drawn. `-Dquadrature.stage.targetsRaw=true` writes targets B, C and D of the same frame
+  beside the image as raw floats.
 
 ## 10. Mod interface
 
@@ -783,7 +823,7 @@ measurement; each line is revised when the phase that fills it measures its real
 | Reserve: framebuffers, geometry buffer, depth pyramid, texture arrays, the game's own textures | 1.5 GiB | Phase 1 |
 | Near terrain arenas | 1.5 GiB | Phase 2 |
 | Distant terrain arenas | 512 MiB | Phase 4 |
-| Shading: shadow maps, light volumes. The light's depth takes 64 MiB of it | 1.0 GiB | Phase 5 |
+| Shading: shadow maps, light volumes. The light's depth takes 64 MiB of it, 128 MiB with the near layer | 1.0 GiB | Phase 5 |
 | Not assigned | 1.5 GiB | |
 
 The first line is not arbitrary: the test machine had 2.2 GiB in use before the game
@@ -818,7 +858,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | A view as the input to visibility and drawing | Decided; built | |
 | Coverage of chunk columns, and whether a search came to the edge of the box | Built; coverage behind a switch | A surface height from the cube source |
 | The scene for lighting: a state number per cell, light properties per state, occupancy and state bricks under a wrapped lookup | Built, behind switches | Color; shapes smaller than a cell |
-| The light's depth: one fixed, texel-snapped orthographic box drawn into a layer of an array texture, kept between frames | Built, behind a switch | Entities in it; further layers; what samples it |
+| The light's depth: fixed, texel-snapped orthographic boxes, a near one 192 blocks across and 544 deep behind its own switch and a wide one, each drawn into a layer of an array texture and kept between frames | Built, behind switches | Entities in it; what samples it |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |

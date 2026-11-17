@@ -64,7 +64,17 @@ final class StageRunner {
                 blocks[binding] = GL30.glGetIntegeri(GL31.GL_UNIFORM_BUFFER_BINDING, binding);
             }
             uniformBuffer = GL11.glGetInteger(GL31.GL_UNIFORM_BUFFER_BINDING);
+            // A pass that blends sets the factors and the equation; whether blending is on is the caller's to put back.
+            blendFactors[0] = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+            blendFactors[1] = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+            blendFactors[2] = GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA);
+            blendFactors[3] = GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA);
+            blendEquations[0] = GL11.glGetInteger(GL20.GL_BLEND_EQUATION_RGB);
+            blendEquations[1] = GL11.glGetInteger(GL20.GL_BLEND_EQUATION_ALPHA);
         }
+
+        private final int[] blendFactors = new int[4];
+        private final int[] blendEquations = new int[2];
 
         void restore() {
             for (int unit = 0; unit < StagePlan.UNITS; unit++) {
@@ -84,6 +94,8 @@ final class StageRunner {
                 GL30.glBindBufferBase(GL31.GL_UNIFORM_BUFFER, binding, blocks[binding]);
             }
             GL15.glBindBuffer(GL31.GL_UNIFORM_BUFFER, uniformBuffer);
+            GL14.glBlendFuncSeparate(blendFactors[0], blendFactors[1], blendFactors[2], blendFactors[3]);
+            GL20.glBlendEquationSeparate(blendEquations[0], blendEquations[1]);
         }
     }
 
@@ -128,9 +140,6 @@ final class StageRunner {
         boolean made = false;
         try {
             for (StagePlan.Pass pass : all) {
-                if (pass.blending) {
-                    throw new IllegalStateException("pass " + pass.name + " asks for blending and the manifest does not say how");
-                }
                 String key = pass.vertex + "|" + pass.fragment;
                 Integer program = programs.get(key);
                 if (program == null) {
@@ -473,17 +482,132 @@ final class StageRunner {
                     GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_COLOR, output.location, zeros);
                 }
             }
+            if (pass.blend == null) {
+                GL11.glDisable(GL11.GL_BLEND);
+            } else {
+                // What is written is added to what the targets hold, by the pass's own factors, color and alpha apart.
+                GL11.glEnable(GL11.GL_BLEND);
+                GL14.glBlendEquation(GL14.GL_FUNC_ADD);
+                GL14.glBlendFuncSeparate(factor(pass.blend.colorSource), factor(pass.blend.colorDestination),
+                    factor(pass.blend.alphaSource), factor(pass.blend.alphaDestination));
+            }
             GL20.glUseProgram(passPrograms.get(pass));
+            long began = timeBegin(pass);
             GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, pass.vertices);
+            timeEnd(pass, began);
             if (after != null) {
                 after.accept(pass);
             }
         }
     }
 
+    private static int factor(StagePlan.Factor factor) {
+        switch (factor) {
+            case ZERO:
+                return GL11.GL_ZERO;
+            case ONE:
+                return GL11.GL_ONE;
+            case SOURCE_ALPHA:
+                return GL11.GL_SRC_ALPHA;
+            case ONE_MINUS_SOURCE_ALPHA:
+                return GL11.GL_ONE_MINUS_SRC_ALPHA;
+            case DESTINATION_ALPHA:
+                return GL11.GL_DST_ALPHA;
+            default:
+                return GL11.GL_ONE_MINUS_DST_ALPHA;
+        }
+    }
+
     /** The frame is over: what a persistent target holds becomes its history. */
     void endFrame() {
         parity ^= 1;
+        if (timers != null) {
+            timerSlot = (timerSlot + 1) % TIMER_SLOTS;
+        }
+    }
+
+    // Each pass timed apart. A pass's time on the GPU is the difference of two of the driver's
+    // timestamps, asked for before and after its draw and read some frames later, when they are ready:
+    // timestamps, because the frame's own timer already measures the stage as elapsed time, and two
+    // such measurements may not run at once.
+
+    private static final int TIMER_SLOTS = 4;
+    private static final int TIMER_SAMPLES = 512;
+
+    /** The times of one pass. */
+    private static final class PassTimer {
+        final int[] begin = new int[TIMER_SLOTS];
+        final int[] end = new int[TIMER_SLOTS];
+        final boolean[] asked = new boolean[TIMER_SLOTS];
+        final long[] cpu = new long[TIMER_SAMPLES];
+        final long[] gpu = new long[TIMER_SAMPLES];
+        int cpuCount;
+        int gpuCount;
+    }
+
+    private Map<StagePlan.Pass, PassTimer> timers;
+    private int timerSlot;
+
+    /** From now on each pass of the frame is timed apart, on the CPU and on the GPU. */
+    void timePasses() {
+        timers = new IdentityHashMap<>();
+        for (StagePlan.Pass pass : plan.passes()) {
+            PassTimer timer = new PassTimer();
+            for (int slot = 0; slot < TIMER_SLOTS; slot++) {
+                timer.begin[slot] = GL15.glGenQueries();
+                timer.end[slot] = GL15.glGenQueries();
+            }
+            timers.put(pass, timer);
+        }
+    }
+
+    /** Before a pass draws: takes what an earlier frame asked for in this slot, and asks anew. */
+    private long timeBegin(StagePlan.Pass pass) {
+        PassTimer timer = timers == null ? null : timers.get(pass);
+        if (timer == null) {
+            return 0;
+        }
+        if (timer.asked[timerSlot] && GL15.glGetQueryObjecti(timer.end[timerSlot], GL15.GL_QUERY_RESULT_AVAILABLE) != 0) {
+            long took = GL33.glGetQueryObjectui64(timer.end[timerSlot], GL15.GL_QUERY_RESULT)
+                - GL33.glGetQueryObjectui64(timer.begin[timerSlot], GL15.GL_QUERY_RESULT);
+            timer.gpu[timer.gpuCount++ % TIMER_SAMPLES] = Math.max(0, took);
+        }
+        GL33.glQueryCounter(timer.begin[timerSlot], GL33.GL_TIMESTAMP);
+        return System.nanoTime();
+    }
+
+    private void timeEnd(StagePlan.Pass pass, long began) {
+        PassTimer timer = timers == null ? null : timers.get(pass);
+        if (timer == null) {
+            return;
+        }
+        timer.cpu[timer.cpuCount++ % TIMER_SAMPLES] = System.nanoTime() - began;
+        GL33.glQueryCounter(timer.end[timerSlot], GL33.GL_TIMESTAMP);
+        timer.asked[timerSlot] = true;
+    }
+
+    /** Each pass's median time over the last frames timed, for the log; empty where passes are not timed. */
+    String passTimes() {
+        if (timers == null) {
+            return "";
+        }
+        StringBuilder line = new StringBuilder();
+        for (StagePlan.Pass pass : plan.passes()) {
+            PassTimer timer = timers.get(pass);
+            line.append(line.length() == 0 ? "" : ", ").append(String.format("%s %.3f ms CPU and %.3f ms GPU", pass.name,
+                median(timer.cpu, timer.cpuCount) / 1e6, median(timer.gpu, timer.gpuCount) / 1e6));
+        }
+        return line.toString();
+    }
+
+    private static long median(long[] samples, int count) {
+        int held = Math.min(count, samples.length);
+        if (held == 0) {
+            return 0;
+        }
+        long[] sorted = java.util.Arrays.copyOf(samples, held);
+        java.util.Arrays.sort(sorted);
+        return sorted[held / 2];
     }
 
     private void deleteTargets() {
@@ -521,6 +645,15 @@ final class StageRunner {
             GL33.glDeleteSamplers(sampler);
         }
         samplers.clear();
+        if (timers != null) {
+            for (PassTimer timer : timers.values()) {
+                for (int slot = 0; slot < TIMER_SLOTS; slot++) {
+                    GL15.glDeleteQueries(timer.begin[slot]);
+                    GL15.glDeleteQueries(timer.end[slot]);
+                }
+            }
+            timers = null;
+        }
         if (block != 0) {
             GL15.glDeleteBuffers(block);
         }

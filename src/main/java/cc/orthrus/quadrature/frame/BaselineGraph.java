@@ -55,6 +55,11 @@ public final class BaselineGraph {
                     graph.add(new StageDefinition(Probe.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
                         true));
                 }
+                if (section[1].equals(StageHost.BEFORE)) {
+                    // Entered only in a pass in which a writer is registered and the targets were drawn.
+                    graph.add(new StageDefinition(FrameHost.TARGET_WRITERS, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
+                        true));
+                }
                 if (StageHost.REQUESTED && section[1].equals(StageHost.BEFORE)) {
                     graph.add(new StageDefinition(StageHost.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
                         true));

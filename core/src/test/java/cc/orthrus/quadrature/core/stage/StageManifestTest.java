@@ -261,8 +261,8 @@ class StageManifestTest {
         Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 3").getBytes(StandardCharsets.UTF_8));
         assertEquals(3, StageManifest.read(folder).version());
         // The fourth was never handed over, and a version later than the newest that is read is not known: both are refused.
-        Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 6").getBytes(StandardCharsets.UTF_8));
-        assertTrue(assertThrows(IllegalArgumentException.class, () -> StageManifest.read(folder)).getMessage().contains("version 6"));
+        Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 7").getBytes(StandardCharsets.UTF_8));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> StageManifest.read(folder)).getMessage().contains("version 7"));
         // A manifest before the fifth does not say what is to be run.
         assertEquals(null, old.plan());
         Files.write(folder.resolve(StageManifest.FILE), text.replace("\"manifest\": 1", "\"manifest\": 4").getBytes(StandardCharsets.UTF_8));

@@ -8,7 +8,8 @@ package cc.orthrus.quadrature.core.material;
  * <li>perceptual roughness, 0 to 255 for 0 to 1</li>
  * <li>reflectance where the surface is not a metal, likewise</li>
  * <li>subsurface, likewise</li>
- * <li>emission strength, likewise</li>
+ * <li>emission strength by the light the state gives, likewise; kept for readers of the table, while
+ * the targets for shading take emission from the kind and the texel by {@link KindEmission}</li>
  * <li>flags: bit 0 a conductor, bit 1 foliage</li>
  * <li>the kind the state was given, or 0</li>
  * <li>and 7: kept</li>

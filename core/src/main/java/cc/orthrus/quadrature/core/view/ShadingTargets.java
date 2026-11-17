@@ -7,8 +7,10 @@ package cc.orthrus.quadrature.core.view;
  *
  * <ul>
  * <li>A: world normal as n * 0.5 + 0.5; alpha, perceptual roughness.</li>
- * <li>B: red sky light, green emission strength, blue block light, each 0 to 1 over the game's 0 to
- * 15; alpha a response class: 0.375 on terrain, 0 where nothing was written.</li>
+ * <li>B: red sky light and blue block light, each 0 to 1 over the game's 0 to 15; green emission
+ * strength, worked out for each texel from the state's kind and its linear albedo by
+ * {@link cc.orthrus.quadrature.core.material.KindEmission}; alpha a response class: 0.375 on terrain,
+ * 0 where nothing was written.</li>
  * <li>C: the square root of linear albedo after tint; alpha 1 for a conductor.</li>
  * <li>D: reflectance in red and subsurface in green for a surface that is not a metal, colored
  * reflectance for a metal; alpha, the material's occlusion times the game's vertex occlusion.</li>

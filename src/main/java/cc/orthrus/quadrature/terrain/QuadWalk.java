@@ -54,6 +54,16 @@ final class QuadWalk {
     private int[] states = new int[256];
     private int[] tints = new int[256];
     private byte[] flags = new byte[256];
+    private byte[] faces = new byte[256];
+    private byte[] fronts = new byte[256];
+
+    /**
+     * {@code -Dquadrature.gbuffer.audit=true}: counts the occlusion the targets are given, by the way a
+     * face is turned and by what stands in front of it.
+     */
+    static final boolean AUDIT = Boolean.getBoolean("quadrature.gbuffer.audit");
+    static final cc.orthrus.quadrature.core.material.OcclusionAudit OCCLUSION =
+        AUDIT ? new cc.orthrus.quadrature.core.material.OcclusionAudit() : null;
     private int count;
     private final BlockColors colors;
     private IBlockAccess world;
@@ -147,6 +157,8 @@ final class QuadWalk {
                 states = java.util.Arrays.copyOf(states, count * 2);
                 tints = java.util.Arrays.copyOf(tints, count * 2);
                 flags = java.util.Arrays.copyOf(flags, count * 2);
+                faces = java.util.Arrays.copyOf(faces, count * 2);
+                fronts = java.util.Arrays.copyOf(fronts, count * 2);
             }
             quads[count] = quad;
             firstVertex[count] = before;
@@ -161,6 +173,49 @@ final class QuadWalk {
             }
             tints[count] = tint;
             flags[count] = (byte) flag;
+            EnumFacing face = quad.getFace();
+            faces[count] = (byte) (face == null ? -1 : face.ordinal());
+            if (AUDIT && face != null) {
+                // What the game's lighter is told of the cell in front: whether it darkens its neighbors.
+                IBlockState ahead = world.getBlockState(pos.offset(face));
+                fronts[count] = (byte) (ahead.getAmbientOcclusionLightValue() >= 1f
+                    ? cc.orthrus.quadrature.core.material.OcclusionAudit.FRONT_OPEN
+                    : ahead.getMaterial() == net.minecraft.block.material.Material.LEAVES
+                        ? cc.orthrus.quadrature.core.material.OcclusionAudit.FRONT_FOLIAGE
+                        : cc.orthrus.quadrature.core.material.OcclusionAudit.FRONT_OTHER);
+            }
+            cells[count++] = cell;
+        }
+    }
+
+    /**
+     * Notes the quads something other than a model wrote, a fluid's or those of a block drawn by a
+     * renderer of its own: they have no quad of a model, no tint and no face, only the state of the
+     * block they belong to, so that what is drawn of them can be given that state's surface.
+     *
+     * @param from the buffer's count of vertices before the block was drawn
+     */
+    void foreign(BufferBuilder buffer, int from, int cell, int layer, int stateNumber) {
+        for (int vertex = from; vertex + 4 <= buffer.getVertexCount(); vertex += 4) {
+            if (count == quads.length) {
+                quads = java.util.Arrays.copyOf(quads, count * 2);
+                firstVertex = java.util.Arrays.copyOf(firstVertex, count * 2);
+                cells = java.util.Arrays.copyOf(cells, count * 2);
+                layers = java.util.Arrays.copyOf(layers, count * 2);
+                states = java.util.Arrays.copyOf(states, count * 2);
+                tints = java.util.Arrays.copyOf(tints, count * 2);
+                flags = java.util.Arrays.copyOf(flags, count * 2);
+                faces = java.util.Arrays.copyOf(faces, count * 2);
+                fronts = java.util.Arrays.copyOf(fronts, count * 2);
+            }
+            quads[count] = null;
+            firstVertex[count] = vertex;
+            layers[count] = (byte) layer;
+            states[count] = stateNumber;
+            tints[count] = 0xFFFFFF;
+            flags[count] = 0;
+            faces[count] = -1;
+            fronts[count] = 0;
             cells[count++] = cell;
         }
     }
@@ -197,6 +252,16 @@ final class QuadWalk {
     /** Its tint, white where it has none. */
     int tint(int index) {
         return tints[index];
+    }
+
+    /** The way a noted quad's face is turned, as the game numbers the six, or -1 where it has none. */
+    int face(int index) {
+        return faces[index];
+    }
+
+    /** What stands in the cell in front of a noted quad's face, where the occlusion is audited. */
+    int front(int index) {
+        return fronts[index];
     }
 
     /** What the game did to its color, as {@link FaceRecord}'s flags. */

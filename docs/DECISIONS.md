@@ -91,6 +91,14 @@ reading conventional depth state; Quadrature translates it where the calls are m
 (research R1, section 2.2). A prototype passes the frame comparison in a cubic instance;
 it stays behind a switch until the items listed there are covered.
 
+**D18. A metal's reflectance is its texel's tinted albedo.**
+For a surface of the metal kind, the colored reflectance in the targets is the texel's linear
+albedo after tint; no physical reflectance is put in its place. GregTech draws a material's
+blocks from shared textures tinted by the material's color, so each material reflects in its
+own color: aluminium light blue, gold with almost no blue. Those are not the values of real
+metals, and they are intended: in the supported pack a material's color is how it is told
+apart, and its reflection keeps it.
+
 **D8. Narrow support, general design.**
 The supported platform is narrow; the taxonomy and paradigms are not. Vendor, API, world
 type and shader source each sit behind a seam named in `docs/REQUIREMENTS.md`, so support
