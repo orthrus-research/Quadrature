@@ -415,6 +415,122 @@ authors can dedicate: their own expression of ideas, never copied code.
   for the block state at a place.
 - Added: 2026-11-17
 
+### Run tiles
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunTile.java`
+- Source: original. Facts used: Cubature's terrain preview interface, which gives a column
+  as contiguous vertical runs; `docs/research/R3-levels-of-detail.md` on column runs as a
+  representation; Quadrature's own size survey of Riven's sampler (runs per column, and how
+  many no face can touch).
+- Taken: nothing beyond the interface's shape.
+- Added: 2026-11-15
+
+### Run mesher
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunMesher.java`, `TileMesh.java`
+- Source: original, from the distant terrain design and the size survey. Joining coplanar
+  faces into rectangles is widely described, for example Lysenko, "Meshing in a Minecraft
+  Game", 0fps, 2012: the volume is swept in each direction and each slice's faces are
+  covered greedily by rectangles, the first in an order of position and size taken each
+  time. That article leaves levels of detail aside. Skirts that hide the cracks between
+  terrain levels are common in terrain rendering writing.
+- Taken: the idea of joining a slice's coplanar faces into rectangles. Faces come from the
+  overlap of one column's solid stretches with its neighbor's stretches of space; tops are
+  joined row by row from bit masks, not by the article's ordered search; the skirt is the
+  part of a tile's outer sides that its neighbor hides, so a tile closes itself.
+- Not taken: any mesher's source.
+- Added: 2026-11-15
+
+### Corner occlusion
+- Code: `RunMesher.java` (`corner`, `topOcclusion`, `sideOcclusion`)
+- Source: Lysenko, "Ambient occlusion for Minecraft-like worlds", 0fps, 2013.
+- Taken: the rule for a corner from the two cells beside it and the one diagonal to it. The
+  article gives the light left, 0 when both sides are closed and otherwise 3 less the count
+  of closed cells; the mesher keeps the occlusion, its complement. Also the article's
+  condition for joining: faces are joined only where their corners' values agree.
+- Not taken: code, and the article's turning of a quad's diagonal by its corner values:
+  faces are split along one fixed diagonal. Applying the rule to faces many blocks tall, at
+  their two ends, and joining along each axis separately by whether the corners agree along
+  it, are original.
+- Added: 2026-11-15
+
+### Face record
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/FaceRecord.java`
+- Source: original. Facts used: the survey's measurements (12 bits of height suffice for
+  Riven's world, and fewer than 400 block states appear in a window).
+- Added: 2026-11-15
+
+### Rings of tiles
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/Rings.java`, `TileKey.java`
+- Source: Losasso and Hoppe, "Geometry Clipmaps: Terrain Rendering Using Nested Regular
+  Grids", SIGGRAPH 2004.
+- Taken: the idea. Square levels nested round the viewer, each with twice the spacing and
+  twice the extent of the one inside it; a level's edge kept on the coarser level's even
+  vertices (the paper's third constraint on its regions), which is why a level moves in
+  steps of two of its cells; each level drawn as its square with the finer square cut out
+  (the paper's render region).
+- Not taken: the paper's heightfield grids, wrapped vertex buffers, upsampling, morphing of
+  heights across a transition region and zero-area triangles at level edges. Levels here
+  are tiles of run columns, meet by the shared fade pattern and by skirts, and are clipped
+  to a world's bounds; those are original.
+- Added: 2026-11-15
+
+### Vertex stage that builds faces from records
+- Code: `src/main/java/cc/orthrus/quadrature/distant/DistantProgram.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/lod/TileDraws.java`
+- Source: the OpenGL 4.6 compatibility specification (shader storage blocks and std430
+  layout, `gl_VertexID` and `gl_BaseInstance`, indirect multi-draw of arrays). Building
+  vertices in the vertex stage from a buffer the stage indexes itself is widely described as
+  programmable vertex pulling, for example Rakos, "Programmable Vertex Pulling", chapter 21
+  of OpenGL Insights, 2012. The chapter's sample shaders read each vertex's attributes from
+  buffer textures with `texelFetch` at `gl_VertexID`, directly or through an index read the
+  same way.
+- Taken: the idea. The vertex number names the face and its corner; the draw's base instance
+  names the tile, as near terrain's names a cube. Faces are read from shader storage blocks,
+  not buffer textures.
+- Not taken: code.
+- Added: 2026-11-15
+
+### One far distance for the whole world pass
+- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererDistant.java`,
+  `DistantHook.java`
+- Source: original. Facts used: the game's world pass, read from its public classes: the
+  four methods that build a projection and the profiler section that follows the opaque
+  terrain layers; the OpenGL specification's mapping from clip depth to window depth.
+- Taken: nothing. Two projections with different far distances map one distance to two
+  depths; a single far distance for every projection of the pass avoids it.
+- Added: 2026-11-15
+
+### One fog for near and distant terrain, the near box and the debug views
+- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererFog.java`,
+  `DistantHook.java` (`fog`), `DistantSettings.java`, `DistantProgram.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/lod/NearCover.java`
+- Source: original. Facts used: the game's world pass, read from its public classes: where it
+  sets its fog, with which distances, and which call is the sky's; the level at which the game
+  draws a still water surface; the OpenGL compatibility specification's fog state.
+- Taken: nothing. The fog formula is near terrain's own program's.
+- Added: 2026-11-16
+
+### Flat material colors and biome tints
+- Code: `src/main/java/cc/orthrus/quadrature/distant/DistantMaterials.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/lod/MaterialTable.java`
+- Source: original. Facts used: the game's public interfaces for a block's baked model, its
+  quads' images and tint indices, its block color handlers and a biome's colors.
+- Added: 2026-11-15
+
+### Tile schedule, distant arena and timing
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/TileSchedule.java`,
+  `TileCulling.java`, `BuiltTile.java`, and `src/main/java/cc/orthrus/quadrature/distant/`
+  (`Distant.java`, `DistantWorkers.java`, `DistantArena.java`)
+- Source: original. The arena is near terrain's (its record above) with other sizes. Facts
+  used: Cubature's cube source and terrain preview interfaces; the OpenGL 4.6 compatibility
+  specification (timestamp queries, sync objects, buffer storage).
+- Added: 2026-11-15
+
+### Writer audit
+- Code: `src/main/java/cc/orthrus/quadrature/distant/WriterAudit.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification's state query
+  names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
+- Added: 2026-11-17
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

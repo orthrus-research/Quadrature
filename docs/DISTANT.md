@@ -155,131 +155,10 @@ five warm passes with the write into a native buffer, while seven other threads 
 
 ## 7. Provenance
 
-Records 6 to 10 below belong to the first frames (section 8).
-
-Records for [PROVENANCE.md](PROVENANCE.md), kept here until this branch joins the one that
-owns that file. No renderer's or level-of-detail mod's source was read for any of it.
-
-The published sources named below were cited from memory while the code was written and
-read again on 2026-11-17; each record says what the source holds and what was taken from it.
-Rakos's chapter itself was not available: its record rests on the chapter's published sample
-shaders.
-
-### Run tiles
-- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunTile.java`
-- Source: original. Facts used: Cubature's terrain preview interface, which gives a column
-  as contiguous vertical runs; `docs/research/R3-levels-of-detail.md` on column runs as a
-  representation; Quadrature's own size survey of Riven's sampler (runs per column, and how
-  many no face can touch).
-- Taken: nothing beyond the interface's shape.
-- Added: 2026-11-15
-
-### Run mesher
-- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunMesher.java`, `TileMesh.java`
-- Source: original, from the distant terrain design and the size survey. Joining coplanar
-  faces into rectangles is widely described, for example Lysenko, "Meshing in a Minecraft
-  Game", 0fps, 2012: the volume is swept in each direction and each slice's faces are
-  covered greedily by rectangles, the first in an order of position and size taken each
-  time. That article leaves levels of detail aside. Skirts that hide the cracks between
-  terrain levels are common in terrain rendering writing.
-- Taken: the idea of joining a slice's coplanar faces into rectangles. Faces come from the
-  overlap of one column's solid stretches with its neighbor's stretches of space; tops are
-  joined row by row from bit masks, not by the article's ordered search; the skirt is the
-  part of a tile's outer sides that its neighbor hides, so a tile closes itself.
-- Not taken: any mesher's source.
-- Added: 2026-11-15
-
-### Corner occlusion
-- Code: `RunMesher.java` (`corner`, `topOcclusion`, `sideOcclusion`)
-- Source: Lysenko, "Ambient occlusion for Minecraft-like worlds", 0fps, 2013.
-- Taken: the rule for a corner from the two cells beside it and the one diagonal to it. The
-  article gives the light left, 0 when both sides are closed and otherwise 3 less the count
-  of closed cells; the mesher keeps the occlusion, its complement. Also the article's
-  condition for joining: faces are joined only where their corners' values agree.
-- Not taken: code, and the article's turning of a quad's diagonal by its corner values:
-  faces are split along one fixed diagonal. Applying the rule to faces many blocks tall, at
-  their two ends, and joining along each axis separately by whether the corners agree along
-  it, are original.
-- Added: 2026-11-15
-
-### Face record
-- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/FaceRecord.java`
-- Source: original. Facts used: the survey's measurements (12 bits of height suffice for
-  Riven's world, and fewer than 400 block states appear in a window).
-- Added: 2026-11-15
-
-### Rings of tiles
-- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/Rings.java`, `TileKey.java`
-- Source: Losasso and Hoppe, "Geometry Clipmaps: Terrain Rendering Using Nested Regular
-  Grids", SIGGRAPH 2004.
-- Taken: the idea. Square levels nested round the viewer, each with twice the spacing and
-  twice the extent of the one inside it; a level's edge kept on the coarser level's even
-  vertices (the paper's third constraint on its regions), which is why a level moves in
-  steps of two of its cells; each level drawn as its square with the finer square cut out
-  (the paper's render region).
-- Not taken: the paper's heightfield grids, wrapped vertex buffers, upsampling, morphing of
-  heights across a transition region and zero-area triangles at level edges. Levels here
-  are tiles of run columns, meet by the shared fade pattern and by skirts, and are clipped
-  to a world's bounds; those are original.
-- Added: 2026-11-15
-
-### Vertex stage that builds faces from records
-- Code: `src/main/java/cc/orthrus/quadrature/distant/DistantProgram.java`,
-  `core/src/main/java/cc/orthrus/quadrature/core/lod/TileDraws.java`
-- Source: the OpenGL 4.6 compatibility specification (shader storage blocks and std430
-  layout, `gl_VertexID` and `gl_BaseInstance`, indirect multi-draw of arrays). Building
-  vertices in the vertex stage from a buffer the stage indexes itself is widely described as
-  programmable vertex pulling, for example Rakos, "Programmable Vertex Pulling", chapter 21
-  of OpenGL Insights, 2012. The chapter's sample shaders read each vertex's attributes from
-  buffer textures with `texelFetch` at `gl_VertexID`, directly or through an index read the
-  same way.
-- Taken: the idea. The vertex number names the face and its corner; the draw's base instance
-  names the tile, as near terrain's names a cube. Faces are read from shader storage blocks,
-  not buffer textures.
-- Not taken: code.
-- Added: 2026-11-15
-
-### One far distance for the whole world pass
-- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererDistant.java`,
-  `DistantHook.java`
-- Source: original. Facts used: the game's world pass, read from its public classes: the
-  four methods that build a projection and the profiler section that follows the opaque
-  terrain layers; the OpenGL specification's mapping from clip depth to window depth.
-- Taken: nothing. Two projections with different far distances map one distance to two
-  depths; a single far distance for every projection of the pass avoids it.
-- Added: 2026-11-15
-
-### One fog for near and distant terrain, the near box and the debug views
-- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererFog.java`,
-  `DistantHook.java` (`fog`), `DistantSettings.java`, `DistantProgram.java`,
-  `core/src/main/java/cc/orthrus/quadrature/core/lod/NearCover.java`
-- Source: original. Facts used: the game's world pass, read from its public classes: where it
-  sets its fog, with which distances, and which call is the sky's; the level at which the game
-  draws a still water surface; the OpenGL compatibility specification's fog state.
-- Taken: nothing. The fog formula is near terrain's own program's.
-- Added: 2026-11-16
-
-### Flat material colors and biome tints
-- Code: `src/main/java/cc/orthrus/quadrature/distant/DistantMaterials.java`,
-  `core/src/main/java/cc/orthrus/quadrature/core/lod/MaterialTable.java`
-- Source: original. Facts used: the game's public interfaces for a block's baked model, its
-  quads' images and tint indices, its block color handlers and a biome's colors.
-- Added: 2026-11-15
-
-### Tile schedule, distant arena and timing
-- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/TileSchedule.java`,
-  `TileCulling.java`, `BuiltTile.java`, and `src/main/java/cc/orthrus/quadrature/distant/`
-  (`Distant.java`, `DistantWorkers.java`, `DistantArena.java`)
-- Source: original. The arena is near terrain's (its record above) with other sizes. Facts
-  used: Cubature's cube source and terrain preview interfaces; the OpenGL 4.6 compatibility
-  specification (timestamp queries, sync objects, buffer storage).
-- Added: 2026-11-15
-
-### Writer audit
-- Code: `src/main/java/cc/orthrus/quadrature/distant/WriterAudit.java`
-- Source: original. Facts used: the OpenGL 4.6 compatibility specification's state query
-  names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
-- Added: 2026-11-17
+The records for the techniques here are in [PROVENANCE.md](PROVENANCE.md), from "Run tiles"
+to "Writer audit". No renderer's or level-of-detail mod's source was read for any of it. The
+published sources they cite were read again on 2026-11-17; Rakos's chapter itself was not
+available, and its record rests on the chapter's published sample shaders.
 
 ## 8. First frames
 
@@ -2038,9 +1917,26 @@ to 176 blocks, in every pass, from an origin at most 0.05 blocks from its own.
 - Outside the band the faded frame and the join view of a view differ on 0.002 to 0.003 % of
   pixels, so the join view marks the faded frame's band exactly.
 
-Not yet seen: water at the join, a cliff or step across the band (the one-in-sixteen edge
-above), and the band while the viewer moves, where the pattern stays fixed to the screen and
-the band moves under it.
+**Water, a shore and a cliff** (`quadrature-join-03`, the same build; views found on a terrain
+atlas of the world where the band crosses each, from above and at the ground):
+
+- *Open water*, the band all sea: the faded frame shows nothing at the band. The join view
+  shows the sea bed's fade through the water as a violet band; the water surface does not
+  take part, as described above.
+- *A shore*, the band half land and half water, along a cliff above the sea: no hole and no
+  line where the band runs down the cliff face or meets the water.
+- *A cliff wall facing the viewer* lies at the band's distance as a whole, and all of it shows
+  the pattern: near terrain's textured blocks among distant terrain's flat colors, a mottled
+  wall and not a seam. How much it shows depends on how near a material's flat color is to
+  its image's mean. No pixel open to the sky or to farther ground on the wall or along its
+  top.
+
+**In motion** (`quadrature-join-04`, a client-side glide of 16 blocks sideways with an 18-degree
+turn over 4 seconds above the band, a frame each tick): the band moves with the ground, with no
+line, popping or crawl in consecutive frames. Per pixel and frame, the band changes by 24.7
+while moving, against 35.7 for textured ground just nearer, and by 0.16 while holding still,
+against 0.25: the pattern fixed to the screen adds no flicker. The first frame equals the
+settled still of the same pose.
 
 ## 21. Distant water as inputs for shading
 
