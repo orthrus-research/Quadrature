@@ -1,0 +1,32 @@
+[
+  {
+    "label": "ground_join",
+    "x": -4795.5,
+    "y": 80,
+    "z": 12040.5,
+    "yaw": 90.0,
+    "pitch": 0,
+    "commands": [
+      "time set 6000",
+      "gamerule doDaylightCycle false",
+      "weather clear 100000",
+      "tp {player} -4795.5 80 12040.5 90.0 0"
+    ]
+  },
+  {
+    "label": "above_west",
+    "x": -4799.5,
+    "y": 156,
+    "z": 12000.5,
+    "yaw": 100.0,
+    "pitch": 15
+  },
+  {
+    "label": "far_jump",
+    "x": -3000.5,
+    "y": 156,
+    "z": 12000.5,
+    "yaw": 90.0,
+    "pitch": 15
+  }
+]
