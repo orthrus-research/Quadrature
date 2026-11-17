@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
+import cc.orthrus.quadrature.core.view.ShadowLayers;
 import cc.orthrus.quadrature.depth.DepthCalls;
 
 import net.minecraft.client.Minecraft;
@@ -26,20 +27,22 @@ import javax.imageio.ImageIO;
  * The depth a light's view is drawn into: one square texture of depth alone, owned by Quadrature, with a
  * framebuffer that has no color.
  *
- * <p>The side is 4,096 texels. The view along the light is a cube centered on the player that holds
- * every cube the client has: 544 blocks a side at a reach of twelve chunks, so a texel is 0.13 of a
- * block. It is one layer of an array texture; boxes of other sizes can be added as further layers. What
- * resolution a shadow needs near the eye is decided when the map is sampled. Depth is kept in 24 bits:
- * the box is orthographic, so depth is linear, and 24 bits divide a box 544 blocks deep into steps of a
- * thirty-thousandth of a block. The texture takes 4 bytes a texel, 64 MiB.
+ * <p>Each layer is 4,096 texels a side. The wide view along the light is a cube centered on the player
+ * that holds every cube the client has: 544 blocks a side at a reach of twelve chunks, so a texel is
+ * 0.13 of a block. With {@code -Dquadrature.shadow.near=true} a near box 192 blocks across, 0.047 of a
+ * block a texel, is layer 0 and the wide box layer 1; otherwise the wide box is the only layer. Depth
+ * is kept in 24 bits: the boxes are orthographic, so depth is linear, and 24 bits divide a box 544
+ * blocks deep into steps of a thirty-thousandth of a block. The texture takes 4 bytes a texel, 64 MiB a
+ * layer. See {@link ShadowLayers}.
  */
 final class ShadowTarget {
 
-    static final int SIDE = 4096;
-    /** The texture is an array, so that more boxes of other sizes can be added as layers; one for now. */
-    static final int LAYERS = 1;
-    /** The bytes the depth texture takes: 24 bits of depth stored in 4 bytes a texel. */
-    static final long BYTES = (long) SIDE * SIDE * 4 * LAYERS;
+    /** The layers drawn: the near one only where {@code quadrature.shadow.near} is set. */
+    static final ShadowLayers LAYOUT = new ShadowLayers(Boolean.getBoolean("quadrature.shadow.near"));
+    static final int SIDE = ShadowLayers.TEXELS;
+    static final int LAYERS = LAYOUT.count();
+    /** The bytes the depth texture takes: 24 bits of depth stored in 4 bytes a texel, for every layer. */
+    static final long BYTES = LAYOUT.bytes();
     /**
      * The polygon offset the depth is drawn with, as {@code factor,units}; none unless
      * {@code quadrature.shadow.polygonOffset} is set. Any other bias is the sampler's.
@@ -114,13 +117,15 @@ final class ShadowTarget {
             pair[0] = GL15.glGenQueries();
             pair[1] = GL15.glGenQueries();
         }
-        Quadrature.LOGGER.info("Shadow target: {} by {} texels of depth, {} MiB.", SIDE, SIDE, BYTES >> 20);
+        Quadrature.LOGGER.info("Shadow target: {} by {} texels of depth, {} layer{}, {} MiB{}.", SIDE, SIDE, LAYERS,
+            LAYERS == 1 ? "" : "s", BYTES >> 20, LAYOUT.near() ? String.format(" (%d MiB for the near layer, %.0f blocks "
+                + "across)", ShadowLayers.layerBytes() >> 20, ShadowLayers.NEAR_SIDE) : "");
     }
 
     /**
-     * Makes the target the place draws go, cleared to the farthest depth, with the state a depth-only
-     * draw of Quadrature's own depends on. What it changes that the game's draws depend on is read
-     * first and put back by {@link #end}.
+     * Sets the state a depth-only draw of Quadrature's own depends on, before the first layer drawn in
+     * a frame. What it changes that the game's draws depend on is read first and put back by
+     * {@link #end}. Draws go nowhere until {@link #layer} names a layer.
      */
     void begin() {
         if (framebuffer == 0) {
@@ -144,7 +149,6 @@ final class ShadowTarget {
         cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer);
         GL11.glViewport(0, 0, SIDE, SIDE);
-        GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
         GL11.glDepthFunc(GL11.GL_LEQUAL);
         if (DepthCalls.active()) {
             // The light's box is written for clip depth from -1 to 1, whatever the frame uses.
@@ -174,6 +178,12 @@ final class ShadowTarget {
     }
 
     private boolean offsetFound;
+
+    /** Makes one layer the place draws go, cleared to the farthest depth; the others keep what they hold. */
+    void layer(int layer) {
+        GL45.glNamedFramebufferTextureLayer(framebuffer, GL30.GL_DEPTH_ATTACHMENT, texture, 0, layer);
+        GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+    }
 
     /** Puts back what {@link #begin} changed. The framebuffer and viewport are the envelope's to restore. */
     void end() {
@@ -230,12 +240,12 @@ final class ShadowTarget {
      *
      * @return the file written, or null when it could not be
      */
-    File writeImage(String name) {
+    File writeImage(String name, int layer) {
         if (readback == null) {
             readback = ByteBuffer.allocateDirect(SIDE * SIDE * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
         }
         readback.clear();
-        GL45.glGetTextureSubImage(texture, 0, 0, 0, 0, SIDE, SIDE, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, readback);
+        GL45.glGetTextureSubImage(texture, 0, 0, 0, layer, SIDE, SIDE, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, readback);
         int step = SIDE / IMAGE_SIDE;
         BufferedImage image = new BufferedImage(IMAGE_SIDE, IMAGE_SIDE, BufferedImage.TYPE_BYTE_GRAY);
         byte[] gray = ((java.awt.image.DataBufferByte) image.getRaster().getDataBuffer()).getData();
@@ -271,7 +281,8 @@ final class ShadowTarget {
             }
         }
         File directory = new File(Minecraft.getMinecraft().gameDir, "quadrature-shadow");
-        File file = new File(directory, String.format("shadow-%02d-%s.png", images++, name));
+        File file = new File(directory, LAYERS == 1 ? String.format("shadow-%02d-%s.png", images++, name)
+            : String.format("shadow-%02d-%s-layer%d.png", images++, name, layer));
         try {
             directory.mkdirs();
             ImageIO.write(image, "png", file);

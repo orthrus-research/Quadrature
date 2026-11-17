@@ -267,6 +267,12 @@ public final class StageHost {
      * in the map; one a hair below it means the ground shadows itself.
      */
     private static void lightDepth(ShadowMaps shadows, ShadingTargets targets) {
+        for (int layer = 0; layer < Math.min(shadows.layers(), FrameBlock.LIGHT_VIEWS); layer++) {
+            lightDepth(shadows, targets, layer);
+        }
+    }
+
+    private static void lightDepth(ShadowMaps shadows, ShadingTargets targets, int layer) {
         try {
             int side = shadows.side();
             if (mapRead == null || mapRead.capacity() != side * side * 4) {
@@ -274,7 +280,7 @@ public final class StageHost {
             }
             mapRead.clear();
             GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
-            GL45.glGetTextureSubImage(shadows.texture(), 0, 0, 0, 0, side, side, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, mapRead);
+            GL45.glGetTextureSubImage(shadows.texture(), 0, 0, 0, layer, side, side, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, mapRead);
             float least = Float.MAX_VALUE;
             float most = -Float.MAX_VALUE;
             long below = 0;
@@ -291,22 +297,22 @@ public final class StageHost {
             float depth = one.getFloat(0);
             double[] place = FrameBlock.apply(FrameBlock.doubles(frame.inverseViewProjection), (x + 0.5) / targets.width() * 2 - 1,
                 (y + 0.5) / targets.height() * 2 - 1, depth, 1);
-            double[] lit = FrameBlock.apply(FrameBlock.doubles(frame.lightViews[0]), place[0] / place[3], place[1] / place[3],
+            double[] lit = FrameBlock.apply(FrameBlock.doubles(frame.lightViews[layer]), place[0] / place[3], place[1] / place[3],
                 place[2] / place[3], 1);
             double u = lit[0] * 0.5 + 0.5;
             double v = lit[1] * 0.5 + 0.5;
             int texelX = (int) Math.floor(u * side);
             int texelY = (int) Math.floor(v * side);
             boolean inside = texelX >= 0 && texelX < side && texelY >= 0 && texelY < side;
-            Quadrature.LOGGER.info("Stage probe: the light's depth, {} by {}: least {}, greatest {}, {} of {} texels below 1. The pixel "
+            Quadrature.LOGGER.info("Stage probe: the light's depth{}, {} by {}: least {}, greatest {}, {} of {} texels below 1. The pixel "
                 + "({}, {}) counted from the bottom left: stored depth {}, {} {} {} blocks from the eye; in the light's view u {} v {}, "
                 + "reference depth {}; the map holds {} at texel ({}, {}); the depth's span is {} blocks, so the reference lies {} "
-                + "blocks behind what the map holds.", side, side, least, most, below, (long) side * side, x, y, depth,
+                + "blocks behind what the map holds.", layer == 0 ? "" : ", layer " + layer, side, side, least, most, below, (long) side * side, x, y, depth,
                 String.format("%.2f", place[0] / place[3]), String.format("%.2f", place[1] / place[3]),
                 String.format("%.2f", place[2] / place[3]), String.format("%.5f", u), String.format("%.5f", v),
                 String.format("%.6f", lit[2]), inside ? String.format("%.6f", mapRead.getFloat((texelY * side + texelX) * 4)) : "nothing",
-                texelX, texelY, frame.lightScales[0][1],
-                inside ? String.format("%.3f", (lit[2] - mapRead.getFloat((texelY * side + texelX) * 4)) * frame.lightScales[0][1]) : "?");
+                texelX, texelY, frame.lightScales[layer][1],
+                inside ? String.format("%.3f", (lit[2] - mapRead.getFloat((texelY * side + texelX) * 4)) * frame.lightScales[layer][1]) : "?");
         } catch (RuntimeException failure) {
             Quadrature.LOGGER.warn("Stage probe: the light's depth could not be read: {}", failure.toString());
         }

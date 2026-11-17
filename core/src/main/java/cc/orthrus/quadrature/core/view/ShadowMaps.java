@@ -125,6 +125,26 @@ public final class ShadowMaps {
         drawn = true;
     }
 
+    /**
+     * Keeps a layer that is not drawn again in a frame begun by {@link #beginFrame}: what it holds
+     * stays, and its matrix is carried from the frame before's origin to this frame's, so that every
+     * layer's matrix is relative to the one origin published. Its box's side stays.
+     */
+    public void keep(int layer) {
+        float[] before = previousViewProjection[layer];
+        float[] out = viewProjection[layer];
+        double dx = origin[0] - previousOrigin[0];
+        double dy = origin[1] - previousOrigin[1];
+        double dz = origin[2] - previousOrigin[2];
+        // A position p from the new origin is p + d from the old: the matrix's last column takes M (d, 1).
+        for (int row = 0; row < 4; row++) {
+            out[row] = before[row];
+            out[4 + row] = before[4 + row];
+            out[8 + row] = before[8 + row];
+            out[12 + row] = (float) (before[row] * dx + before[4 + row] * dy + before[8 + row] * dz + before[12 + row]);
+        }
+    }
+
     // What a sampler reads.
 
     public int layers() {

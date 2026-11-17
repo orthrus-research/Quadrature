@@ -16,6 +16,7 @@ import cc.orthrus.quadrature.core.terrain.SearchEdge;
 import cc.orthrus.quadrature.core.terrain.SurfaceBand;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.view.ShadingTargets;
+import cc.orthrus.quadrature.core.view.ShadowLayers;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
 
@@ -239,6 +240,30 @@ public final class Terrain
     private final View mainView = new View();
     private final View searchedView = new View();
     private final View lightView = new View();
+
+    /**
+     * Off unless {@code -Dquadrature.shadow.near=true}, with the light's depth on: a second layer, a box
+     * 192 blocks across centered on the player, drawn by the same rules as the wide one and each when
+     * its own are met. It is layer 0 and the wide box layer 1.
+     */
+    private static final boolean NEAR_SHADOW = SHADOW && ShadowTarget.LAYOUT.near();
+    private final View nearView = new View();
+    private final View nearCandidate = new View();
+    private final Visibility nearLit = NEAR_SHADOW ? new Visibility() : null;
+    private final DrawCommands nearList = NEAR_SHADOW ? new DrawCommands() : null;
+    private final DrawCommands nearFaceList = NEAR_SHADOW ? new DrawCommands() : null;
+    private long nearMeshVersion = -1;
+    private final double[] nearToward = new double[3];
+    private double nearOriginX;
+    private double nearOriginY;
+    private double nearOriginZ;
+    private boolean nearContent;
+    private boolean nearResnapped;
+    private boolean nearTurned;
+    private long nearFrames;
+    private long nearResnaps;
+    private long nearTurns;
+    private int nearDraws;
     private final Visibility visible = new Visibility();
     private final Visibility lit = new Visibility();
     /** Counts changes to {@link #links}; a search holds while it and the view stand still. */
@@ -1011,10 +1036,17 @@ public final class Terrain
         // A second view, found and not yet drawn: what a shadow of the sun or moon would be drawn from.
         start = System.nanoTime();
         boolean redraw = false;
+        boolean nearRedraw = false;
         if (SHADOW) {
             redraw = shadowDue(partialTicks);
             if (redraw) {
                 lit.sweep(this, lightView);
+            }
+            if (NEAR_SHADOW) {
+                nearRedraw = nearShadowDue();
+                if (nearRedraw) {
+                    nearLit.sweep(this, nearView);
+                }
             }
         } else {
             MainView.alongLight(lightView, mainView, partialTicks);
@@ -1041,6 +1073,9 @@ public final class Terrain
             if (!SHADOW || redraw) {
                 command(lightList, lit, lightView, false);
             }
+            if (nearRedraw) {
+                command(nearList, nearLit, nearView, false);
+            }
             if (FACES) {
                 commandFaces(mainFaceList, visible, mainView);
                 program.uploadFaces(mainFaceList, 0);
@@ -1052,6 +1087,9 @@ public final class Terrain
                 if (redraw) {
                     commandFaces(lightFaceList, lit, lightView);
                 }
+                if (nearRedraw) {
+                    commandFaces(nearFaceList, nearLit, nearView);
+                }
             }
             if (TARGETS) {
                 program.vertexStride(FaceBuilder.WIDE_STRIDE);
@@ -1062,8 +1100,8 @@ public final class Terrain
                 }
             }
             lastLightCommandNanos = System.nanoTime() - start;
-            if (redraw) {
-                drawShadow();
+            if (redraw || nearRedraw) {
+                drawShadow(redraw, nearRedraw);
             } else if (SHADOW) {
                 shadowMaps.hold(towardLight[0], towardLight[1], towardLight[2]);
                 shadowKept++;
@@ -1091,14 +1129,8 @@ public final class Terrain
         shadowResnapped = false;
         if (shadowMeshVersion >= 0) {
             // Another texel, along the axes the depth was drawn with.
-            float[] axes = lightView.modelView();
-            double texel = lightSide / ShadowTarget.SIDE;
-            for (int axis = 0; axis < 3 && !shadowResnapped; axis++) {
-                double now = axes[axis] * mainView.originX() + axes[4 + axis] * mainView.originY()
-                    + axes[8 + axis] * mainView.originZ();
-                double before = axes[axis] * shadowOriginX + axes[4 + axis] * shadowOriginY + axes[8 + axis] * shadowOriginZ;
-                shadowResnapped = Math.rint(now / texel) != Math.rint(before / texel);
-            }
+            shadowResnapped = ShadowLayers.newTexel(lightView.modelView(), ShadowLayers.texel(lightSide), shadowOriginX,
+                shadowOriginY, shadowOriginZ, mainView.originX(), mainView.originY(), mainView.originZ());
             double cosine = towardLight[0] * shadowToward[0] + towardLight[1] * shadowToward[1]
                 + towardLight[2] * shadowToward[2];
             shadowTurned = cosine < SHADOW_TURN_COSINE;
@@ -1107,6 +1139,30 @@ public final class Terrain
         due |= shadowResnapped || shadowTurned || shadowMeshVersion < 0;
         if (due) {
             lightView.copy(lightCandidate);
+        }
+        return due;
+    }
+
+    /**
+     * Whether the near layer must be drawn again this frame, by the wide layer's rules measured against
+     * the near layer's own last drawing: a mesh changed, the player moved into another of its texels, or
+     * the light turned more than the set angle. Called after {@link #shadowDue}, which finds the light.
+     */
+    private boolean nearShadowDue() {
+        ShadowLayers.nearBox(nearCandidate, mainView, towardLight[0], towardLight[1], towardLight[2]);
+        boolean due = nearMeshVersion != meshVersion;
+        nearResnapped = false;
+        nearTurned = false;
+        if (nearMeshVersion >= 0) {
+            nearResnapped = ShadowLayers.newTexel(nearView.modelView(), ShadowLayers.texel(ShadowLayers.NEAR_SIDE),
+                nearOriginX, nearOriginY, nearOriginZ, mainView.originX(), mainView.originY(), mainView.originZ());
+            double cosine = towardLight[0] * nearToward[0] + towardLight[1] * nearToward[1] + towardLight[2] * nearToward[2];
+            nearTurned = cosine < SHADOW_TURN_COSINE;
+        }
+        nearContent = due || nearResnapped;
+        due |= nearResnapped || nearTurned || nearMeshVersion < 0;
+        if (due) {
+            nearView.copy(nearCandidate);
         }
         return due;
     }
@@ -1123,45 +1179,65 @@ public final class Terrain
             stillFrames = 0;
         } else if (++stillFrames == STILL_FRAMES && imagedAt != place) {
             imagedAt = place;
-            shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
-                + (int) Math.floor(mainView.originZ()));
+            for (int layer = 0; layer < ShadowTarget.LAYERS; layer++) {
+                shadow.writeImage((int) Math.floor(mainView.originX()) + "_" + (int) Math.floor(mainView.originY()) + "_"
+                    + (int) Math.floor(mainView.originZ()), layer);
+            }
         }
     }
 
-    private void drawShadow() {
+    /**
+     * Draws the layers of the light's depth that are due and keeps the others: a kept layer holds what
+     * it held, and its matrix is carried to this frame's origin, which every layer's is relative to.
+     */
+    private void drawShadow(boolean wide, boolean near) {
         long start = System.nanoTime();
         DriverMessages.enter("shadow");
-        program.uploadDepth(lightList);
         shadow.begin();
         shadowMaps.objects(shadow.texture(), shadow.compareSampler(), shadow.depthSampler());
         shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
         shadowMaps.beginFrame(mainView.originX(), mainView.originY(), mainView.originZ(), towardLight[0],
             towardLight[1], towardLight[2]);
-        shadowOriginX = mainView.originX();
-        shadowOriginY = mainView.originY();
-        shadowOriginZ = mainView.originZ();
-        System.arraycopy(towardLight, 0, shadowToward, 0, 3);
-        shadowMaps.layer(0, lightView, lightSide, shadowContent);
-        shadowMeshVersion = meshVersion;
-        if (shadowResnapped) {
-            shadowResnaps++;
+        int wideLayer = ShadowTarget.LAYOUT.wideLayer();
+        if (wide) {
+            shadowOriginX = mainView.originX();
+            shadowOriginY = mainView.originY();
+            shadowOriginZ = mainView.originZ();
+            System.arraycopy(towardLight, 0, shadowToward, 0, 3);
+            shadowMaps.layer(wideLayer, lightView, lightSide, shadowContent);
+            shadowMeshVersion = meshVersion;
+            if (shadowResnapped) {
+                shadowResnaps++;
+            }
+            if (shadowTurned) {
+                shadowTurns++;
+            }
+            shadow.layer(wideLayer);
+            shadowDraws = drawDepthLayers(lightList, lightFaceList, lightView);
+        } else {
+            shadowMaps.keep(wideLayer);
         }
-        if (shadowTurned) {
-            shadowTurns++;
-        }
-        shadowDraws = program.drawDepth(lightList, BlockRenderLayer.SOLID.ordinal(), arena, lightView.projection(), -1f);
-        shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), arena,
-            lightView.projection(), cutoutReference);
-        shadowDraws += program.drawDepth(lightList, BlockRenderLayer.CUTOUT.ordinal(), arena, lightView.projection(),
-            cutoutReference);
-        if (FACES) {
-            program.uploadFaces(lightFaceList, 1);
-            shadowDraws += program.drawDepthFaces(lightFaceList, BlockRenderLayer.SOLID.ordinal(), faceArena,
-                lightView.projection(), -1f);
-            shadowDraws += program.drawDepthFaces(lightFaceList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), faceArena,
-                lightView.projection(), cutoutReference);
-            shadowDraws += program.drawDepthFaces(lightFaceList, BlockRenderLayer.CUTOUT.ordinal(), faceArena,
-                lightView.projection(), cutoutReference);
+        if (NEAR_SHADOW) {
+            int nearLayer = ShadowTarget.LAYOUT.nearLayer();
+            if (near) {
+                nearOriginX = mainView.originX();
+                nearOriginY = mainView.originY();
+                nearOriginZ = mainView.originZ();
+                System.arraycopy(towardLight, 0, nearToward, 0, 3);
+                shadowMaps.layer(nearLayer, nearView, ShadowLayers.NEAR_SIDE, nearContent);
+                nearMeshVersion = meshVersion;
+                if (nearResnapped) {
+                    nearResnaps++;
+                }
+                if (nearTurned) {
+                    nearTurns++;
+                }
+                nearFrames++;
+                shadow.layer(nearLayer);
+                nearDraws = drawDepthLayers(nearList, nearFaceList, nearView);
+            } else {
+                shadowMaps.keep(nearLayer);
+            }
         }
         shadow.end();
         program.end();
@@ -1171,6 +1247,23 @@ public final class Terrain
         mostShadowNanos = Math.max(mostShadowNanos, lastShadowNanos);
         shadowFrames++;
         image();
+    }
+
+    /** Draws the opaque layers of one view's lists into the layer of the light's depth bound. */
+    private int drawDepthLayers(DrawCommands list, DrawCommands faceList, View view) {
+        program.uploadDepth(list);
+        int draws = program.drawDepth(list, BlockRenderLayer.SOLID.ordinal(), arena, view.projection(), -1f);
+        draws += program.drawDepth(list, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), arena, view.projection(), cutoutReference);
+        draws += program.drawDepth(list, BlockRenderLayer.CUTOUT.ordinal(), arena, view.projection(), cutoutReference);
+        if (FACES) {
+            program.uploadFaces(faceList, 1);
+            draws += program.drawDepthFaces(faceList, BlockRenderLayer.SOLID.ordinal(), faceArena, view.projection(), -1f);
+            draws += program.drawDepthFaces(faceList, BlockRenderLayer.CUTOUT_MIPPED.ordinal(), faceArena,
+                view.projection(), cutoutReference);
+            draws += program.drawDepthFaces(faceList, BlockRenderLayer.CUTOUT.ordinal(), faceArena, view.projection(),
+                cutoutReference);
+        }
+        return draws;
     }
 
     /**
@@ -1626,6 +1719,12 @@ public final class Terrain
                     + "the light turning, generation %d, content generation %d, GPU %.3f ms a frame over all frames",
                 lightSide, shadowFrames, shadowKept, shadowResnaps, shadowTurns, shadowMaps.generation(),
                 shadowMaps.contentGeneration(), shadow.gpuMillisTotal() / Math.max(1, shadowFrames + shadowKept));
+            if (NEAR_SHADOW) {
+                line += String.format("; near layer %.0f blocks, %.3f blocks a texel, %d cubes, %d commands, %d draws, drawn in "
+                        + "%d frames, %d for another texel, %d for the light turning",
+                    ShadowLayers.NEAR_SIDE, ShadowLayers.texel(ShadowLayers.NEAR_SIDE), nearLit.count(),
+                    nearList.commandCount(), nearDraws, nearFrames, nearResnaps, nearTurns);
+            }
         }
         line += TerrainArena.TOUCH ? ", pages written once when made" : "";
         if (DIRECT) {
