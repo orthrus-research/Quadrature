@@ -648,6 +648,7 @@ public final class Terrain
         built++;
         if (mesh != null) {
             meshVersion++;
+            mesh.placedAt = meshVersion;
             meshes.put(key, mesh);
             vertices += mesh.vertices();
             bytes += mesh.bytes();
@@ -1589,6 +1590,48 @@ public final class Terrain
     @Override
     public boolean imagesDue() {
         return imagesDue != null;
+    }
+
+    @Override
+    public String cubeReport(double x, double y, double z) {
+        int cx = (int) Math.floor(x) >> 4;
+        int cy = (int) Math.floor(y) >> 4;
+        int cz = (int) Math.floor(z) >> 4;
+        long key = CubeKey.of(cx, cy, cz);
+        CubeMesh mesh = meshes.get(key);
+        int slot = slots.find(key);
+        int faceSlot = FACES ? faceSlots.find(key) : -1;
+        StringBuilder out = new StringBuilder(String.format("cube %d %d %d", cx, cy, cz));
+        if (mesh == null) {
+            out.append(dirty.contains(key) ? ", no mesh, waiting to be meshed" : ", no mesh");
+        } else {
+            out.append(String.format(", mesh placed at version %d (now %d)%s, vertex slot %s, record slot %s", mesh.placedAt,
+                meshVersion, mesh.inArena() ? "" : FACES ? "" : ", loose (outside the arena)",
+                slot < 0 ? "none" : "block " + slots.block(slot),
+                faceSlot < 0 ? "none" : "block " + faceSlots.block(faceSlot)));
+            if (dirty.contains(key)) {
+                out.append(", waiting to be meshed again");
+            }
+        }
+        if (SHADOW) {
+            out.append(String.format("; wide layer drawn at version %d, %s", shadowMeshVersion,
+                listed(lit, key) ? "lists it" : "does not list it"));
+            if (NEAR_SHADOW) {
+                out.append(String.format("; near layer drawn at version %d, %s", nearMeshVersion,
+                    listed(nearLit, key) ? "lists it" : "does not list it"));
+            }
+        }
+        out.append(listed(visible, key) ? "; the main view sees it" : "; the main view does not see it");
+        return out.toString();
+    }
+
+    private static boolean listed(Visibility seen, long key) {
+        for (int i = 0, count = seen.count(); i < count; i++) {
+            if (seen.key(i) == key) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

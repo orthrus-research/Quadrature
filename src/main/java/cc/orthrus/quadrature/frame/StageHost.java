@@ -56,6 +56,13 @@ public final class StageHost {
     public static final boolean REQUESTED = Boolean.getBoolean("quadrature.stage");
     public static final boolean SHOW = REQUESTED && Boolean.getBoolean("quadrature.stage.show");
     public static final boolean IMAGES = REQUESTED && Boolean.getBoolean("quadrature.stage.image");
+    /**
+     * {@code -Dquadrature.stage.targetsRaw=true}, with images on: targets B, C and D of the frame each
+     * stage image is written of are written beside it as raw numbers, as the diagnostic outputs are.
+     */
+    public static final boolean TARGETS_RAW = IMAGES && Boolean.getBoolean("quadrature.stage.targetsRaw");
+    /** The targets of the frame the probe last ran in, for {@link #TARGETS_RAW}. */
+    private static ShadingTargets probedTargets;
 
     /** The stage's name in the frame's graph. */
     static final String STAGE = "shading";
@@ -225,6 +232,7 @@ public final class StageHost {
      */
     private static void probe(ShadowMaps shadows, ShadingTargets targets) {
         probed.clear();
+        probedTargets = targets;
         for (StagePlan.Pass diagnostic : runner.plan().diagnosticPasses()) {
             runner.run(java.util.Collections.singletonList(diagnostic), pass -> {
                 int divisor = runner.plan().divisor(pass);
@@ -258,6 +266,8 @@ public final class StageHost {
     }
 
     private static ByteBuffer mapRead;
+    /** The eye's place in the world this frame, in double precision, for the probe. */
+    private static final double[] eyeWorld = new double[3];
 
     /**
      * Says what the light's depth holds in the frame images are written of, and for one pixel low in
@@ -270,6 +280,32 @@ public final class StageHost {
         for (int layer = 0; layer < Math.min(shadows.layers(), FrameBlock.LIGHT_VIEWS); layer++) {
             lightDepth(shadows, targets, layer);
         }
+    }
+
+    /** The pixels probed unless the property says otherwise: the column faces at the edges of the built scene's along views. */
+    static final String DEFAULT_PIXELS = "40,300;60,240;90,180;30,200;1150,140;1260,220;1255,180;1265,140";
+
+    /**
+     * {@code -Dquadrature.stage.probePixels=x,y;x,y}: pixels probed beside the default one, counted from
+     * the bottom left of the targets as the default is; an empty value probes the default one alone.
+     * Unless set, {@link #DEFAULT_PIXELS}. Malformed entries are said once and left out.
+     */
+    static final java.util.List<int[]> PROBE_PIXELS = probePixels(System.getProperty("quadrature.stage.probePixels", DEFAULT_PIXELS));
+
+    static java.util.List<int[]> probePixels(String text) {
+        java.util.List<int[]> pixels = new java.util.ArrayList<>();
+        for (String entry : text.split(";")) {
+            if (entry.trim().isEmpty()) {
+                continue;
+            }
+            String[] parts = entry.split(",");
+            try {
+                pixels.add(new int[] {Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim())});
+            } catch (RuntimeException malformed) {
+                Quadrature.LOGGER.warn("Stage probe: the pixel '{}' of quadrature.stage.probePixels is not x,y; it is left out.", entry);
+            }
+        }
+        return pixels;
     }
 
     private static void lightDepth(ShadowMaps shadows, ShadingTargets targets, int layer) {
@@ -290,32 +326,97 @@ public final class StageHost {
                 most = Math.max(most, value);
                 below += value < 1f ? 1 : 0;
             }
-            int x = targets.width() / 2;
-            int y = targets.height() / 6;
-            ByteBuffer one = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
-            GL45.glGetTextureSubImage(targets.depthTexture(), 0, x, y, 0, 1, 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, one);
-            float depth = one.getFloat(0);
-            double[] place = FrameBlock.apply(FrameBlock.doubles(frame.inverseViewProjection), (x + 0.5) / targets.width() * 2 - 1,
-                (y + 0.5) / targets.height() * 2 - 1, depth, 1);
-            double[] lit = FrameBlock.apply(FrameBlock.doubles(frame.lightViews[layer]), place[0] / place[3], place[1] / place[3],
-                place[2] / place[3], 1);
-            double u = lit[0] * 0.5 + 0.5;
-            double v = lit[1] * 0.5 + 0.5;
-            int texelX = (int) Math.floor(u * side);
-            int texelY = (int) Math.floor(v * side);
-            boolean inside = texelX >= 0 && texelX < side && texelY >= 0 && texelY < side;
-            Quadrature.LOGGER.info("Stage probe: the light's depth{}, {} by {}: least {}, greatest {}, {} of {} texels below 1. The pixel "
-                + "({}, {}) counted from the bottom left: stored depth {}, {} {} {} blocks from the eye; in the light's view u {} v {}, "
-                + "reference depth {}; the map holds {} at texel ({}, {}); the depth's span is {} blocks, so the reference lies {} "
-                + "blocks behind what the map holds.", layer == 0 ? "" : ", layer " + layer, side, side, least, most, below, (long) side * side, x, y, depth,
-                String.format("%.2f", place[0] / place[3]), String.format("%.2f", place[1] / place[3]),
-                String.format("%.2f", place[2] / place[3]), String.format("%.5f", u), String.format("%.5f", v),
-                String.format("%.6f", lit[2]), inside ? String.format("%.6f", mapRead.getFloat((texelY * side + texelX) * 4)) : "nothing",
-                texelX, texelY, frame.lightScales[layer][1],
-                inside ? String.format("%.3f", (lit[2] - mapRead.getFloat((texelY * side + texelX) * 4)) * frame.lightScales[layer][1]) : "?");
+            java.util.List<int[]> pixels = new java.util.ArrayList<>();
+            pixels.add(new int[] {targets.width() / 2, targets.height() / 6});
+            pixels.addAll(PROBE_PIXELS);
+            for (int i = 0; i < pixels.size(); i++) {
+                probePixel(shadows, targets, layer, side, least, most, below, pixels.get(i)[0], pixels.get(i)[1], i == 0);
+            }
         } catch (RuntimeException failure) {
             Quadrature.LOGGER.warn("Stage probe: the light's depth could not be read: {}", failure.toString());
         }
+    }
+
+    /** How far a place is moved into what it lies on before its block is looked up: a face lies between two blocks. */
+    private static final double INTO = 0.05;
+
+    private static void probePixel(ShadowMaps shadows, ShadingTargets targets, int layer, int side, float least, float most,
+        long below, int x, int y, boolean first) {
+        if (x < 0 || y < 0 || x >= targets.width() || y >= targets.height()) {
+            Quadrature.LOGGER.warn("Stage probe: the pixel ({}, {}) lies outside the targets, {} by {}.", x, y, targets.width(),
+                targets.height());
+            return;
+        }
+        ByteBuffer one = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder());
+        GL45.glGetTextureSubImage(targets.depthTexture(), 0, x, y, 0, 1, 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, one);
+        float depth = one.getFloat(0);
+        double[] place = FrameBlock.apply(FrameBlock.doubles(frame.inverseViewProjection), (x + 0.5) / targets.width() * 2 - 1,
+            (y + 0.5) / targets.height() * 2 - 1, depth, 1);
+        double[] lightView = FrameBlock.doubles(frame.lightViews[layer]);
+        double[] lit = FrameBlock.apply(lightView, place[0] / place[3], place[1] / place[3], place[2] / place[3], 1);
+        double u = lit[0] * 0.5 + 0.5;
+        double v = lit[1] * 0.5 + 0.5;
+        int texelX = (int) Math.floor(u * side);
+        int texelY = (int) Math.floor(v * side);
+        boolean inside = texelX >= 0 && texelX < side && texelY >= 0 && texelY < side;
+        // The first pixel's line is the one read by scripts that look for "the light's depth"; the others are said apart.
+        Quadrature.LOGGER.info("Stage probe: {}{}, {} by {}: least {}, greatest {}, {} of {} texels below 1. The pixel "
+            + "({}, {}) counted from the bottom left: stored depth {}, {} {} {} blocks from the eye; in the light's view u {} v {}, "
+            + "reference depth {}; the map holds {} at texel ({}, {}); the depth's span is {} blocks, so the reference lies {} "
+            + "blocks behind what the map holds.", first ? "the light's depth" : "a further pixel, the light's depth",
+            layer == 0 ? "" : ", layer " + layer, side, side, least, most, below,
+            (long) side * side, x, y, depth,
+            String.format("%.2f", place[0] / place[3]), String.format("%.2f", place[1] / place[3]),
+            String.format("%.2f", place[2] / place[3]), String.format("%.5f", u), String.format("%.5f", v),
+            String.format("%.6f", lit[2]), inside ? String.format("%.6f", mapRead.getFloat((texelY * side + texelX) * 4)) : "nothing",
+            texelX, texelY, frame.lightScales[layer][1],
+            inside ? String.format("%.3f", (lit[2] - mapRead.getFloat((texelY * side + texelX) * 4)) * frame.lightScales[layer][1]) : "?");
+
+        // Where those are in the world, and what stands there.
+        double ex = place[0] / place[3];
+        double ey = place[1] / place[3];
+        double ez = place[2] / place[3];
+        double length = Math.sqrt(ex * ex + ey * ey + ez * ez);
+        double[] seen = {eyeWorld[0] + ex, eyeWorld[1] + ey, eyeWorld[2] + ez};
+        String seenBlock = length > 0 ? block(seen[0] + ex / length * INTO, seen[1] + ey / length * INTO, seen[2] + ez / length * INTO)
+            : "none";
+        String held = "nothing: the place lies outside the map";
+        String heldCube = null;
+        if (inside) {
+            float stored = mapRead.getFloat((texelY * side + texelX) * 4);
+            double[] at = stored >= 1f ? null : FrameBlock.fromLight(lightView, (texelX + 0.5) / side, (texelY + 0.5) / side, stored);
+            if (stored >= 1f) {
+                held = "nothing drawn at the texel (depth 1)";
+            } else if (at == null) {
+                held = "no place: the light's matrix has no inverse";
+            } else {
+                float[] toward = shadows.drawnTowardLight();
+                double[] world = {eyeWorld[0] + at[0], eyeWorld[1] + at[1], eyeWorld[2] + at[2]};
+                double dx = world[0] - seen[0];
+                double dy = world[1] - seen[1];
+                double dz = world[2] - seen[2];
+                heldCube = TerrainHook.cubeReport(world[0] - toward[0] * INTO, world[1] - toward[1] * INTO, world[2] - toward[2] * INTO);
+                held = String.format("world %.2f %.2f %.2f, %s, %.2f blocks from the place the eye sees", world[0], world[1], world[2],
+                    block(world[0] - toward[0] * INTO, world[1] - toward[1] * INTO, world[2] - toward[2] * INTO),
+                    Math.sqrt(dx * dx + dy * dy + dz * dz));
+            }
+        }
+        Quadrature.LOGGER.info("Stage probe: places{}, pixel ({}, {}): the eye at world {} {} {} sees world {} {} {}, {}; at texel ({}, {}) "
+            + "the map holds {}. The cube seen: {}.{}", layer == 0 ? "" : ", layer " + layer, x, y, String.format("%.3f", eyeWorld[0]),
+            String.format("%.3f", eyeWorld[1]), String.format("%.3f", eyeWorld[2]), String.format("%.2f", seen[0]),
+            String.format("%.2f", seen[1]), String.format("%.2f", seen[2]), seenBlock, texelX, texelY, held,
+            length > 0 ? TerrainHook.cubeReport(seen[0] + ex / length * INTO, seen[1] + ey / length * INTO, seen[2] + ez / length * INTO)
+                : "none", heldCube == null ? "" : " The cube the map holds: " + heldCube + ".");
+    }
+
+    /** The block at a place and its state, as the client's world holds it. */
+    private static String block(double x, double y, double z) {
+        World world = Minecraft.getMinecraft().world;
+        if (world == null) {
+            return "no world";
+        }
+        net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(Math.floor(x), Math.floor(y), Math.floor(z));
+        return String.format("block %d %d %d %s", pos.getX(), pos.getY(), pos.getZ(), world.getBlockState(pos));
     }
 
     private static void set(int capability, boolean on) {
@@ -343,6 +444,7 @@ public final class StageHost {
         // Where the camera stands: the view's origin moved by the model-view's own translation.
         double[] eye = NearFade.origin(view.originX(), view.originY(), view.originZ(), view.modelView());
         frame.eye(eye[0], eye[1], eye[2]);
+        System.arraycopy(eye, 0, eyeWorld, 0, 3);
         double tilt = sunTilt();
         float angle = world.getCelestialAngle(partialTicks);
         SunPath.towardSun(angle, tilt, sun);
@@ -500,9 +602,34 @@ public final class StageHost {
                 Quadrature.LOGGER.info("Stage probe written: {} outputs beside {}.", probed.size(), file.getName());
                 probed.clear();
             }
+            if (TARGETS_RAW && probedTargets != null) {
+                writeTargets(directory, String.format("stage-%02d-%s", images - 1, name), probedTargets);
+                probedTargets = null;
+            }
         } catch (java.io.IOException | RuntimeException failure) {
             Quadrature.LOGGER.warn("Stage image not written: {}", failure.toString());
         }
+    }
+
+    /**
+     * Writes targets B, C and D as they are stored, each as four little-endian 32-bit floats a pixel
+     * from the bottom row up, 0 to 1 for the 8-bit channels: {@code <stem>-targetB.rgba32f} and so on.
+     */
+    private static void writeTargets(File directory, String stem, ShadingTargets targets) throws java.io.IOException {
+        int width = targets.width();
+        int height = targets.height();
+        ByteBuffer read = ByteBuffer.allocateDirect(width * height * 16).order(ByteOrder.LITTLE_ENDIAN);
+        String[] letters = {"A", "B", "C", "D"};
+        GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 1);
+        for (int target = 1; target < ShadingTargets.TARGETS; target++) {
+            read.clear();
+            GL45.glGetTextureImage(targets.texture(target), 0, GL11.GL_RGBA, GL11.GL_FLOAT, read);
+            byte[] raw = new byte[width * height * 16];
+            read.get(raw);
+            java.nio.file.Files.write(new File(directory, stem + "-target" + letters[target] + ".rgba32f").toPath(), raw);
+        }
+        GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 4);
+        Quadrature.LOGGER.info("Stage targets written: B, C and D of {} by {} beside {}.", width, height, stem + ".png");
     }
 
     private static int level(float value) {

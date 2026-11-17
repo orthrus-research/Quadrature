@@ -776,6 +776,17 @@ what the stage should write from them.
   reads each checked output back right after its pass, and logs PASS or FAIL with counts;
   passes the manifest lists as diagnostic are run after the frame's own. What differed is
   written into the client's `quadrature-stage/`.
+- **Images and the probe**, `-Dquadrature.stage.image=true`: for each frame images are
+  written of, the stage's display and its diagnostic outputs are written into
+  `quadrature-stage/`, and the light's depth is probed in each layer at a pixel low in the
+  middle of the picture and at the pixels of `-Dquadrature.stage.probePixels=x,y;x,y`,
+  counted from the bottom left (unless set, eight pixels at the edges of the built
+  scene's views; empty, the middle one alone). For each it logs the reference depth and
+  the stored one, where the eye's ray meets the world and the map's texel lies there,
+  inverted from the layer's matrix, with the block at each, and for the cube of each what
+  near terrain holds: its mesh and its version, and whether each layer listed it when last
+  drawn. `-Dquadrature.stage.targetsRaw=true` writes targets B, C and D of the same frame
+  beside the image as raw floats.
 
 ## 10. Mod interface
 

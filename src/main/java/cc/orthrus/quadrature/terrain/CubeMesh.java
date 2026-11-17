@@ -34,6 +34,8 @@ final class CubeMesh {
     /** For each layer, the first record in its page and how many there are. */
     final int[] faceFirsts = new int[LAYERS];
     final int[] faceCounts = new int[LAYERS];
+    /** The terrain's mesh version when the mesh was put in place: a diagnostic. */
+    long placedAt = -1;
 
     CubeMesh(int x, int y, int z) {
         this.x = x;

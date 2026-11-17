@@ -406,6 +406,15 @@ authors can dedicate: their own expression of ideas, never copied code.
   fixed cubes centered on the player.
 - Added: 2026-11-17
 
+### The probe of the light's depth at chosen pixels
+- Code: `fromLight` in `core/src/main/java/cc/orthrus/quadrature/core/stage/FrameBlock.java`;
+  the probe and the raw targets in `src/main/java/cc/orthrus/quadrature/frame/StageHost.java`;
+  `cubeReport` in `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` and `TerrainHook.java`
+- Source: original. Facts used: the inverse of a light view's matrix, plain linear algebra; the
+  OpenGL 4.6 specification (reading a texture's image as floats); the game's public interface
+  for the block state at a place.
+- Added: 2026-11-17
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

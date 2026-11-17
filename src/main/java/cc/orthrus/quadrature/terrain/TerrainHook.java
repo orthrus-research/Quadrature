@@ -77,6 +77,11 @@ public final class TerrainHook {
         default int lightViewCubes() {
             return -1;
         }
+
+        /** A diagnostic: what near terrain knows of the cube holding a world place, as one line's part. */
+        default String cubeReport(double x, double y, double z) {
+            return "no near terrain";
+        }
     }
 
     private static Drawer drawer;
@@ -226,6 +231,15 @@ public final class TerrainHook {
     /** How many cubes the light's view drew when it was last drawn, or -1 where that is not known. */
     public static int lightViewCubes() {
         return drawer == null ? -1 : drawer.lightViewCubes();
+    }
+
+    /**
+     * A diagnostic: what near terrain knows of the cube holding a world place: its key, whether it has
+     * a mesh and where, the mesh's version, and whether each layer of the light's depth listed it when
+     * last drawn, with the version that layer was drawn at.
+     */
+    public static String cubeReport(double x, double y, double z) {
+        return drawer == null ? "no near terrain" : drawer.cubeReport(x, y, z);
     }
 
     /** Whether writers are to be called in this pass: there is one, and the targets were drawn in it. */

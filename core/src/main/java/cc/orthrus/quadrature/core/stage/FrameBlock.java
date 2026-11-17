@@ -323,6 +323,25 @@ public final class FrameBlock {
         return multiply(depth, multiply(doubles(drawn), move));
     }
 
+    /**
+     * Where a texel of a light view's depth lies: the inverse of {@link #lightViewFromEye}'s matrix
+     * applied to the texel's place and the depth it holds.
+     *
+     * @param fromEye the light view's matrix for the block, from a place relative to the eye
+     * @param u       across the map, 0 to 1 from its first column
+     * @param v       up the map, 0 to 1 from its first row
+     * @param depth   the depth, 0 nearest the light to 1
+     * @return the place relative to the eye, in blocks, or null where the matrix has no inverse
+     */
+    public static double[] fromLight(double[] fromEye, double u, double v, double depth) {
+        double[] inverse = inverse(fromEye);
+        if (inverse == null) {
+            return null;
+        }
+        double[] place = apply(inverse, u * 2 - 1, v * 2 - 1, depth, 1);
+        return new double[] {place[0] / place[3], place[1] / place[3], place[2] / place[3]};
+    }
+
     /** A matrix applied to a point, column-major: x, y, z and w. */
     public static double[] apply(double[] matrix, double x, double y, double z, double w) {
         double[] out = new double[4];
