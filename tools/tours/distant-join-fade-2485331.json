@@ -2,7 +2,7 @@
   {
     "label": "ground_join",
     "x": -4795.5,
-    "y": 80,
+    "y": 104,
     "z": 12040.5,
     "yaw": 90.0,
     "pitch": 0,
@@ -10,13 +10,13 @@
       "time set 6000",
       "gamerule doDaylightCycle false",
       "weather clear 100000",
-      "tp {player} -4795.5 80 12040.5 90.0 0"
+      "tp {player} -4795.5 104 12040.5 90.0 0"
     ]
   },
   {
     "label": "ground_step_1",
     "x": -4827.5,
-    "y": 80,
+    "y": 104,
     "z": 12040.5,
     "yaw": 90.0,
     "pitch": 0
@@ -24,7 +24,7 @@
   {
     "label": "ground_step_2",
     "x": -4859.5,
-    "y": 80,
+    "y": 104,
     "z": 12040.5,
     "yaw": 90.0,
     "pitch": 0

@@ -1965,8 +1965,8 @@ array cells; nothing is allocated but the line. Not yet run.
 
 ## 20. The near join's fade, distant terrain's side
 
-Built behind `quadrature.distant.joinFade`, off by default; tested without a game as far as it
-can be; not run. Near terrain's side is built in its own branch and not in this one.
+Built behind `quadrature.distant.joinFade`, off by default, with near terrain's side behind
+`quadrature.terrain.fade`; run with both on 2026-11-17 (the end of this section).
 
 **The agreement.** A fragment's distance d is from the view's position along the farther of x
 and z, in blocks: a square, as near terrain's columns are. The fade is (d - start) / (end -
@@ -2021,9 +2021,26 @@ distant terrain draws it whole, band or no band; near terrain draws nothing ther
 pixels with. The same holds for its outermost ring of columns, which it never meshes: the
 band's end is its last meshed column, and past it distant terrain is whole.
 
-**Not known until both sides run:** whether the two patterns meet without a seam. Both now
-measure from one place, so a seam would be a fault in one side's arithmetic and not a
-difference of origin.
+**The run.** Instance `quadrature-join-02`: Riven frozen from main at 701311b, Cubature
+a8ebb701, this branch at 1b0a58d, view distance 12, both fades on with the shaded path, the
+coverage map and face records; `tools/tours/distant-join-fade-2485331.json` with both fades,
+then its views again in the join view. No error. Distant terrain read near terrain's band, 160
+to 176 blocks, in every pass, from an origin at most 0.05 blocks from its own.
+
+- *From above* (three views, 32 blocks apart): the join view's orange follows near terrain's
+  square, 16 blocks deep. In the faded frame of each view the ground passes from near
+  terrain's textured surface to distant terrain's flat color across the band with no line at
+  either edge, no gap and no step in brightness; no sky shows inside the band. A frame 2
+  seconds after each 32-block move equals the settled one.
+- *At the ground* (three views at y 104; the tour's first height, 80, is under the ground of
+  the current world): the band lies near the horizon and shows only on crowns, which go from
+  cut-out to solid by the pattern as described above. No seam.
+- Outside the band the faded frame and the join view of a view differ on 0.002 to 0.003 % of
+  pixels, so the join view marks the faded frame's band exactly.
+
+Not yet seen: water at the join, a cliff or step across the band (the one-in-sixteen edge
+above), and the band while the viewer moves, where the pattern stays fixed to the screen and
+the band moves under it.
 
 ## 21. Distant water as inputs for shading
 
