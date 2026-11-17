@@ -547,7 +547,7 @@ lit color is written.
 | Target | Color | Alpha |
 |---|---|---|
 | A | world normal as n * 0.5 + 0.5 | perceptual roughness |
-| B | sky light, emission strength, block light, each 0 to 1 over the game's 0 to 15 | 0.375 on terrain, 0 where nothing was written |
+| B | sky light and block light, each 0 to 1 over the game's 0 to 15; in green the emission strength of the texel's kind and color | 0.375 on terrain, 0 where nothing was written |
 | C | the square root of linear albedo after tint; the texel is decoded by the exact sRGB curve | 1 for a conductor |
 | D | reflectance and subsurface, or for a metal its colored reflectance | the game's vertex occlusion |
 
@@ -585,13 +585,27 @@ material that the list does not name has no kind and no emission.
 | 100, 101 | water, lava | lava: emission 0.10, low since it is also lit by the light it gives |
 | 110 to 117 | leaves; single, tall (lower, upper), hanging, floating, stiff and submerged plants | subsurface 0.55, foliage |
 | 118 | ground cover | the defaults |
-| 120, 121 | dim and bright emitters | nothing of their own |
+| 120, 121 | dim and bright emitters; an unnamed block that gives light is 121 from light 12, 120 below | nothing of their own in the table |
 | 130, 131 | glass, ice | roughness 0.12 |
 | 140 | metals | roughness 0.32, conductor |
 | 199 | plain | the defaults, and no emission whatever light is given |
 
-The defaults are roughness 0.85 and reflectance 0.04. Emission is the light a state gives
-over 15, whatever its kind, but for lava and plain states.
+The defaults are roughness 0.85 and reflectance 0.04. The table's emission byte is the
+light a state gives over 15, whatever its kind, but for lava and plain states; it is kept
+for readers of the table and is not what the targets hold.
+
+**Emission in the targets.** Target B's green is worked out for each texel where the
+targets are written, from the state's kind and the texel's linear albedo after tint, by
+`KindEmission` and the same rule in GLSL. With m the greatest channel of the albedo:
+
+| Kind | Emission |
+|---|---|
+| 101 lava | 0.10 |
+| 120 dim emitter | 0.65 * smoothstep(0.20, 0.70, m) |
+| 121 bright emitter | 0.90 * smoothstep(0.12, 0.65, m) |
+| any other | 0 |
+
+The target stores it to the nearest of 255.
 
 **What is published.** `TerrainHook.shadingTargets()` gives the framebuffer, the five
 textures, their size and a generation that moves when they are made anew.

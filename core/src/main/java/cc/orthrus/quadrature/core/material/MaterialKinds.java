@@ -70,7 +70,7 @@ public final class MaterialKinds {
             case ICE:
                 return ICE;
             default:
-                return light >= 12 ? BRIGHT_EMITTER : light > 0 ? DIM_EMITTER : NONE;
+                return KindEmission.fallbackKind(light);
         }
     }
     /**

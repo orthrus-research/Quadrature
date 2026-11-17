@@ -377,6 +377,17 @@ authors can dedicate: their own expression of ideas, never copied code.
   material table rather than the first.
 - Added: 2026-11-16
 
+### Emission from a surface's kind and its texel
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/material/KindEmission.java`, its use in
+  the stage that writes the targets in `src/main/java/cc/orthrus/quadrature/terrain/TerrainProgram.java`
+- Source: original. Facts used: the GLSL 4.60 specification (`smoothstep`, its definition as
+  t * t * (3 - 2 t) of the clamped share). The kinds and the values for each are a contract
+  agreed with the shading stage that reads target B.
+- Taken: nothing from another renderer or shader pack. The emission of an emitter rises with
+  the greatest channel of the texel's linear color, so a lamp's bright face glows and its frame
+  does not.
+- Added: 2026-11-17
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

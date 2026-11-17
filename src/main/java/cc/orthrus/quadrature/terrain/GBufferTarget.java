@@ -20,8 +20,8 @@ import javax.imageio.ImageIO;
  *
  * <ul>
  * <li>A: the world normal as n * 0.5 + 0.5; in alpha, perceptual roughness.</li>
- * <li>B: sky light in red, emission strength in green, block light in blue, each 0 to 1 over the game's
- * 0 to 15; in alpha a response class, 0.375 on terrain and 0 where nothing was written.</li>
+ * <li>B: sky light in red and block light in blue, each 0 to 1 over the game's 0 to 15; in green the
+ * emission strength each texel's kind and linear albedo give by {@code KindEmission}; in alpha a response class, 0.375 on terrain and 0 where nothing was written.</li>
  * <li>C: the square root of linear albedo after tint; in alpha, 1 for a conductor.</li>
  * <li>D: for a surface that is not a metal, reflectance in red and subsurface in green; for a metal,
  * its colored reflectance; in alpha, the material's occlusion times the game's vertex occlusion.</li>
