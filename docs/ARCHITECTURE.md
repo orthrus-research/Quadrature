@@ -564,7 +564,7 @@ lit color is written.
 | A | world normal as n * 0.5 + 0.5 | perceptual roughness |
 | B | sky light and block light, each 0 to 1 over the game's 0 to 15; in green the emission strength of the texel's kind and color | 0.375 on terrain, 0 where nothing was written |
 | C | the square root of linear albedo after tint; the texel is decoded by the exact sRGB curve | 1 for a conductor |
-| D | reflectance and subsurface, or for a metal its colored reflectance | the game's vertex occlusion |
+| D | reflectance and subsurface, or for a metal its colored reflectance, the texel's linear albedo after tint (D18) | the game's vertex occlusion |
 
 - Depth is reversed, 32-bit float: 1 nearest, 0 farthest and where nothing was written.
 - A fragment of a cutout layer is dropped where the texel's alpha is at or under 0.5.
