@@ -160,10 +160,10 @@ Records 6 to 10 below belong to the first frames (section 8).
 Records for [PROVENANCE.md](PROVENANCE.md), kept here until this branch joins the one that
 owns that file. No renderer's or level-of-detail mod's source was read for any of it.
 
-**Open before this branch joins:** the published sources named below (Lysenko's two
-articles, Losasso and Hoppe's paper) were cited from memory of them and were not read again
-while this code was written. Each must be read and its record checked against it, or
-corrected, before the records move into PROVENANCE.md; until then they are unverified.
+The published sources named below were cited from memory while the code was written and
+read again on 2026-11-17; each record says what the source holds and what was taken from it.
+Rakos's chapter itself was not available: its record rests on the chapter's published sample
+shaders.
 
 ### Run tiles
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunTile.java`
@@ -178,21 +178,28 @@ corrected, before the records move into PROVENANCE.md; until then they are unver
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/RunMesher.java`, `TileMesh.java`
 - Source: original, from the distant terrain design and the size survey. Joining coplanar
   faces into rectangles is widely described, for example Lysenko, "Meshing in a Minecraft
-  Game", 0fps, 2012. Skirts that hide the cracks between terrain levels are common in
-  terrain rendering writing.
-- Taken: the ideas. Faces come from the overlap of one column's solid stretches with its
-  neighbor's stretches of space; tops are joined row by row from bit masks; the skirt is
-  the part of a tile's outer sides that its neighbor hides, so a tile closes itself.
+  Game", 0fps, 2012: the volume is swept in each direction and each slice's faces are
+  covered greedily by rectangles, the first in an order of position and size taken each
+  time. That article leaves levels of detail aside. Skirts that hide the cracks between
+  terrain levels are common in terrain rendering writing.
+- Taken: the idea of joining a slice's coplanar faces into rectangles. Faces come from the
+  overlap of one column's solid stretches with its neighbor's stretches of space; tops are
+  joined row by row from bit masks, not by the article's ordered search; the skirt is the
+  part of a tile's outer sides that its neighbor hides, so a tile closes itself.
 - Not taken: any mesher's source.
 - Added: 2026-11-15
 
 ### Corner occlusion
 - Code: `RunMesher.java` (`corner`, `topOcclusion`, `sideOcclusion`)
 - Source: Lysenko, "Ambient occlusion for Minecraft-like worlds", 0fps, 2013.
-- Taken: the rule for a corner from the three cells that touch it: both sides closed is
-  fully closed, otherwise the count of closed cells.
-- Not taken: code. Applying it to faces many blocks tall, at their two ends, and joining
-  occluded faces only along the axis on which their corners agree, are original.
+- Taken: the rule for a corner from the two cells beside it and the one diagonal to it. The
+  article gives the light left, 0 when both sides are closed and otherwise 3 less the count
+  of closed cells; the mesher keeps the occlusion, its complement. Also the article's
+  condition for joining: faces are joined only where their corners' values agree.
+- Not taken: code, and the article's turning of a quad's diagonal by its corner values:
+  faces are split along one fixed diagonal. Applying the rule to faces many blocks tall, at
+  their two ends, and joining along each axis separately by whether the corners agree along
+  it, are original.
 - Added: 2026-11-15
 
 ### Face record
@@ -205,11 +212,15 @@ corrected, before the records move into PROVENANCE.md; until then they are unver
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/Rings.java`, `TileKey.java`
 - Source: Losasso and Hoppe, "Geometry Clipmaps: Terrain Rendering Using Nested Regular
   Grids", SIGGRAPH 2004.
-- Taken: the idea. Levels nested round the viewer, each twice the extent of the one inside
-  it at half the resolution, moved in steps of two cells so that levels stay aligned.
-- Not taken: the heightfield, the geometry and the blending of that paper. Tiles of run
-  columns, squares with the finer square cut out, and clipping to a world's bounds are
-  original.
+- Taken: the idea. Square levels nested round the viewer, each with twice the spacing and
+  twice the extent of the one inside it; a level's edge kept on the coarser level's even
+  vertices (the paper's third constraint on its regions), which is why a level moves in
+  steps of two of its cells; each level drawn as its square with the finer square cut out
+  (the paper's render region).
+- Not taken: the paper's heightfield grids, wrapped vertex buffers, upsampling, morphing of
+  heights across a transition region and zero-area triangles at level edges. Levels here
+  are tiles of run columns, meet by the shared fade pattern and by skirts, and are clipped
+  to a world's bounds; those are original.
 - Added: 2026-11-15
 
 ### Vertex stage that builds faces from records
@@ -218,11 +229,14 @@ corrected, before the records move into PROVENANCE.md; until then they are unver
 - Source: the OpenGL 4.6 compatibility specification (shader storage blocks and std430
   layout, `gl_VertexID` and `gl_BaseInstance`, indirect multi-draw of arrays). Building
   vertices in the vertex stage from a buffer the stage indexes itself is widely described as
-  programmable vertex pulling, for example Rakos, "Programmable Vertex Pulling", OpenGL
-  Insights, 2012.
+  programmable vertex pulling, for example Rakos, "Programmable Vertex Pulling", chapter 21
+  of OpenGL Insights, 2012. The chapter's sample shaders read each vertex's attributes from
+  buffer textures with `texelFetch` at `gl_VertexID`, directly or through an index read the
+  same way.
 - Taken: the idea. The vertex number names the face and its corner; the draw's base instance
-  names the tile, as near terrain's names a cube.
-- Not taken: code. Unverified until the cited chapter is read again.
+  names the tile, as near terrain's names a cube. Faces are read from shader storage blocks,
+  not buffer textures.
+- Not taken: code.
 - Added: 2026-11-15
 
 ### One far distance for the whole world pass
