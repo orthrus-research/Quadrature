@@ -385,6 +385,8 @@ final class DistantProgram {
         "uniform int fadeFrame;",
         "// 0 while the water layer is drawn.",
         "uniform int imaged;",
+        "// The debug view, as the vertex stage's: 3 shows the pixels distant terrain keeps in the join.",
+        "uniform int debugMode;",
         FadePattern.glsl(),
         "// How far inside a hole a place is, in blocks: 0 on its edge, below 0 outside it.",
         "float within(vec4 hole, vec2 place) {",
