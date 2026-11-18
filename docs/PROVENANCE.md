@@ -309,11 +309,17 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   `TerrainProgram.java`
 - Source: original. Facts used: the public interfaces of the game and Forge for a baked
   model's quads, the order the game's block model renderer takes them in, and Forge's
-  vertex lighters and buffer consumer, which are called and not reproduced; the OpenGL 4.6
-  and GLSL 4.60 specifications (shader storage blocks, `gl_VertexID`, `gl_BaseInstance`).
+  vertex lighters and buffer consumer, which are called and not reproduced; the game's
+  default face test as Forge patches it (a side the block's bounds stop short of is drawn,
+  otherwise one the neighbor's `doesSideBlockRendering` does not block), read from the
+  game's class files, and the way its buffer adds a consumer's offset and its own
+  translation before a vertex's coordinate; the OpenGL 4.6 and GLSL 4.60 specifications
+  (shader storage blocks, `gl_VertexID`, `gl_BaseInstance`).
 - Taken: the idea of building a face's vertices in the vertex stage from a record indexed
-  by vertex number, as described in research R2. No code from another renderer.
-- Added: 2026-11-16
+  by vertex number, as described in research R2; the default face test's rule, made with
+  one kept position for blocks whose classes keep the game's own test. No code from
+  another renderer.
+- Added: 2026-11-16; the face test and the offset 2026-11-18
 
 ### The material table and the list of kinds
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/material/`,

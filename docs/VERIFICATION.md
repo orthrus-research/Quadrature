@@ -780,6 +780,16 @@ above, from builds on the client thread within 4 ms a frame.
   built about 950 a second, 1.16 ms each: it takes snapshots only when it is pumped, for
   as many builds as the permits and one a thread, and is pumped about once a frame, so its
   threads stood idle for most of each frame.
+- **What the client allocates.** The lab's client runs with G1 and an 8 GiB heap, and its
+  long frames are its collector's pauses, wherever they land. Measured on 2026-11-18 over a
+  radius-20 dwell tour, with a build of Cubature whose pool keeps its threads busy: before
+  the walk made its own face test, 61% of what the client allocated was on the build
+  threads, 47% of everything a position the game's face test makes for each face. With the
+  face test below and the consumer's offset kept at the origin, the client allocates 57 GB
+  over the tour where it allocated 128 GB, and pauses of 20 ms or more fall from 40 to 29;
+  the build threads' share falls to 25%. The face check meshes 110,866 cubes both ways with
+  none differing. The longest pauses remain mixed collections with the heap near full,
+  once with an evacuation failure at 7.6 GiB.
 
 ### Diagnostics
 
