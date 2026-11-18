@@ -60,9 +60,16 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
 - The gate keeps a driver floor per admitted vendor and applies it after the capability
   check. For NVIDIA it stops below the R580 branch and warns below the current production
   branch (D20). **Decided; not built.**
-- GPU memory is read through an interface with a source per vendor; NVIDIA's is
-  `GL_NVX_gpu_memory_info`, which `PlatformReader` reads directly today (D8). **Decided;
-  the interface is not built.**
+- GPU memory is read through `GpuMemorySource`, with a source per vendor (D8); NVIDIA's,
+  `NvxMemorySource`, reads `GL_NVX_gpu_memory_info`, and a driver that reports nothing gets
+  `GpuMemorySource.NONE`. **Built.**
+- Behind `-Dquadrature.capabilities=true`, `CapabilityDump` reads at startup, before the
+  gate, the limits and extensions the quality tiers and the gap matrix depend on: context
+  flags and shading language versions, memory, core and compatibility limits, program
+  binary formats, and the mesh, subgroup, shading-rate, sparse-resource and interop limits
+  where their extensions are reported. It logs them and writes them with the full extension
+  list to the client's `quadrature-capabilities.txt`. It only queries; device and driver
+  identifiers are written as the first 8 hexadecimal digits of their SHA-256. **Built.**
 - `GL_NV_primitive_shading_rate` (Ampere and later) and `GL_EXT_shader_realtime_clock`
   are optional capabilities with fallbacks; neither marks a quality tier (D22). **Decided.**
 - What terrain memory and submission use is named: persistently mapped buffers, sync

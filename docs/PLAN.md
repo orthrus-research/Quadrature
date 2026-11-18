@@ -145,7 +145,7 @@ left is measurement, in this order; each runs through a queued GPU turn.
 
 | # | Work | Unblocks | Status |
 |---|---|---|---|
-| 1 | A capability dump at startup in the game's context: mesh, subgroup, shading-rate and sparse-page limits, the interop identifiers and the full extension list | Twelve rows of the gap matrix; the memory axis | Not started |
+| 1 | A capability dump at startup in the game's context: mesh, subgroup, shading-rate and sparse-page limits, the interop identifiers and the full extension list | Twelve rows of the gap matrix; the memory axis | Done on the RTX 3060, 2026-11-18 ([research R1](research/R1-platform-frame-hosted.md), 1.8); to repeat on a Turing card |
 | 2 | The light's depth redrawn spread over frames and scrolled, against its spikes | A precondition of every tier | Not started |
 | 3 | Opaque terrain against near radius and configuration, explaining 1.43 against 3.3 ms | The near radius of every tier | Not started |
 | 4 | Rays a second through the occupancy bricks by compute | Indirect light, far shadows | Not started |

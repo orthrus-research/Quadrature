@@ -23,8 +23,9 @@ Observed in the development client, 2026-11-13, RTX 3060, driver 610.88 [V]:
 
 **1.2 Identifying Turing and later. [V, partly]**
 Mesh shaders arrived with Turing and are exposed in OpenGL as `GL_NV_mesh_shader`. Pascal
-predates it. A cross-vendor `GL_EXT_mesh_shader` entered the Khronos registry in October
-2025 and is implemented in Mesa; no source confirmed it in NVIDIA's driver.
+predates it. A cross-vendor `GL_EXT_mesh_shader` entered the Khronos registry in 2025 and
+is implemented in Mesa; no NVIDIA driver through 621.14 reports it, on any architecture
+(public reports, 2026-11-18), and the development machine's does not (1.8).
 *Implication:* the capability set is "OpenGL 4.6 compatibility, mesh shaders, 8 GB". The
 mesh shader capability is satisfied by either extension name, so the EXT form costs
 nothing to admit later.
@@ -33,9 +34,10 @@ nothing to admit later.
 `GL_NVX_gpu_memory_info` reports total dedicated memory through `glGetIntegerv` with token
 `0x9047`, in kilobytes. LWJGL 3 binds it as `NVXGPUMemoryInfo`.
 
-**1.4 Minimum driver. [M]**
-No minimum branch was established. The development machine runs an RTX 3060 on driver
-610.88. The minimum is set by the oldest driver a test run passes on.
+**1.4 Minimum driver. [V]**
+Every feature Quadrature uses is in NVIDIA's drivers from 440.97 (October 2019), so the
+floor is a support policy; D20 sets it at the R580 branch, with a warning below the
+current production branch.
 
 **1.5 Shader compilation on NVIDIA. [V, dated]**
 A 2018 NVIDIA developer forum thread reports that the parallel shader compile extension
@@ -54,6 +56,41 @@ backend is the one in use. The LWJGL 2 shim is described in 9.2.
 A GL context is current on one thread at a time. NVIDIA's driver can move work to its own
 thread ("threaded optimization"), which changes the cost of synchronous queries.
 *Implication:* avoid readbacks and `glGet` calls in the frame; verify by measurement.
+
+**1.8 The context's limits, read in the game. [V]**
+Read by the capability dump (`-Dquadrature.capabilities=true`) in the development client,
+2026-11-18, RTX 3060 12 GB (28 SMs), driver 610.88, in the game's compatibility context.
+No query raised a GL error, and the world ran after it.
+- The context is not a debug context (`GL_CONTEXT_FLAGS` 0). `GL_KHR_debug` is present, but
+  a non-debug context may report few or no messages, so a test that must fail on driver
+  messages needs a debug context requested.
+- Mesh shaders: 256 output vertices and 512 output primitives a work group, work groups of
+  at most 32 invocations (32, 1, 1) for mesh and task stages, 16 KiB of output memory each,
+  4 views, output granularity 32.
+- Subgroups: size 32 in every stage, mesh and task included, with every feature bit:
+  basic, vote, arithmetic, ballot, shuffle, relative shuffle, clustered, quad and
+  partitioned.
+- Shading rate: 16 by 16 pixels a texel, palettes of 16 entries, 16 palettes (the
+  per-primitive rate is present, Ampere and later), 16 coarse fragment samples at most.
+- Sparse resources: 64 KiB buffer pages. Texture pages are 64 KiB: 128 by 128 for RGBA8,
+  R11F_G11F_B10F, R32F and both depth formats, 128 by 64 for RGBA16F, 256 by 256 for R8,
+  the same in arrays, and 32 by 32 by 16 in 3D textures (64 by 32 by 32 for R8).
+- Limits as recorded publicly for every supported architecture: 8 draw buffers and color
+  attachments, 2,048 array layers, 32,768 texels a side, 16x anisotropy, 48 KiB of compute
+  shared memory, 1,024 invocations a work group, 2 GiB less one byte a storage block with 96
+  bindings, a texture buffer of 2^28 texels, 16 viewports, one program binary format.
+- Compatibility profile: 8 lights, 8 clip planes, 4 fixed-function texture units, stacks
+  of 32 (model-view), 4 (projection), 10 (texture) and 16 (attributes).
+- Present: `GL_ARB_shading_language_include`, `GL_EXT_texture_shadow_lod`, the interop set
+  (`GL_EXT_memory_object`, `GL_EXT_semaphore` and their Win32 forms,
+  `GL_NV_timeline_semaphore`, `GL_NV_draw_vulkan_image`, one device), and
+  `GL_EXT_shader_realtime_clock`. Absent: `GL_EXT_mesh_shader`, `GL_ATI_meminfo` and the
+  POSIX descriptor forms of the interop set.
+*Implication:* a meshlet is at most 256 vertices and 512 triangles, built by 32 threads;
+cascade lookups can use `textureLod` on array shadow textures through
+`GL_EXT_texture_shadow_lod` where the capability is present; shader sources can share
+include files through the driver; and a sparse light layer or texture array commits in
+64 KiB pages.
 
 ## 2. Pass graph and frame
 

@@ -44,6 +44,22 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: the extension names and query tokens as published.
 - Added: 2026-11-13
 
+### GPU memory sources and the capability dump
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/platform/GpuMemory.java`,
+  `GpuMemorySource.java`, `CapabilityReport.java`;
+  `src/main/java/cc/orthrus/quadrature/platform/NvxMemorySource.java`, `CapabilityDump.java`
+- Source: original. Facts used: OpenGL 4.6 compatibility specification (the state tables
+  `glGet` reads, indexed queries, `glGetInternalformativ`, context flags and the list of
+  shading language versions); Khronos registry, the specifications of `NVX_gpu_memory_info`,
+  `NV_mesh_shader`, `KHR_shader_subgroup`, `NV_shading_rate_image`,
+  `NV_primitive_shading_rate`, `NV_shader_thread_group`, `ARB_sparse_buffer`,
+  `ARB_sparse_texture`, `EXT_external_objects` and `EXT_external_objects_win32` (their query
+  tokens and what each returns); LWJGL 3.4.3, the token values as its bindings define them.
+- Taken: the query tokens and their meanings as published. Asking only for limits whose
+  extension is reported, and writing device identifiers as truncated digests, are this
+  project's own.
+- Added: 2026-11-18
+
 ### Frame comparison
 - Code: `tools/frames.py`
 - Source: original.

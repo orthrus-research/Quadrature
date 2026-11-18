@@ -190,6 +190,11 @@ cleanroom {
                 if (project.hasProperty('probe')) {
                     systemProperty 'quadrature.probe', project.property('probe')
                 }
+                // -Pcapabilities logs the context's limits and extensions at startup and writes them to
+                // the client's quadrature-capabilities.txt.
+                if (project.hasProperty('capabilities')) {
+                    systemProperty 'quadrature.capabilities', 'true'
+                }
                 // -PstateAudit reads OpenGL state at every stage boundary and reports what each stage leaves.
                 if (project.hasProperty('stateAudit')) {
                     systemProperty 'quadrature.stateAudit', 'true'

@@ -31,6 +31,14 @@ public final class PlatformGateHandler {
         if (failures == null) {
             PlatformProfile profile = PlatformReader.read();
             Quadrature.LOGGER.info("Platform: {}", profile.describe());
+            if (CapabilityDump.enabled()) {
+                // Before the gate, so the dump is written on a platform the gate refuses too.
+                try {
+                    CapabilityDump.run(profile, PlatformReader.memorySource(profile.extensions()));
+                } catch (RuntimeException e) {
+                    Quadrature.LOGGER.error("The capability dump failed; the game continues without it.", e);
+                }
+            }
             failures = PlatformGate.evaluate(profile, requirements);
             if (failures.isEmpty()) {
                 Quadrature.LOGGER.info("Platform gate passed.");
