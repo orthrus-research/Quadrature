@@ -17,7 +17,10 @@ status:
 | Constraint | Consequence |
 |---|---|
 | OpenGL 4.6 compatibility profile (D7) | Direct state access, compute, indirect multi-draw with a GPU-side count and persistent mapping are all core. Fixed-function drawing still works. |
-| NVIDIA Turing or later, 8 GB (D11) | Mesh shaders are present on every supported card. Budgets are set against 8 GB. |
+| NVIDIA Turing or later, 8 GB (D11) | Mesh shaders are present on every supported card. Budgets are set against 8 GB and the slowest qualifying card, the RTX 3050 8 GB. |
+| NVIDIA driver R580 or later (D20) | Every capability Quadrature uses is present. Only the gate reads the driver number. |
+| One capability set for every supported card (D22) | Cards differ in speed, cache and memory, not in what they can do; quality tiers are measured on the player's machine. |
+| NVIDIA-supported, vendor-neutral by design (D8) | Every stage has a core OpenGL 4.6 technique; a vendor technique is an optional one beside it, and no tier needs one. GPU memory and the driver's version are read through interfaces with a source per vendor. |
 | The game's and mods' renderers are hosted, not rewritten | The frame must contain stages Quadrature does not author, and survive the GL state they leave. |
 | Cubic worlds only (D3) | Terrain is addressed by cube, in three dimensions, with no column assumptions. |
 | Java 25 on Cleanroom | One thread owns the context. Native memory and GL calls go through LWJGL 3.4's foreign-function backend. |
@@ -52,7 +55,16 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
 - A technique declares the capabilities it needs. Technique selection happens once, when
   the graph is compiled, never per draw. **Decided.**
 - Mesh shaders are one capability, satisfied by the NVIDIA extension or the cross-vendor
-  one added to the registry in October 2025. **Decided.**
+  one registered in 2025. No NVIDIA driver through 621.14 exposes the cross-vendor one, so
+  mesh programs are written for `GL_NV_mesh_shader`. **Decided.**
+- The gate keeps a driver floor per admitted vendor and applies it after the capability
+  check. For NVIDIA it stops below the R580 branch and warns below the current production
+  branch (D20). **Decided; not built.**
+- GPU memory is read through an interface with a source per vendor; NVIDIA's is
+  `GL_NVX_gpu_memory_info`, which `PlatformReader` reads directly today (D8). **Decided;
+  the interface is not built.**
+- `GL_NV_primitive_shading_rate` (Ampere and later) and `GL_EXT_shader_realtime_clock`
+  are optional capabilities with fallbacks; neither marks a quality tier (D22). **Decided.**
 - What terrain memory and submission use is named: persistently mapped buffers, sync
   objects, indirect multi-draw, shader storage buffers, and draw parameters in shaders.
   All are present on the supported platform.
@@ -846,6 +858,41 @@ loading at nine tenths.
 For orientation, the current stack uses about 0.55 GiB of GPU memory in flight and
 0.82 GiB with a shader pack.
 
+### 12.1 Quality tiers
+
+LOW, MEDIUM, HIGH and MAX are presets of per-group settings, chosen on two axes (D22). A
+versioned startup benchmark sets the speed tier and the GPU memory the driver reports,
+scaled by output pixels, sets the memory tier; groups that hold memory take the
+lower of the two, and the player can override any group. **Decided; not built.**
+
+On game benchmarks the supported cards fall into four clusters against an RTX 2060 Super at
+1440p: about 0.8 to 1.3 times (37% of qualifying Steam players in October 2026), 1.3 to 2.0
+(29%), 2.0 to 2.8 (21%) and 3.1 to 4.5 (12%). Most cards in the lower two have 8 GB. The
+benchmark, not this table, places a machine, since terrain's vertex and draw load may scale
+differently from games.
+
+The values below are starting points for the groups that dominate cost, at 1440p output.
+**Default**, each revised by the measurement that fills it.
+
+| Group | LOW | MEDIUM | HIGH | MAX |
+|---|---|---|---|---|
+| Render scale and scaler | 67%, own TAA and scaler (D23) | 77%, own TAA and scaler | 100%, own TAA | 100%; own temporal upscaling at 4K; DLSS where offered (D21) |
+| Near terrain, horizontal and vertical radius in cubes | 8, 4 | 12, 6 | 16, 8 | 20, 8 |
+| Distant reach in blocks a ring, and the view it gives | 256, 16.4 km | 384, 24.6 km | 512, 32.8 km | 768, 49.2 km |
+| The light's depth | One 2,048² layer | One 4,096² layer | 4,096² near and wide layers | Both, and far shadows by a march through the bricks |
+| Shadow filter | Hardware 2x2 | 3x3 | 5x5 | Soft shadows on the near layer |
+| Ambient occlusion | Vertex | Vertex and half-resolution screen-space | Full resolution | Full resolution with bent normals |
+| Indirect light | An ambient term | Probes, 16x8x16, 32 rays | 32x8x32, 64 rays | Two probe cascades, 128 rays |
+| Fog and clouds | Height fog; a cloud layer | 160x90x64 fog cells; volumetric clouds at quarter resolution, 32 to 64 steps | 160x90x128; 64 to 128 steps | 8-pixel cells by 128; half resolution, 96 to 160 steps |
+
+Some work is a precondition of a tier rather than a setting in it. Every tier needs the
+light's depth redrawn spread over frames: one layer already peaks at 6.5 ms on the frames
+that draw it. HIGH also needs the near layer scrolled and spread over frames, which took the
+worst frame to 16 ms when it was redrawn whole. Two measurements of opaque terrain at the
+current box disagree: 1.43 ms on the GPU drawn in the game's look by indirect draws, and
+3.3 ms drawn from face records with the shading stage on. Until the difference is explained,
+the near radii above are provisional.
+
 ## 13. What is decided, and what is not
 
 | Area | Status | Settled by |
@@ -869,6 +916,9 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Deferred shading with clustered lights | Default | Phase 5 prototype |
 | Far shadows, indirect light | Candidate | Phase 5 prototypes |
 | Shader format | Candidate | Two concrete shaders |
+| Driver floor R580, a warning below the production branch | Decided (D20); not built | |
+| Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); not built | PLAN.md, capability and tier work |
+| Own temporal anti-aliasing and spatial scaler; DLSS through a Vulkan bridge as an option | Decided (D21, D23); not built | The handoff's cost; motion vectors for hosted draws |
 
 ## Sources
 

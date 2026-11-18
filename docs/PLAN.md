@@ -138,6 +138,22 @@ As of 2026-11-15.
 | The scene for lighting | Built behind `-Dquadrature.scene=true`: a 16-bit state number for every cell of every meshed cube, what each state does to light, three answers for a cell, a generation per cube and a report of changed cubes; 0.01 ms more to mesh a cube and 47 MiB for 5,617 cubes with cells of their own. With `-Dquadrature.scene.gpu=true`, a wrapped lookup of 25 cubes a side and occupancy bricks in two buffers a shader reads, 8.7 MiB, copied 64 bricks a frame; with `-Dquadrature.scene.states=true`, each cell's state as a byte into its cube's list of states and a table of what each state does to light, 69 MiB more ([ARCHITECTURE.md](ARCHITECTURE.md) 5.1) |
 | Compact face stream, culling on the GPU, commands and their count written on the GPU, the work executor | Not started |
 
+## Capability and tier work
+
+Decisions D20 to D23 (2026-11-18). Every supported card has one capability set, so what is
+left is measurement, in this order; each runs through a queued GPU turn.
+
+| # | Work | Unblocks | Status |
+|---|---|---|---|
+| 1 | A capability dump at startup in the game's context: mesh, subgroup, shading-rate and sparse-page limits, the interop identifiers and the full extension list | Twelve rows of the gap matrix; the memory axis | Not started |
+| 2 | The light's depth redrawn spread over frames and scrolled, against its spikes | A precondition of every tier | Not started |
+| 3 | Opaque terrain against near radius and configuration, explaining 1.43 against 3.3 ms | The near radius of every tier | Not started |
+| 4 | Rays a second through the occupancy bricks by compute | Indirect light, far shadows | Not started |
+| 5 | The tier benchmark, calibrated and repeated across a driver update | Tier selection | Not started |
+| 6 | Own temporal anti-aliasing and spatial scaler at 67% and 77% | The lower tiers' render scale | Not started |
+| 7 | The GL to Vulkan handoff and DLSS's cost, before the bridge is built | D21 | Not started |
+| 8 | The lowest tier's budgets on an RTX 3050 8 GB and a Turing 8 GB card | D22's floor | Waiting on hardware |
+
 ## Reading rules
 
 The rules for what may be read and used, and a record for each technique, are in

@@ -24,6 +24,7 @@ level-of-detail mods.
 | Loader | Cleanroom, Java 25 |
 | Graphics API | OpenGL 4.6, compatibility profile |
 | GPU | NVIDIA, Turing generation (RTX 20 series) or later, with at least 8 GB of memory |
+| Driver | NVIDIA R580 branch or later; a warning below the current production branch |
 | Other renderers | None installed; the game stops with a message if one is found |
 
 These requirements are narrow on purpose. The design keeps each of them behind a named seam
