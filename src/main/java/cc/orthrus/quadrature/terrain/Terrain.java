@@ -246,13 +246,14 @@ public final class Terrain
     private long mostShadowFrameSince;
     private long shadowCpuOverOne;
     /**
-     * The light's CPU time this frame, in parts: sweeping the boxes, counting and choosing tiles, writing
-     * commands, and issuing clears, draws and copies. Summed over the frames that drew, and kept for the
-     * slowest frame since the last summary.
+     * The light's CPU time this frame, in parts: sweeping the boxes, counting and choosing tiles, issuing the
+     * tiles' clears, writing commands, issuing the draws, issuing the copies that publish a new box, and
+     * setting and putting back the state around them with the timer queries. Summed over the frames that drew, and kept for the slowest frame since the
+     * last summary.
      */
-    private final long[] lightParts = new long[4];
-    private final long[] lightPartsTotal = new long[4];
-    private final long[] lightPartsWorst = new long[4];
+    private final long[] lightParts = new long[7];
+    private final long[] lightPartsTotal = new long[7];
+    private final long[] lightPartsWorst = new long[7];
     private long stillFrames;
     private long stillAt = Long.MIN_VALUE;
     private long imagedAt = Long.MIN_VALUE;
@@ -353,6 +354,11 @@ public final class Terrain
         });
         tableVersion++;
         coverageAnew = true;
+        if (shadow != null) {
+            // Behind the screen that waits for the world: the light's targets are made and their memory
+            // taken now, so the first frame that draws them does not pay for it.
+            Quadrature.LOGGER.info("Shadow target prepared for the world in {} ms.", String.format("%.1f", shadow.prepare()));
+        }
     }
 
     @Override
@@ -1141,9 +1147,11 @@ public final class Terrain
             }
         }
         if (began) {
+            long mark = System.nanoTime();
             shadow.end();
             program.end();
             DriverMessages.leave();
+            lightParts[6] += System.nanoTime() - mark;
         }
         for (LightLayer layer : lightLayers) {
             LightLayerPlan plan = layer.plan;
@@ -1179,8 +1187,10 @@ public final class Terrain
     /** Sets the state the light's depth is drawn in, once a frame, before the first layer that draws. */
     private boolean beginLight(boolean began) {
         if (!began) {
+            long mark = System.nanoTime();
             DriverMessages.enter("shadow");
-            shadow.begin();
+            shadow.begin(lightFrames);
+            lightParts[6] += System.nanoTime() - mark;
             shadowMaps.objects(shadow.texture(), shadow.compareSampler(), shadow.depthSampler());
             shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
         }
@@ -1225,15 +1235,21 @@ public final class Terrain
         mark = now;
         shadow.attach(next, layer.index);
         shadow.clear(layer.rectangles, LightTiles.rectangles(tiles, box.texels(), layer.rectangles));
+        now = System.nanoTime();
+        lightParts[2] += now - mark;
+        mark = now;
         if (layer.chosen.count() > 0) {
             command(lightList, layer.chosen, view, false);
             if (FACES) {
                 commandFaces(lightFaceList, layer.chosen, view);
             }
             now = System.nanoTime();
-            lightParts[2] += now - mark;
+            lightParts[3] += now - mark;
             mark = now;
             layer.lastDraws += drawDepthLayers(lightList, lightFaceList, view);
+            now = System.nanoTime();
+            lightParts[4] += now - mark;
+            mark = now;
         }
         if (next) {
             layer.nextCubes += layer.chosen.count();
@@ -1245,7 +1261,7 @@ public final class Terrain
             layer.frontCubes += layer.chosen.count();
             plan.frontDrawn(tiles);
         }
-        lightParts[3] += System.nanoTime() - mark;
+        lightParts[5] += System.nanoTime() - mark;
     }
 
     /**
@@ -1840,15 +1856,18 @@ public final class Terrain
                 mostShadowNanos / 1e6, shadow.gpuMillisLast(), shadow.gpuMillisMean(), shadow.gpuMillisMost(),
                 shadow.gpuMillisTotal() / Math.max(1, lightFrames), shadowMaps.generation(), shadowMaps.contentGeneration(),
                 cutoutReference);
-            line += String.format("; since the last line, most CPU %.3f ms (frame %d) and most GPU %.3f ms; frames over 1 ms "
+            line += String.format("; since the last line, most CPU %.3f ms (frame %d) and most GPU %.3f ms (frame %d); frames over 1 ms "
                     + "of CPU %d, over 1 ms of GPU %d, over 2 ms %d", mostShadowNanosSince / 1e6, mostShadowFrameSince,
-                shadow.takeGpuMillisMostSince(), shadowCpuOverOne, shadow.gpuFramesOverOne(), shadow.gpuFramesOverTwo());
+                shadow.takeGpuMillisMostSince(), shadow.gpuMostFrameSince(), shadowCpuOverOne, shadow.gpuFramesOverOne(),
+                shadow.gpuFramesOverTwo());
             double frames = Math.max(1, shadowFrames);
-            line += String.format("; CPU a frame that drew, mean: sweep %.3f ms, tiles %.3f ms, commands %.3f ms, clears, draws "
-                    + "and copies %.3f ms; the slowest since the last line: %.3f, %.3f, %.3f, %.3f ms",
+            line += String.format("; CPU a frame that drew, mean: sweep %.3f ms, tiles %.3f ms, clears %.3f ms, commands %.3f ms, "
+                    + "draws %.3f ms, copies %.3f ms, state and timers %.3f ms; the slowest since the last line: %.3f, %.3f, %.3f, "
+                    + "%.3f, %.3f, %.3f, %.3f ms",
                 lightPartsTotal[0] / 1e6 / frames, lightPartsTotal[1] / 1e6 / frames, lightPartsTotal[2] / 1e6 / frames,
-                lightPartsTotal[3] / 1e6 / frames, lightPartsWorst[0] / 1e6, lightPartsWorst[1] / 1e6, lightPartsWorst[2] / 1e6,
-                lightPartsWorst[3] / 1e6);
+                lightPartsTotal[3] / 1e6 / frames, lightPartsTotal[4] / 1e6 / frames, lightPartsTotal[5] / 1e6 / frames,
+                lightPartsTotal[6] / 1e6 / frames, lightPartsWorst[0] / 1e6, lightPartsWorst[1] / 1e6, lightPartsWorst[2] / 1e6,
+                lightPartsWorst[3] / 1e6, lightPartsWorst[4] / 1e6, lightPartsWorst[5] / 1e6, lightPartsWorst[6] / 1e6);
             mostShadowNanosSince = 0;
             java.util.Arrays.fill(lightPartsWorst, 0);
             for (LightLayer layer : lightLayers) {

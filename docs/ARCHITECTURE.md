@@ -151,6 +151,14 @@ run; the alpha test still does, on output zero.
   query, and the game's expected values at each boundary are known. The attribute stack is
   not used: it saves none of the state a modern renderer adds, and other mods already use
   its limited depth. **Decided**, by the specification.
+- **What the cache believes, kept as it changes.** Where a stage changes state the cache
+  knows and its place in the frame expects back whatever the game last set, the value comes
+  from `GlStateMirror`, which `MixinGlStateManager` keeps level with the cache's depth
+  function and mask, face culling and polygon offset as each setter is called. It holds the
+  game's values as passed, before reversed depth translates them, so they are put back
+  through `DepthCalls`. The light's depth works so (section 4.7); with it, its frames'
+  CPU time is all in the work they measure, where reading state back left up to 5 ms in a
+  frame unaccounted for. **Decided; built.**
 - **Own objects.** Quadrature creates and modifies its buffers, textures and framebuffers
   through direct state access, which changes no binding, and uses texture units and
   binding points fixed-function drawing does not. **Decided.**
@@ -231,7 +239,12 @@ with it on.
   published and the box the map is drawn in; the game draws its own sky without it.
   `SunPath` in `core`.
 - **The target** is an array texture of 24-bit depth, 4,096 texels a side, 64 MiB a layer,
-  and a scratch texture of as many layers, both counted in the shading pool. A texel of the
+  and a scratch texture of as many layers, both counted in the shading pool. Both are made
+  when a world is attached, behind the screen that waits for it, and put through the work a
+  first frame does to them, every layer cleared through the framebuffer and copied, with a
+  wait for the driver: a driver puts off taking a texture's memory until its first use, which
+  otherwise fell in the first frame of play (42 ms of CPU; 8 ms now, at about 80 ms behind
+  the loading screen). A texel of the
   wide box is 0.13 of a block. The published texture can be sampled through either of two
   sampler objects: compared with a reference and filtered, or as the depth itself.
 - **The near layer**, behind `-Dquadrature.shadow.near=true` (off unless set), adds a box

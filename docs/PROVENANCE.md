@@ -67,6 +67,18 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   this project's own.
 - Added: 2026-11-18
 
+### State put back from a mirror of the game's cache, and targets prepared at world attach
+- Code: `src/main/java/cc/orthrus/quadrature/frame/GlStateMirror.java`,
+  `src/main/java/cc/orthrus/quadrature/mixin/MixinGlStateManager.java`, `ShadowTarget.begin`,
+  `end` and `prepare` in `src/main/java/cc/orthrus/quadrature/terrain/ShadowTarget.java`
+- Source: original. Facts used: the game's `GlStateManager` (Minecraft 1.12.2 as Cleanroom
+  ships it), whose setters for depth function and mask, face culling and polygon offset keep
+  the values the mirror copies; the OpenGL 4.6 specification for `glFinish` and framebuffer
+  clears. Measured here: a driver put off making a texture's memory its own until its first
+  use in a frame, and a clear of the texture alone did not count as one.
+- Taken: the setters' names and meanings.
+- Added: 2026-11-18
+
 ### GPU memory sources and the capability dump
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/platform/GpuMemory.java`,
   `GpuMemorySource.java`, `CapabilityReport.java`;

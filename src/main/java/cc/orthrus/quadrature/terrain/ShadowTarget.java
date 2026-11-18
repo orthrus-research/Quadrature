@@ -3,6 +3,7 @@ package cc.orthrus.quadrature.terrain;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.view.ShadowLayers;
 import cc.orthrus.quadrature.depth.DepthCalls;
+import cc.orthrus.quadrature.frame.GlStateMirror;
 
 import net.minecraft.client.Minecraft;
 
@@ -75,18 +76,11 @@ final class ShadowTarget {
     private int depthSampler;
     private boolean clearPublished = true;
 
-    // What begin reads of the game's state, put back by end.
-    private boolean offset;
-    private float offsetFactor;
-    private float offsetUnits;
-    private int depthFunction;
-    private boolean depthMask;
-    private boolean cull;
-    private boolean scissor;
-    private final int[] scissorBox = new int[4];
     private final float[] far = {1f};
 
     private final int[][] stamps = new int[RING][2];
+    /** The frame each pair of stamps in the ring was issued in, so a time read late is put to its frame. */
+    private final long[] stampFrames = new long[RING];
     private final boolean[] stamped = new boolean[RING];
     private int ring = -1;
     private long gpuNanos;
@@ -149,11 +143,42 @@ final class ShadowTarget {
     }
 
     /**
+     * Makes the textures and puts them through what the first frame that draws does to them, then waits
+     * for the driver to finish: every layer of both attached and cleared through the framebuffer, and
+     * each scratch layer copied over its published one. A driver puts off taking a texture's memory, and
+     * work of its own, until a texture is first used; clearing it as a texture alone is not such a use.
+     * Called when a world is attached, behind the screen that waits for it, where the time is not a
+     * frame's. The scissor test is left off, the world pass's neutral value; the depth mask is put back
+     * to what the game's cache believes.
+     *
+     * @return the milliseconds it took on this thread, the wait included
+     */
+    double prepare() {
+        long start = System.nanoTime();
+        if (framebuffer == 0) {
+            create();
+        }
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL11.glDepthMask(true);
+        for (int layer = 0; layer < LAYERS; layer++) {
+            attach(true, layer);
+            GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+            attach(false, layer);
+            GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+            publish(layer);
+        }
+        GL11.glDepthMask(GlStateMirror.depthMask);
+        GL11.glFinish();
+        clearPublished = false;
+        return (System.nanoTime() - start) / 1e6;
+    }
+
+    /**
      * Sets the state a depth-only draw of Quadrature's own depends on, before the first layer drawn in
      * a frame. What it changes that the game's draws depend on is read first and put back by
      * {@link #end}. Draws go nowhere until {@link #attach} names a layer.
      */
-    void begin() {
+    void begin(long frame) {
         if (framebuffer == 0) {
             create();
         }
@@ -167,7 +192,10 @@ final class ShadowTarget {
                 gpuNanos += lastGpuNanos;
                 gpuSamples++;
                 mostGpuNanos = Math.max(mostGpuNanos, lastGpuNanos);
-                mostGpuNanosSince = Math.max(mostGpuNanosSince, lastGpuNanos);
+                if (lastGpuNanos > mostGpuNanosSince) {
+                    mostGpuNanosSince = lastGpuNanos;
+                    mostGpuFrameSince = stampFrames[ring];
+                }
                 if (lastGpuNanos > 1_000_000) {
                     gpuOverOne++;
                 }
@@ -177,12 +205,10 @@ final class ShadowTarget {
             }
         }
         GL33.glQueryCounter(stamps[ring][0], GL33.GL_TIMESTAMP);
+        stampFrames[ring] = frame;
 
-        depthFunction = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        depthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
-        cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
-        GL11.glGetIntegerv(GL11.GL_SCISSOR_BOX, scissorBox);
+        // Every piece of state the draws depend on is set, and none is read: what is put back comes from
+        // the game's cache by way of the mirror, or is the world pass's neutral value.
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer);
         GL11.glViewport(0, 0, SIDE, SIDE);
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
@@ -197,15 +223,14 @@ final class ShadowTarget {
         // What stands nearer the light than the view's box still casts into it.
         GL11.glEnable(GL32.GL_DEPTH_CLAMP);
         // The depth is drawn with the offset set for it and no other: what the game holds at this point
-        // is read and put back, never drawn with. An offset left on by the game would move every stored
-        // depth by the slope of its surface, which at a low light is most of a block on flat ground.
-        offset = GL11.glIsEnabled(GL11.GL_POLYGON_OFFSET_FILL);
-        offsetFactor = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_FACTOR);
-        offsetUnits = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_UNITS);
-        if (offset && (offsetFactor != 0 || offsetUnits != 0) && !offsetFound) {
+        // is put back, never drawn with. An offset left on by the game would move every stored depth by
+        // the slope of its surface, which at a low light is most of a block on flat ground.
+        if (GlStateMirror.polygonOffsetFill && (GlStateMirror.polygonOffsetFactor != 0 || GlStateMirror.polygonOffsetUnits != 0)
+            && !offsetFound) {
             offsetFound = true;
             Quadrature.LOGGER.warn("Shadow target: the game holds a polygon offset of {}, {} switched on where the light's depth is "
-                + "drawn; the depth is drawn without it. It is said once.", offsetFactor, offsetUnits);
+                + "drawn; the depth is drawn without it. It is said once.", GlStateMirror.polygonOffsetFactor,
+                GlStateMirror.polygonOffsetUnits);
         }
         if (POLYGON_OFFSET[0] != 0 || POLYGON_OFFSET[1] != 0) {
             GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
@@ -290,10 +315,15 @@ final class ShadowTarget {
 
     private FloatBuffer scratchReadback;
 
-    /** Puts back what {@link #begin} changed. The framebuffer and viewport are the envelope's to restore. */
+    /**
+     * Puts back what {@link #begin} changed: state the game's cache knows goes back to what the cache
+     * believes ({@link GlStateMirror}), through {@link DepthCalls} so that reversed depth translates it
+     * as it does the game's own calls; state it does not know goes back to its neutral value, which is
+     * what the world pass holds. Nothing is read. The framebuffer and viewport are the envelope's.
+     */
     void end() {
-        GL11.glPolygonOffset(offsetFactor, offsetUnits);
-        if (offset) {
+        DepthCalls.glPolygonOffset(GlStateMirror.polygonOffsetFactor, GlStateMirror.polygonOffsetUnits);
+        if (GlStateMirror.polygonOffsetFill) {
             GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
         } else {
             GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
@@ -302,15 +332,13 @@ final class ShadowTarget {
         if (DepthCalls.active()) {
             GL45.glClipControl(GL45.GL_LOWER_LEFT, GL45.GL_ZERO_TO_ONE);
         }
-        if (cull) {
+        if (GlStateMirror.cull) {
             GL11.glEnable(GL11.GL_CULL_FACE);
         }
-        GL11.glScissor(scissorBox[0], scissorBox[1], scissorBox[2], scissorBox[3]);
-        if (scissor) {
-            GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        }
-        GL11.glDepthMask(depthMask);
-        GL11.glDepthFunc(depthFunction);
+        Minecraft minecraft = Minecraft.getMinecraft();
+        GL11.glScissor(0, 0, minecraft.displayWidth, minecraft.displayHeight);
+        GL11.glDepthMask(GlStateMirror.depthMask);
+        DepthCalls.glDepthFunc(GlStateMirror.depthFunction);
         GL33.glQueryCounter(stamps[ring][1], GL33.GL_TIMESTAMP);
         stamped[ring] = true;
     }
@@ -354,6 +382,11 @@ final class ShadowTarget {
         return most;
     }
 
+    /** The frame that took the time {@link #takeGpuMillisMostSince} gave; read it first. */
+    long gpuMostFrameSince() {
+        return mostGpuFrameSince;
+    }
+
     /** Frames whose GPU time was measured above 1 ms, and above 2 ms. */
     long gpuFramesOverOne() {
         return gpuOverOne;
@@ -364,6 +397,7 @@ final class ShadowTarget {
     }
 
     private long mostGpuNanosSince;
+    private long mostGpuFrameSince;
     private long gpuOverOne;
     private long gpuOverTwo;
 
