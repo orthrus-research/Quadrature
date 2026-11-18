@@ -414,14 +414,27 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
 
 ### 6.2 Building
 
-- Builds run on Cubature's executor (Quadrature starts no threads), ordered by distance
-  and by whether the cube is in view, and cancelled when their snapshot is superseded.
-  **Decided.** Until that executor exists, builds run on the client thread within a time
-  budget, nearest first.
-- A build writes into native memory it owns and hands the result to the context thread.
-  It allocates nothing on the Java heap per face. **Decided.**
-- The context thread spends a bounded time per frame placing finished builds into GPU
-  memory. **Decided.**
+- Builds run on Cubature's build pool (Quadrature starts no threads). A build's priority
+  is the squared distance from the camera to the cube, doubled for a cube outside the
+  view, and every waiting build is given its priority anew when the camera enters another
+  cube or turns 30 degrees. A waiting build holds no snapshot and reads the cube as it is
+  when it starts; one whose cube's blocks or light change after its snapshot is dropped by
+  the pool, and the change hands in another. A result older than what its cube already
+  shows is dropped. **Built.**
+- A mesher belongs to one build thread at a time. What meshers share is numbered under a
+  lock that each thread's own cache keeps it from taking for what it has met: the atlas's
+  rectangles and the material table's rows. States for the light scene are handed back
+  with each result and defined on the context thread. **Built.**
+- A cube the source says holds only air is settled without a snapshot or a build.
+  **Built.**
+- A build copies what it made into arrays of its own, so a result the pool drops leaves
+  nothing to free; it allocates nothing on the heap per face. The context thread copies a
+  result's vertices into one native staging buffer as it places them. **Built.**
+- The context thread spends at most 1 ms a frame placing finished builds into GPU memory
+  and 0.5 ms sorting the cubes that changed. **Built.**
+- A mesh put in place with the shape of the one it replaces keeps the light's depth as
+  drawn: the shape follows the block versions of the cube and of the six cubes that share
+  a face with it, so a change of light alone redraws no tile. **Built.**
 
 ### 6.3 GPU memory
 

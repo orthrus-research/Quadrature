@@ -222,11 +222,14 @@ final class ScreenProbe {
             }
         }
         CubeMesh fresh = null;
-        if (!snapshot.centerEmpty()) {
-            if (mesher.build(snapshot, held.x, held.y, held.z)) {
-                fresh = CubeMesh.owned(held.x, held.y, held.z, mesher);
+        try {
+            BuiltCube built = mesher.build(snapshot, held.x, held.y, held.z, 0, null);
+            if (built != null && built.any) {
+                fresh = CubeMesh.owned(held.x, held.y, held.z, built);
             }
-            mesher.done();
+        } catch (InterruptedException never) {
+            // Without a task nothing waits.
+            Thread.currentThread().interrupt();
         }
         snapshot.release();
         out.append(String.format("%n      %d of 27 cubes of its neighborhood loaded%s", present,

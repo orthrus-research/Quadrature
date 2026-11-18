@@ -162,8 +162,25 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   its block vertex format, and Cubature's cube source interfaces and render distance bound.
 - Added: 2026-11-14
 
+### Meshes built on the cube source's build pool
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`submit`, `sort`, `build`,
+  `priority`, `reprioritize`, `collect`, `take`, `place`), `CubeMesher.java`, `BuiltCube.java`,
+  `FaceBuilder.java`, `Materials.java`;
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/AtlasRectangles.java`
+- Source: original. Facts used: Cubature's cube source contract (its `docs/CUBE-SOURCE.md`,
+  sections 2, 3 and 5): the build pool's tasks, priorities, stale masks and polling, a
+  snapshot's versions per cube, and `cubeContent`; the game's block renderer and Forge's
+  render layer, which keep their per-thread state per thread, as the game's own chunk build
+  threads use them.
+- Taken: the pool's interface as published, and the order its contract suggests: the
+  squared distance from the camera, doubled outside the view, given anew as the camera
+  moves or turns. The result's order number, dropping a result older than what a cube
+  shows, the per-thread caches in front of shared numbering, and keeping the light's tiles
+  for a mesh of the same shape are this project's own.
+- Added: 2026-11-18
+
 ### Meshing a cube only among loaded neighbors
-- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`surrounded`, `rebuild`)
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`surrounded`, `sort`)
 - Source: original. Facts used: the running game's behavior in a cubic world, observed in
   what it draws: beyond 24 blocks from the player it meshes a cube only once the six cubes
   sharing a face with it are loaded, and a cube that cannot be meshed keeps the mesh it

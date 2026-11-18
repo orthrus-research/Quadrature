@@ -2,12 +2,14 @@ package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.scene.LightScene;
+import cc.orthrus.quadrature.core.terrain.AtlasRectangles;
 import cc.orthrus.quadrature.core.terrain.CubeConnectivity;
+import cc.orthrus.quadrature.core.terrain.FaceRecord;
 
-import net.minecraft.client.renderer.BlockRendererDispatcher;
-
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
+import io.github.opencubicchunks.cubicchunks.api.client.IClientBuildWork;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
 
 import net.minecraft.block.Block;
@@ -24,6 +26,12 @@ import net.minecraftforge.client.ForgeHooksClient;
 /**
  * Turns a snapshot into a mesh by running the game's block models against it, the way the game's
  * own chunk builder does: each block is offered to each layer it draws in.
+ *
+ * <p>A mesher belongs to one thread at a time: builds run on Cubature's build threads, each taking a
+ * mesher from those idle. What a build makes is copied into a {@link BuiltCube}, so the mesher's
+ * buffers are free again when it returns. What meshers share is numbered under locks: the atlas's
+ * rectangles, and the material table's rows. The light scene's states are not written here; each
+ * build hands back the states this mesher had not met, for the client thread to define.
  */
 final class CubeMesher {
 
@@ -33,13 +41,17 @@ final class CubeMesher {
 
     private final BufferBuilder[] builders = new BufferBuilder[LAYERS.length];
     private final boolean[] started = new boolean[LAYERS.length];
+    /** Whether a layer's buffer was begun and not yet finished: a build that threw leaves one so. */
+    private final boolean[] drawing = new boolean[LAYERS.length];
     private final int[] counts = new int[LAYERS.length];
     private final long[] opaque = new long[64];
-    /** The scene the cells are noted for, or null when none is kept. */
-    private final LightScene scene;
+    /** Whether each cube's cells are noted for the light scene. */
+    private final boolean keepCells;
     private final short[] cells = new short[LightScene.CELLS];
-    /** The number of each block state seen, so the registry is asked once for each. */
+    /** The number of each block state this mesher has seen, so the registry is asked once for each. */
     private final Reference2IntOpenHashMap<IBlockState> stateNumbers = new Reference2IntOpenHashMap<>();
+    /** The states first met in the cube being built, as {@link BuiltCube#packState} packs them. */
+    private final IntArrayList newStates = new IntArrayList();
     private int unnumbered;
 
     /**
@@ -55,61 +67,160 @@ final class CubeMesher {
     static final boolean FACES = Boolean.getBoolean("quadrature.faces");
     private final QuadWalk walk = FACE_CHECK || FACES ? new QuadWalk() : null;
     /**
+     * A diagnostic, off unless {@code -Dquadrature.faces.count=true}: counts in every cube meshed the
+     * quads that a record for a whole face could hold.
+     */
+    static final boolean CENSUS = Boolean.getBoolean("quadrature.faces.count");
+    /**
      * Off unless {@code -Dquadrature.gbuffer=true}, which needs the face stream: kept vertices carry
      * their quad's header, and each block state's surface values are set the first time it is met.
      */
     static final boolean TARGETS = FACES && Boolean.getBoolean("quadrature.gbuffer");
-    private final FaceBuilder faces = FACE_CHECK || FACES ? new FaceBuilder(TARGETS) : null;
-    /** Held for the targets for shading; also where only the audit of the kinds is asked for. */
-    private final Materials materials = TARGETS || Boolean.getBoolean("quadrature.materials.audit") ? new Materials() : null;
-    private final java.util.BitSet materialsSet = new java.util.BitSet(1 << 16);
+    private final FaceBuilder faces;
+    /** The material table every mesher fills, or null when it is not kept. */
+    private final Materials materials;
+    /** The states this mesher has asked the table to fill, so it takes the table's lock once for each. */
+    private final java.util.BitSet materialsAsked = new java.util.BitSet(1 << 16);
     private final java.nio.ByteBuffer[] builtData = new java.nio.ByteBuffer[LAYERS.length];
     private final BufferBuilder[] walked = new BufferBuilder[LAYERS.length];
     private final boolean[] walkedStarted = new boolean[LAYERS.length];
     private final java.nio.ByteBuffer[] walkedData = new java.nio.ByteBuffer[LAYERS.length];
     private final int[] walkedVertices = new int[LAYERS.length];
-    private long cubesWalked;
-    private long cubesDiffering;
-    private long layersDiffering;
-    private long blocksWalked;
-    private long blocksLeftToTheDispatcher;
+    /** The face check's counts over the cube being built, by the indices below. */
+    static final int CUBES_WALKED = 0, CUBES_DIFFERING = 1, LAYERS_DIFFERING = 2, BLOCKS_WALKED = 3,
+        BLOCKS_LEFT_TO_THE_DISPATCHER = 4, CHECK_COUNTS = 5;
+    private final long[] checkCounts = new long[CHECK_COUNTS];
     private int differencesLogged;
     private final CubeConnectivity connectivity = new CubeConnectivity();
-    private short links;
     private int failures;
+    /** The six cubes that share a face with a cube, as offsets. */
+    private static final int[][] FACE_NEIGHBORS = {{-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
 
-    CubeMesher() {
-        this(null);
-    }
-
-    /** @param scene where each cube's cells are noted as it is meshed, or null */
-    CubeMesher(LightScene scene) {
-        this.scene = scene;
+    /**
+     * @param keepCells  whether each cube's cells are noted for the light scene
+     * @param materials  the material table every mesher fills, or null when it is not kept
+     * @param rectangles the numbering of the atlas's rectangles every mesher shares
+     */
+    CubeMesher(boolean keepCells, Materials materials, AtlasRectangles rectangles) {
+        this.keepCells = keepCells;
+        this.materials = materials;
+        this.faces = FACE_CHECK || FACES ? new FaceBuilder(TARGETS, rectangles) : null;
         stateNumbers.defaultReturnValue(-1);
         for (int i = 0; i < builders.length; i++) {
             builders[i] = new BufferBuilder(i == 0 ? 1 << 18 : 1 << 16);
         }
     }
 
-    /** Which faces of the cube last built see each other through it, as {@link CubeConnectivity} gives them. */
-    short links() {
-        return links;
+    /**
+     * What a cube's shape follows: the block versions of the cube and of the six that share a face
+     * with it, which decide every face drawn and every face left out against a neighbor.
+     */
+    static long geometry(ICubeSnapshot snapshot) {
+        long hash = snapshot.blockVersion(0, 0, 0);
+        for (int[] d : FACE_NEIGHBORS) {
+            hash = hash * 0x9E3779B97F4A7C15L + (snapshot.present(d[0], d[1], d[2]) ? snapshot.blockVersion(d[0], d[1], d[2]) : -1);
+        }
+        return hash;
     }
 
     /**
-     * Meshes a cube into this mesher's buffers, where the result stays until {@link #done}.
+     * Meshes a cube and copies what it made out of this mesher's buffers.
+     *
+     * @param sequence the order the build was handed in, carried to the result
+     * @param task     the pool's task, asked now and then whether to stop; null for a build on the client thread
+     * @return the cube built, or null when the task stopped it
+     */
+    BuiltCube build(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ, long sequence, IClientBuildWork.Task<?> task)
+        throws InterruptedException {
+        long began = System.nanoTime();
+        long geometry = geometry(snapshot);
+        if (snapshot.centerEmpty()) {
+            return new BuiltCube(cubeX, cubeY, cubeZ, sequence, true, false, CubeConnectivity.ALL, geometry, null, null,
+                null, NO_VERTICES, NO_COUNTS, null, null, null, null, null, System.nanoTime() - began);
+        }
+        try {
+            boolean any = mesh(snapshot, cubeX, cubeY, cubeZ, task);
+            if (task != null && task.cancelled()) {
+                return null;
+            }
+            return copy(cubeX, cubeY, cubeZ, sequence, any, geometry, System.nanoTime() - began);
+        } finally {
+            done();
+        }
+    }
+
+    private static final byte[][] NO_VERTICES = {new byte[0], new byte[0], new byte[0]};
+    private static final int[] NO_COUNTS = new int[3];
+
+    /** Copies what {@link #mesh} left in the buffers. */
+    private BuiltCube copy(int cubeX, int cubeY, int cubeZ, long sequence, boolean any, long geometry, long nanos) {
+        short links = connectivity.of(opaque);
+        byte[][] vertices = new byte[LAYERS.length][];
+        int[] vertexCounts = new int[LAYERS.length];
+        int[][] records = null;
+        int[] recordCounts = null;
+        long[] faceCounts = null;
+        if (FACES) {
+            records = new int[LAYERS.length][];
+            recordCounts = new int[LAYERS.length];
+            for (int layer = 0; layer < LAYERS.length; layer++) {
+                vertexCounts[layer] = faces.vertexCount(layer);
+                java.nio.ByteBuffer kept = faces.vertices(layer).duplicate();
+                kept.flip();
+                vertices[layer] = new byte[kept.remaining()];
+                kept.get(vertices[layer]);
+                recordCounts[layer] = faces.recordCount(layer);
+                records[layer] = java.util.Arrays.copyOf(faces.records(layer), recordCounts[layer] * FaceRecord.WORDS);
+            }
+            faceCounts = faces.counts().clone();
+        } else {
+            for (int layer = 0; layer < LAYERS.length; layer++) {
+                vertexCounts[layer] = counts[layer];
+                vertices[layer] = new byte[counts[layer] * CubeMesh.STRIDE];
+                if (counts[layer] > 0) {
+                    java.nio.ByteBuffer data = builders[layer].getByteBuffer().duplicate();
+                    data.get(vertices[layer]);
+                }
+            }
+            if (FACE_CHECK) {
+                faceCounts = faces.counts().clone();
+            }
+        }
+        long[] census = null;
+        if (CENSUS) {
+            census = new long[3];
+            census(census);
+        }
+        return new BuiltCube(cubeX, cubeY, cubeZ, sequence, false, any, links, geometry,
+            keepCells ? cells.clone() : null, keepCells ? opaque.clone() : null, keepCells ? newStates.toIntArray() : null,
+            vertices, vertexCounts, records, recordCounts, faceCounts, FACE_CHECK ? checkCounts.clone() : null, census, nanos);
+    }
+
+    /**
+     * Meshes a cube into this mesher's buffers.
      *
      * @return whether the cube draws anything in the opaque layers
      */
-    boolean build(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ) {
+    private boolean mesh(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ, IClientBuildWork.Task<?> task)
+        throws InterruptedException {
         BlockRendererDispatcher dispatcher = Minecraft.getMinecraft().getBlockRendererDispatcher();
         int minX = cubeX << 4;
         int minY = cubeY << 4;
         int minZ = cubeZ << 4;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         java.util.Arrays.fill(opaque, 0);
+        java.util.Arrays.fill(checkCounts, 0);
+        newStates.clear();
         try {
             for (int y = 0; y < 16; y++) {
+                if (task != null && (y & 3) == 0) {
+                    // A quarter of the cube at a time: a stale build stops, finishing its buffers as any
+                    // build does, and a build waits here if the pool's permits were lowered.
+                    if (task.cancelled()) {
+                        break;
+                    }
+                    task.checkpoint();
+                }
                 for (int z = 0; z < 16; z++) {
                     for (int x = 0; x < 16; x++) {
                         pos.setPos(minX + x, minY + y, minZ + z);
@@ -119,7 +230,7 @@ final class CubeMesher {
                             int cell = CubeConnectivity.cell(x, y, z);
                             opaque[cell >> 6] |= 1L << cell;
                         }
-                        if (scene != null) {
+                        if (keepCells) {
                             cells[LightScene.index(x, y, z)] = (short) number(state);
                         }
                         if (state.getRenderType() == EnumBlockRenderType.INVISIBLE) {
@@ -132,16 +243,13 @@ final class CubeMesher {
                             ForgeHooksClient.setRenderLayer(LAYERS[layer]);
                             if (!started[layer]) {
                                 started[layer] = true;
+                                drawing[layer] = true;
                                 builders[layer].begin(QUADS, DefaultVertexFormats.BLOCK);
                                 builders[layer].setTranslation(-minX, -minY, -minZ);
                             }
                             try {
                                 if (materials != null) {
-                                    int number = Block.getStateId(state) & 0xFFFF;
-                                    if (!materialsSet.get(number)) {
-                                        materialsSet.set(number);
-                                        materials.define(state, number);
-                                    }
+                                    material(state);
                                 }
                                 if (FACES && walk.usable() && state.getRenderType() == EnumBlockRenderType.MODEL) {
                                     // The dispatcher takes a block's actual state before it asks for the model.
@@ -170,7 +278,6 @@ final class CubeMesher {
         } finally {
             ForgeHooksClient.setRenderLayer(null);
         }
-        links = connectivity.of(opaque);
         if (FACE_CHECK) {
             compare(cubeX, cubeY, cubeZ);
         }
@@ -181,6 +288,7 @@ final class CubeMesher {
                 continue;
             }
             builders[layer].finishDrawing();
+            drawing[layer] = false;
             counts[layer] = builders[layer].getVertexCount();
             any |= counts[layer] > 0;
         }
@@ -210,12 +318,12 @@ final class CubeMesher {
                 // The dispatcher takes a block's actual state before it asks for the model.
                 IBlockState actual = state.getActualState(snapshot, pos);
                 walk.render(dispatcher, snapshot, actual, pos, walked[layer], cell, layer, Block.getStateId(state) & 0xFFFF);
-                blocksWalked++;
+                checkCounts[BLOCKS_WALKED]++;
             } else {
                 int from = walked[layer].getVertexCount();
                 dispatcher.renderBlock(state, pos, snapshot, walked[layer]);
                 walk.foreign(walked[layer], from, cell, layer, Block.getStateId(state) & 0xFFFF);
-                blocksLeftToTheDispatcher++;
+                checkCounts[BLOCKS_LEFT_TO_THE_DISPATCHER]++;
             }
         } catch (RuntimeException e) {
             if (failures++ < 5) {
@@ -226,7 +334,7 @@ final class CubeMesher {
 
     /** Sets what the walk wrote for the cube beside what the dispatcher wrote, and sorts the walk's quads. */
     private void compare(int cubeX, int cubeY, int cubeZ) {
-        cubesWalked++;
+        checkCounts[CUBES_WALKED]++;
         boolean differs = false;
         for (int layer = 0; layer < LAYERS.length; layer++) {
             walkedVertices[layer] = 0;
@@ -248,7 +356,7 @@ final class CubeMesher {
             }
             if (!same) {
                 differs = true;
-                layersDiffering++;
+                checkCounts[LAYERS_DIFFERING]++;
                 if (differencesLogged++ < 10) {
                     Quadrature.LOGGER.warn("Face check: cube {} {} {} layer {}: the walk wrote {} vertices and the "
                         + "dispatcher {}, or their bytes differ", cubeX, cubeY, cubeZ, LAYERS[layer], walkedVertices[layer], game);
@@ -256,7 +364,7 @@ final class CubeMesher {
             }
         }
         if (differs) {
-            cubesDiffering++;
+            checkCounts[CUBES_DIFFERING]++;
         }
         faces.build(walkedData, walkedVertices, walk);
         walk.begin();
@@ -270,37 +378,24 @@ final class CubeMesher {
         }
     }
 
-    /** The table of each block state's surface values, or null when it is not kept. */
-    Materials materials() {
-        return materials;
-    }
-
     /**
-     * The number a state's row of the material table has, the row filled if this is the first time
-     * the state is met. Without a table, only the number.
+     * The number a state's row of the material table has, the row filled if no mesher has met the
+     * state before. Without a table, only the number.
      */
     int material(IBlockState state) {
         int number = Block.getStateId(state) & 0xFFFF;
-        if (materials != null && !materialsSet.get(number)) {
-            materialsSet.set(number);
-            materials.define(state, number);
+        if (materials != null && !materialsAsked.get(number)) {
+            materialsAsked.set(number);
+            materials.defineOnce(state, number);
         }
         return number;
     }
 
-    /** The quads of the cube last built, sorted into face records and kept vertices. */
-    FaceBuilder faceBuilder() {
-        return faces;
-    }
-
-    /** What the face check found, for the timing log. */
-    String faceSummary() {
-        if (FACES) {
-            return "faces: " + faces.summary();
-        }
+    /** What the face check's counts say, summed over every build. */
+    static String checkSummary(long[] totals, long[] faceTotals, int rectangles) {
         return String.format("face check: %d cubes drawn both ways, %d differ in %d layers; %d blocks walked, %d left to "
-                + "the dispatcher; %s", cubesWalked, cubesDiffering, layersDiffering, blocksWalked, blocksLeftToTheDispatcher,
-            faces.summary());
+                + "the dispatcher; %s", totals[CUBES_WALKED], totals[CUBES_DIFFERING], totals[LAYERS_DIFFERING],
+            totals[BLOCKS_WALKED], totals[BLOCKS_LEFT_TO_THE_DISPATCHER], FaceBuilder.summary(faceTotals, rectangles));
     }
 
     /**
@@ -320,20 +415,11 @@ final class CubeMesher {
                 number = LightScene.STATES - 1;
             }
             stateNumbers.put(state, number);
-            scene.defineState(number, Math.min(15, Math.max(0, state.getLightValue())),
-                Math.min(15, Math.max(0, state.getLightOpacity())), state.isOpaqueCube());
+            // The client thread tells the scene, before it puts the cube's cells there.
+            newStates.add(BuiltCube.packState(number, Math.min(15, Math.max(0, state.getLightValue())),
+                Math.min(15, Math.max(0, state.getLightOpacity())), state.isOpaqueCube()));
         }
         return number;
-    }
-
-    /** The state of each cell of the cube last built, as the scene orders them. */
-    short[] cells() {
-        return cells;
-    }
-
-    /** A bit for each cell of the cube last built that an opaque whole cube fills. */
-    long[] blocking() {
-        return opaque;
     }
 
     /**
@@ -343,7 +429,7 @@ final class CubeMesher {
      *
      * @param totals added to: quads, unit faces, unit faces with rectangular texture coordinates
      */
-    void census(long[] totals) {
+    private void census(long[] totals) {
         float[] p = new float[12];
         float[] t = new float[8];
         for (int layer = 0; layer < LAYERS.length; layer++) {
@@ -405,25 +491,31 @@ final class CubeMesher {
         }
     }
 
-    /** The vertices of a layer of the cube last built: its position and the count bound them. */
-    java.nio.ByteBuffer data(int layer) {
-        return builders[layer].getByteBuffer();
-    }
-
-    /** How many vertices a layer of the cube last built has. */
-    int count(int layer) {
-        return counts[layer];
-    }
-
-    /** Makes the buffers ready for the next cube. Call once what {@link #build} left has been stored. */
-    void done() {
+    /**
+     * Makes the buffers ready for the next cube, however the last build ended: one that stopped early
+     * or threw leaves buffers begun and notes of quads taken.
+     */
+    private void done() {
         for (int layer = 0; layer < LAYERS.length; layer++) {
             if (started[layer]) {
+                if (drawing[layer]) {
+                    builders[layer].finishDrawing();
+                    drawing[layer] = false;
+                }
                 started[layer] = false;
                 builders[layer].setTranslation(0, 0, 0);
                 builders[layer].reset();
             }
             counts[layer] = 0;
+            if (walkedStarted[layer]) {
+                walkedStarted[layer] = false;
+                walked[layer].finishDrawing();
+                walked[layer].setTranslation(0, 0, 0);
+                walked[layer].reset();
+            }
+        }
+        if (walk != null) {
+            walk.begin();
         }
     }
 }

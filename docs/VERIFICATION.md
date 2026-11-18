@@ -741,6 +741,46 @@ the seven measured views: the median of the views' medians, and the worst view.
   are not counted. The line gives no figure for the geometry a frame draws.
 - Radius 8 ran on its own instance: its views compare with the others by place.
 
+### Meshes built on Cubature's build pool
+
+Measured 2026-11-18 on one fresh instance at the lab's baseline, with Cubature at the pinned
+commit and its build pool of 4 threads. The radius figures before are those of the section
+above, from builds on the client thread within 4 ms a frame.
+
+- **The picture.** Own terrain against a game-drawn run of the same instance, forest tour
+  at radius 12: 17 of 17 views pass `near.json`, the worst view 07 at 0.039%. The
+  reference was checked against its settling run; no view was captured facing elsewhere.
+  No driver message came during a terrain draw.
+- **What is drawn** is unchanged at every measured view of the dwell tour: the same cubes
+  seen, vertices and memory. Opaque terrain drawn forward takes 2.23 ms on the GPU at
+  radius 16 either way, and 2.61 against 2.32 ms at radius 20, on another instance.
+- **Settling.** Every view of the forest tour at radius 12 was settled at its capture,
+  where builds on the client thread left 3,000 to 5,000 cubes waiting at two views.
+
+| Dwell tour, a new place | Builds on the client thread | On the build pool |
+|---|---|---|
+| Radius 20, settled in | 74 and 87 s | 44 and 37 s |
+| Radius 20, cubes waiting at most | 65,000 and 68,000 | 21,000 and 20,000 |
+| Radius 16, settled in | 34 and 42 s | 24 and 18 s |
+| Radius 16, cubes waiting at most | 33,000 and 34,000 | 12,000 and 11,000 |
+
+- **The client thread.** Opaque terrain took 0.12 to 0.20 ms of CPU at the settled views
+  of the forest tour, where a view whose terrain was still arriving took 5.4 ms with
+  builds on the client thread. While a place arrives the frame's terrain setup takes
+  0.77 ms at the median and 1.5 ms at the 95th percentile. Its worst frame took 30.5 ms
+  in the pool's calls during an arrival, which is not explained, and 11.8 ms in the first
+  frames of the world, as the pool started.
+- **Empty cubes** are settled from the source's own count, without a snapshot: 330,268
+  times over the forest tour, against 68,847 builds. Builds on the client thread took a
+  snapshot for each of the 60,283 empty cubes of a tour.
+- **The light's depth** with both layers and the check every 600 frames: 137 checks, none
+  with a texel off by a step of depth. 5,680 meshes put in place with the shape of the
+  one they replaced kept their tiles.
+- **Builds a second.** At radius 20, with 4 permits and 20,000 builds waiting, the pool
+  built about 950 a second, 1.16 ms each: it takes snapshots only when it is pumped, for
+  as many builds as the permits and one a thread, and is pumped about once a frame, so its
+  threads stood idle for most of each frame.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.

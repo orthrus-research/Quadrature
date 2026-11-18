@@ -71,8 +71,32 @@ final class Materials {
         return table;
     }
 
-    /** Sets a state's values the first time it is met. */
-    void define(IBlockState state, int number) {
+    /** The states whose rows are filled; with the table, held under this object's lock. */
+    private final java.util.BitSet defined = new java.util.BitSet(MaterialTable.STATES);
+
+    /**
+     * Fills a state's row the first time any thread meets it. Any thread: Cubature's build threads ask
+     * as they mesh, and each keeps its own note of what it has asked so it rarely takes the lock.
+     */
+    synchronized void defineOnce(IBlockState state, int number) {
+        if (!defined.get(number)) {
+            defined.set(number);
+            define(state, number);
+        }
+    }
+
+    /** Moves on whenever a row is filled. Any thread. */
+    synchronized long version() {
+        return table.version();
+    }
+
+    /** The table's bytes as they stand, for the driver. Any thread. */
+    synchronized byte[] bytes() {
+        return table.bytes().clone();
+    }
+
+    /** Sets a state's values. Called under this object's lock. */
+    private void define(IBlockState state, int number) {
         int listed = listed(state);
         if (listed != MaterialKinds.NONE) {
             table.set(number, listed, state.getLightValue());

@@ -160,22 +160,6 @@ import java.util.ArrayDeque;
     private final ArrayDeque<long[]> fences = new ArrayDeque<>();
 
     /**
-     * Copies what the mesher last built into the arena.
-     *
-     * @return the mesh, or null when the arena has no room for it
-     */
-    CubeMesh place(int x, int y, int z, CubeMesher mesher, long frame) {
-        for (int layer = 0; layer < CubeMesh.LAYERS; layer++) {
-            layerData[layer] = mesher.count(layer) == 0 ? null : mesher.data(layer);
-            layerCounts[layer] = mesher.count(layer);
-        }
-        return place(x, y, z, layerData, layerCounts, frame);
-    }
-
-    private final ByteBuffer[] layerData = new ByteBuffer[CubeMesh.LAYERS];
-    private final int[] layerCounts = new int[CubeMesh.LAYERS];
-
-    /**
      * Copies three layers of vertices into the arena.
      *
      * @param data   each layer's vertices from its buffer's position, or null where the layer has none
