@@ -63,7 +63,7 @@ carried into the phase that produces that code.
 | P0-V1 | Done: frames compared against profiles; a settled near-terrain instance reproduces 13 of 17 frames exactly | [VERIFICATION.md](VERIFICATION.md) |
 | P0-V2 | Done on the available machine: vanilla, Celeritas and Celeritas with a shader pack, two flight captures each | [BASELINE.md](BASELINE.md) |
 | P0-D1 | Provisional budgets set, to be revised by each phase's measurements | [ARCHITECTURE.md](ARCHITECTURE.md), section 12 |
-| P0-L1 | Done: NRR 1.0 (decision D15), provenance rules and record format | [PROVENANCE.md](PROVENANCE.md) |
+| P0-L1 | Done: the license (decision D15; Apache-2.0 since 2026-11-18), provenance rules and record format | [PROVENANCE.md](PROVENANCE.md) |
 
 Not verified in Phase 0: how the gate's two screens look; the vendor and mesh shader
 refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB card.

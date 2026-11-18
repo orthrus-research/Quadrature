@@ -1,15 +1,20 @@
 # Quadrature licensing
 
-Original Quadrature code, tools, configuration and documentation are offered under
-[NRR 1.0](LICENSE), except material with a separate file, directory or upstream license.
-NRR requires no permission, attribution, retained notices or source disclosure for the
-material it covers. Its public-domain dedication and fallback grant apply only to rights
-the contributor owns or can grant.
+Quadrature
+Copyright 2026 Orthrus Research
 
-`LicenseRef-NRR-1.0` is this project's custom identifier. NRR is a new license; it is not
-claimed to be an SPDX-listed or OSI-approved license, or a guarantee of identical legal
-effect in every jurisdiction. NRR does not relicense the components below. Their
-conditions continue to apply to those components.
+Original Quadrature code, tools, configuration and documentation are licensed under the
+[Apache License, Version 2.0](LICENSE) (SPDX `Apache-2.0`), except material with a separate
+file, directory or upstream license. The Apache License does not relicense the components
+below. Their own conditions continue to apply to them.
+
+## Material offered under NRR 1.0
+
+Quadrature was offered under NRR 1.0, a public-domain dedication with an unconditional
+fallback license, up to and including commit 65af717 (2026-11-17). That grant is
+irrevocable: material as it stood in those commits remains available on NRR's terms, and
+the NRR 1.0 text is in the `LICENSE` file of those commits. Quadrature as offered from the
+next commit on is licensed under the Apache License 2.0.
 
 ## Gradle wrapper
 
@@ -20,5 +25,5 @@ are not part of the mod JAR.
 ## What Quadrature does not contain
 
 Quadrature is an original implementation (decision D2 in `docs/DECISIONS.md`). It contains
-no code from other renderers, shader loaders or level-of-detail mods.
-`docs/PROVENANCE.md` records where each technique it uses came from.
+no code from other renderers, shader loaders or level-of-detail mods, and no NVIDIA SDK
+material. `docs/PROVENANCE.md` records where each technique it uses came from.

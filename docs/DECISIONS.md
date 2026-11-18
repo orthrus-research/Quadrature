@@ -73,11 +73,13 @@ Quadrature's terrain must match or beat the vanilla near renderer as recorded in
 the same harness. Celeritas is measured as a comparison to report alongside, not as the
 condition for closing the phase.
 
-**D15. Quadrature is licensed NRR 1.0.**
-The same license as Riven: a public-domain dedication with an unconditional fallback
-license. Because everything in Quadrature is dedicated, everything in it must be the
-authors' own expression. That is the reason behind D2 and the rules in
-`docs/PROVENANCE.md`.
+**D15. Quadrature is licensed Apache-2.0.**
+Original Quadrature material is licensed under the Apache License 2.0, in place of NRR 1.0
+since 2026-11-18, so that NVIDIA's RTX runtimes can ship with Quadrature on NVIDIA's terms
+(D19). Its patent grant takes the place of NRR's, and its notice convention carries the
+terms of the separately licensed components `NOTICE.md` lists. Material offered under
+NRR 1.0, up to commit 65af717, keeps that grant. The original-implementation rule (D2)
+does not rest on the license: it keeps other renderers' code out whatever the terms.
 
 **D16. Cubature owns the cube source contract.**
 The contract for what Cubature supplies to a renderer lives in Cubature's repository and
@@ -114,3 +116,18 @@ the first into the second. Java namespace `cc.orthrus.quadrature`, mod ID `quadr
 Cubature's Celeritas, Demonica, vanilla chunk-render and Distant Horizons integrations
 remain supported until the Quadrature phase that replaces each one closes. They are then
 deleted, not moved.
+
+## 2026-11-18
+
+**D19. NVIDIA's RTX runtimes ship as a separately licensed part of Quadrature.**
+Where Quadrature uses one of NVIDIA's RTX SDKs (DLSS first), it reaches it only through a
+module of its own, `quadrature-nvidia`, under Orthrus Research's own terms rather than the
+Apache License: its bindings restate NVIDIA's interface, and NVIDIA's license (v. 2024-03-14)
+forbids its SDK becoming subject to an open-source license (§4.e). Orthrus Research is the
+licensee. The SDK never enters the repository: whoever builds the module supplies a pinned
+copy they have accepted themselves. The module and NVIDIA's object code ship only inside
+Quadrature's release, never on their own (§1.c, §4.b), with NVIDIA's terms beside them
+(§2.c) and the attribution NVIDIA requires (RTX Supplement §7.1(b)). Before the first release
+that contains it, NVIDIA is asked whether a free mod is a commercial release, how its
+splash-screen attribution applies to a mod, and whether an OpenGL frame handing images to
+a Vulkan evaluation is supported. Quadrature without the module runs unchanged.

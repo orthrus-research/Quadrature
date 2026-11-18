@@ -1,8 +1,9 @@
 # Provenance
 
-Where each technique in Quadrature came from, and on what terms. Quadrature is offered
-under NRR 1.0, a public-domain dedication, so everything in it must be something its
-authors can dedicate: their own expression of ideas, never copied code.
+Where each technique in Quadrature came from, and on what terms. Quadrature's code is
+its authors' own expression of ideas, never copied code (D2), licensed under the Apache
+License 2.0 (D15). Material under another party's terms is kept apart and listed in
+`NOTICE.md`; NVIDIA's runtimes are linked, never taken, and stay in their own module (D19).
 
 ## Rules
 
