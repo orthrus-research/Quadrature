@@ -1,7 +1,7 @@
 # Quadrature licensing
 
 Quadrature
-Copyright 2026 Orthrus Research
+Copyright 2026 Orthrus Research and Quadrature contributors
 
 Original Quadrature code, tools, configuration and documentation are licensed under the
 [Apache License, Version 2.0](LICENSE) (SPDX `Apache-2.0`), except material with a separate
