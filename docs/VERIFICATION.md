@@ -59,6 +59,26 @@ same view.
 | `tools/comparison/near.json` | Near terrain only, no Distant Horizons: 0.1% changed, mean 0.05 |
 | `tools/comparison/repeat.json` | With Distant Horizons, settled: 2% changed, mean 1.0 |
 
+## Stage times by view
+
+A client run with `-Dquadrature.frameLog=true` logs a stage report every five seconds: the
+median and 95th percentile of each stage's CPU and GPU time over the last 256 frames, about
+two seconds, and the terrain summary. A tour captures a view once the player has held still
+for the settle time, 400 ticks, so the last report before a capture is that view.
+
+```sh
+python tools/stage_views.py views LOG [--tour TOUR] [--stage NAME]
+python tools/stage_views.py summary LOG [LOG ...] [--stage NAME] [--json OUT]
+```
+
+`views` prints a row per captured view: the stage's times, the meshes still waiting, the
+cubes the main view saw and the vertices of the last frame. A view is settled when no mesh
+waits at its report. A view whose terrain is still arriving draws less and reads cheaper,
+so `summary` takes its statistics over the views settled in every log it is given, which
+makes runs of different settings comparable view for view. It also gives the median over
+all of a log's reports, the statistic stage reports were read by before 2026-11-18, which
+mixes settled views with the loading between them.
+
 ## Measured repeatability
 
 Measured 2026-11-13: the forest tour (`forests-2485331`, 17 views, 1280 by 720) captured
@@ -677,6 +697,49 @@ Own terrain with every switch off, the same instance: 17 of 17 against the game,
 at 0.021%. Stage medians at the last view: opaque terrain 0.375 ms on the CPU and 2.207 ms
 on the GPU; in sum 0.746 and 2.511 ms. 59,043 meshes built at 1.130 ms each. A measurement
 on the same machine began 13 seconds before the run's end.
+
+### Opaque terrain against the near radius
+
+Measured 2026-11-18 on an RTX 3060 12 GB, driver 610.88, at 1280 by 720, with one build.
+One instance at the lab's baseline had its horizontal radius raised to 16 and 20 for a run,
+its vertical radius held at 12; a second was prepared with the reduced profile near-8, 8
+each way. Two configurations were run at each radius: drawn forward (own terrain, reversed
+depth, face records), and with the targets for shading as well. The light's depth, the
+stage and every diagnostic were off.
+
+The forest tour does not settle past radius 12. At 20 none of its 17 views had its terrain
+meshed at the capture: 11,000 to 31,000 cubes were waiting. Meshing runs on the client
+thread within 4 ms a frame, so a place takes longer to fill than the tour's 20-second views.
+The runs used a tour of three of its places instead. Each place is held for five captures
+9 blocks apart before its far and near views, and the forest tour's last view ends the
+tour. Every measured view of every run was settled. Times are `stage_views.py summary` over
+the seven measured views: the median of the views' medians, and the worst view.
+
+| Horizontal radius | 8 | 12 | 16 | 20 |
+|---|---|---|---|---|
+| Vertical radius | 8 | 12 | 12 | 12 |
+| Cubes the main view sees, median | 623 | 1,401 | 2,666 | 4,267 |
+| Opaque terrain drawn forward, GPU, median and worst | 0.96 and 1.94 ms | 1.81 and 2.30 ms | 2.23 and 2.49 ms | 2.32 and 2.73 ms |
+| With the targets as well | 2.15 and 2.69 ms | 2.72 and 3.37 ms | 2.86 and 4.59 ms | 3.74 and 6.73 ms |
+| CPU, median, drawn forward | 0.13 ms | 0.19 ms | 0.27 ms | 0.45 ms |
+| Records and kept vertices in use | 64 and 15 MiB | 165 and 43 MiB | 307 and 85 MiB | 497 and 129 MiB |
+| A new place settles in | 8 to 9 s | 10 to 18 s | 30 to 43 s | 70 to 88 s |
+| Cubes waiting, most after arriving | 2,700 | 15,000 | 36,000 | 68,000 |
+
+- **The forward draw grows far more slowly than what it draws.** From radius 8 to 20 the
+  cubes seen grow 6.8 times and the GPU time 2.4 times; from 16 to 20, 1.6 times and 1.04
+  times. Most of the stage's time does not follow the cubes drawn. Distant cubes add
+  triangles that cover few pixels.
+- **The targets' second draw grows past radius 12:** on average over the views it adds
+  0.85, 0.74, 1.07 and 1.81 ms, and 4.0 ms at the last view at radius 20.
+- **Memory** is 0.33 to 0.37 MiB a column held at a vertical radius of 12, 626 MiB at
+  radius 20. The arenas' capacity was 704 MiB at 20, inside near terrain's 1.5 GiB.
+- **Filling a place limits the radius before drawing does.** While cubes are waiting the
+  client thread meshes or finds empty about 1,000 cubes a second at every radius, so the
+  time to settle grows with the volume held: 70 to 88 seconds at radius 20.
+- The terrain summary's vertices are only the kept vertices, about 8% of quads; records
+  are not counted. The line gives no figure for the geometry a frame draws.
+- Radius 8 ran on its own instance: its views compare with the others by place.
 
 ### Diagnostics
 

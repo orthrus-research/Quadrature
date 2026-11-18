@@ -102,6 +102,14 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   measures, chosen from Quadrature's own repeatability measurements.
 - Added: 2026-11-13
 
+### Stage times by view
+- Code: `tools/stage_views.py`
+- Source: original. Facts used: the client log's own stage report and the tour launcher's
+  capture line.
+- Taken: nothing. Taking the last report before each capture as that view, and counting a
+  view settled when no mesh waits, are this project's own.
+- Added: 2026-11-18
+
 ### Pass graph
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/frame/PassGraph.java`,
   `CompiledGraph.java`, `StageDefinition.java`, `StageKind.java`

@@ -94,6 +94,44 @@ Our own measurement: not made. It needs the repository scaffold and a terrain pr
 available so far is an RTX 3060 with 12 GB (Ampere); the floor is an 8 GB Turing card, so
 the decisive run needs that hardware or an enforced 8 GB budget.
 
+**5.7 What opaque terrain costs, and how it was reported. [V]**
+Read 2026-11-18 from the client logs of every recorded forest tour on the RTX 3060 (driver
+610.88), 2026-11-15 to 2026-11-18. Each log carries a stage report every five seconds, each
+the median over the last 256 frames (`StageStatistics.WINDOW`, about two seconds); a tour has
+about 74. Two figures had been set side by side as if they measured one thing: 1.43 ms, the
+median over a tour's reports, and 3.3 ms, the last report, which is a settled, dense view.
+They also differed in what was drawn.
+
+| Opaque terrain, GPU | Median of a tour's reports | Last view |
+|---|---|---|
+| The game's own terrain | 1.63 to 1.74 ms | 2.23 to 2.36 ms |
+| Own terrain, drawn forward | 1.43 ms | 2.15 ms |
+| Face records and reversed depth | 1.08 ms | 2.21 ms |
+| And the targets for shading | 2.23 ms | 3.37 ms |
+| And the light's depth redrawn whole, and the shading stage | 2.21 ms, the worst report 14.3 ms | 3.35 ms |
+| And the light's depth drawn by tiles | 2.06 ms, the worst report 3.36 ms | 3.36 ms |
+
+- Face records and reversed depth add nothing measurable at the last view.
+- The targets for shading add 0.8 ms at the tour's median and 1.2 ms at the last view: while
+  the player's picture is still drawn forward, every opaque layer is drawn twice, once for it
+  and once into the targets.
+- The light's depth draws in about a third of frames, so a median leaves it out; it shows in
+  the worst report.
+- With face records, 4,090 meshes take 193 MiB, against 584 MiB in the game's vertex format.
+*Implication:* a cost per radius has to name its statistic and its configuration. For a frame
+budget the settled view is the one that counts. Once shading draws the player's picture from
+the targets, the forward draw goes and the targets' pass is what remains, which no run has
+measured alone.
+
+Measured against the radius the same day at settled views
+([VERIFICATION.md](../VERIFICATION.md), opaque terrain against the near radius) [V]: drawn
+forward, 0.96, 1.81, 2.23 and 2.32 ms at horizontal radii 8, 12, 16 and 20, while the cubes
+seen grow 6.8 times; with the targets as well, 2.15 to 3.74 ms. Memory in use is 626 MiB at
+radius 20, under half of near terrain's 1.5 GiB. A new place takes 70 to 88 seconds to mesh
+at radius 20 on the client thread.
+*Implication:* on this card neither draw cost nor memory sets the radius. Meshing throughput
+does, until builds leave the client thread.
+
 ## Follow-ups
 
 1. Build the measurement in 5.6 once the scaffold exists.

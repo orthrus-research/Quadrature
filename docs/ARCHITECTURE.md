@@ -929,10 +929,17 @@ The values below are starting points for the groups that dominate cost, at 1440p
 Some work is a precondition of a tier rather than a setting in it. Every tier needs the
 light's depth redrawn spread over frames: one layer already peaks at 6.5 ms on the frames
 that draw it. HIGH also needs the near layer scrolled and spread over frames, which took the
-worst frame to 16 ms when it was redrawn whole. Two measurements of opaque terrain at the
-current box disagree: 1.43 ms on the GPU drawn in the game's look by indirect draws, and
-3.3 ms drawn from face records with the shading stage on. Until the difference is explained,
-the near radii above are provisional.
+worst frame to 16 ms when it was redrawn whole.
+
+Opaque terrain was measured against the horizontal radius at settled views, 1280 by 720 on
+an RTX 3060 ([VERIFICATION.md](VERIFICATION.md), opaque terrain against the near radius).
+Drawn forward it takes 0.96, 1.81, 2.23 and 2.32 ms on the GPU at radii 8, 12, 16 and 20,
+2.73 ms at the worst view. With the targets for shading drawn beside the forward picture it
+takes 2.15 to 3.74 ms, 6.73 ms at the worst view at radius 20. Memory in use is 626 MiB at
+radius 20, inside the arenas' 1.5 GiB. Neither sets the horizontal radii above. What limits
+HIGH and MAX now is filling a new place: until builds run on Cubature's executor, a place
+settles in 10 to 18 seconds at radius 12, 30 to 43 at 16 and 70 to 88 at 20. The vertical
+radii are not measured; the runs held 12, or 8 at radius 8.
 
 ## 13. What is decided, and what is not
 
