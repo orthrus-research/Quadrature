@@ -77,31 +77,6 @@ class ViewTest {
     }
 
     @Test
-    void aViewAlongTheLightHoldsWhatTheMainViewSees() {
-        View main = lookingNorth(View.Depth.CONVENTIONAL);
-        for (double[] light : new double[][] {{0, 1, 0}, {-0.6, 0.8, 0}, {0.9, 0.1, 0.3}, {0, 0.3, -1}}) {
-            View along = View.alongLight(new View(), main, light[0], light[1], light[2]);
-            assertEquals(View.Purpose.DEPTH_ONLY, along.purpose());
-            assertFalse(along.occlusion());
-            // The camera and the corners of the main view at its reach of 192 blocks.
-            assertTrue(along.boxVisible(1000, 63, -3001, 1001, 65, -3000));
-            for (int corner = 0; corner < 4; corner++) {
-                double x = 1000.5 + ((corner & 1) == 0 ? -192 : 192);
-                double y = 64 + ((corner & 2) == 0 ? -192 : 192);
-                assertTrue(along.boxVisible(x - 0.5, y - 0.5, -3193, x + 0.5, y + 0.5, -3192));
-            }
-            // Something between the light and the middle of the volume casts into it.
-            double scale = 150 / Math.sqrt(light[0] * light[0] + light[1] * light[1] + light[2] * light[2]);
-            double x = 1000.5 + light[0] * scale;
-            double y = 64 + light[1] * scale;
-            double z = -3096 + light[2] * scale;
-            assertTrue(along.boxVisible(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1));
-            // Something far behind the camera is outside it.
-            assertFalse(along.boxVisible(1000, 60, -1000, 1001, 61, -999));
-        }
-    }
-
-    @Test
     void sameVolumeTellsAnUnchangedViewFromAMovedOne() {
         View a = lookingNorth(View.Depth.CONVENTIONAL);
         View b = new View().copy(a);
@@ -112,35 +87,38 @@ class ViewTest {
     }
 
     @Test
-    void aFixedLightBoxKeepsItsSizeAndMovesByWholeTexels() {
+    void aViewThroughALightBoxIsAsWideAsTheBoxAndPutsAPlaceOnTheSameTexelFromAnyOrigin() {
         double side = 544;
         int texels = 4096;
-        double texel = side / texels;
         double[] light = {-0.6, 0.8, 0};
         View main = lookingNorth(View.Depth.CONVENTIONAL);
-        View a = View.alongLight(new View(), main, light[0], light[1], light[2], side, texels);
+        LightBox box = LightBox.around(light[0], light[1], light[2], main.originX(), main.originY(), main.originZ(), side,
+            side, texels);
+        View a = View.throughLight(new View(), main, box);
         // The box is as wide as asked whatever the main view sees.
         assertEquals(2 / side, a.projection()[0], 1e-9);
         assertEquals(2 / side, a.projection()[5], 1e-9);
+        assertEquals(View.Purpose.DEPTH_ONLY, a.purpose());
+        assertFalse(a.occlusion());
         // The player's own position is inside it, and a point more than half the side away is not.
         assertTrue(a.boxVisible(999.5, 63, -3001.5, 1001.5, 65, -2999.5));
         assertFalse(a.boxVisible(1000, 64, -2600, 1001, 65, -2599));
+        // It has no reach of its own: a cube beyond the main view's 12 cubes is within it, and the box alone bounds it.
+        assertFalse(main.cubeWithinReach(62 + 13, 4, -188));
+        assertTrue(a.cubeWithinReach(62 + 13, 4, -188));
+        assertTrue(a.cubeWithinReach(-2_000_000, 20_000, 2_000_000));
 
-        // A world point lands on the same place in the map, to within rounding, when the player has
-        // moved by less than the box: the box moved by whole texels.
+        // The same box seen from another origin: a world point lands on the same place in the map.
         View moved = new View().set(View.Purpose.MAIN, View.Depth.CONVENTIONAL, 1003.87, 64.2, -3002.41, 1003.87,
             65.8, -3002.41, identity(), perspective(0.05f, 512f), 12, 12, true);
-        View b = View.alongLight(new View(), moved, light[0], light[1], light[2], side, texels);
+        View b = View.throughLight(new View(), moved, box);
         double[] world = {1010.25, 70.5, -3020.75};
         double[] inA = clip(a, world[0] - 1000.5, world[1] - 64, world[2] + 3000.5);
         double[] inB = clip(b, world[0] - 1003.87, world[1] - 64.2, world[2] + 3002.41);
-        for (int axis = 0; axis < 2; axis++) {
-            double texelsApart = (inA[axis] - inB[axis]) * texels / 2;
-            assertEquals(Math.rint(texelsApart), texelsApart, 1e-3);
+        for (int axis = 0; axis < 3; axis++) {
+            assertEquals(inA[axis], inB[axis], 2.0 / texels / 64);
         }
-        assertEquals(texel, side / texels);
     }
-
     private static double[] clip(View view, double x, double y, double z) {
         float[] m = view.modelView();
         float[] p = view.projection();

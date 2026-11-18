@@ -1,15 +1,16 @@
 package cc.orthrus.quadrature.core.view;
 
 /**
- * The layers of the light's depth and the box each is drawn through. Every layer is 4,096 texels a
- * side, in an array texture of 24-bit depth kept in 4 bytes a texel, 64 MiB a layer.
+ * The layers of the light's depth and the boxes each is drawn through. Every layer is 4,096 texels a
+ * side, in an array texture of 24-bit depth kept in 4 bytes a texel, 64 MiB a layer; a scratch texture
+ * of as many layers is where a new box is drawn before it replaces a published one
+ * ({@link LightLayerPlan}).
  *
- * <p>With the near layer on there are two: layer 0, a box 192 blocks across centered on the player,
- * 0.047 of a block a texel, and as deep along the light as the wide box, so that what stands far
- * toward a low light casts into it; and layer 1, the box that holds every cube the client has. With it
- * off there is one, that wide box, as layer 0. Each box is moved to a whole texel of its own along the
- * light's axes, measured from the world's origin, by {@link View#alongLight(View, View, double, double,
- * double, double, double, int)}.
+ * <p>With the near layer on there are two: layer 0, a box 192 blocks across, 0.047 of a block a
+ * texel, and as deep along the light as the wide box, so that what stands far toward a low light casts
+ * into it; and layer 1, the box that holds every cube the client has. With it off there is one, that
+ * wide box, as layer 0. Each box is fixed in the world at a whole texel of its own
+ * ({@link LightBox}).
  */
 public final class ShadowLayers {
 
@@ -46,9 +47,14 @@ public final class ShadowLayers {
         return near ? 1 : 0;
     }
 
-    /** The memory the texture takes. */
+    /** The memory the published texture takes. */
     public long bytes() {
         return (long) TEXELS * TEXELS * BYTES_A_TEXEL * count();
+    }
+
+    /** The memory the published texture and its scratch take together. */
+    public long bytesWithScratch() {
+        return 2 * bytes();
     }
 
     /** The memory one layer takes. */
@@ -62,37 +68,13 @@ public final class ShadowLayers {
     }
 
     /**
-     * Fills {@code out} as the near box along the light, centered on {@code main}'s origin and moved to
-     * a whole texel of its own: {@link #NEAR_SIDE} across, and as deep along the light as the wide box,
-     * so that what stands far toward a low light, outside the near box's square, still casts into it.
+     * The wide box's side: the diagonal of the square of cubes the client holds about the player, the
+     * most any axis across the light can span, whatever the hour.
      *
-     * @param depth the box's extent along the light, in blocks: the wide box's side
-     * @return the box's side across, in blocks
+     * @param across the view's reach across, in cubes
+     * @param upward the view's reach upward, in cubes
      */
-    public static double nearBox(View out, View main, double towardLightX, double towardLightY, double towardLightZ,
-        double depth) {
-        View.alongLight(out, main, towardLightX, towardLightY, towardLightZ, NEAR_SIDE, depth, TEXELS);
-        return NEAR_SIDE;
-    }
-
-    /**
-     * Whether a place has moved into another texel of a box since another place, along the axes of
-     * the view the box was drawn through: the rule by which a layer is drawn again when the player
-     * moves.
-     *
-     * @param modelView the view's model-view matrix, column-major; its first three rows are the
-     *                  light's axes
-     * @param texel     blocks a texel of the layer covers
-     */
-    public static boolean newTexel(float[] modelView, double texel, double fromX, double fromY, double fromZ,
-        double toX, double toY, double toZ) {
-        for (int axis = 0; axis < 3; axis++) {
-            double now = modelView[axis] * toX + modelView[4 + axis] * toY + modelView[8 + axis] * toZ;
-            double before = modelView[axis] * fromX + modelView[4 + axis] * fromY + modelView[8 + axis] * fromZ;
-            if (Math.rint(now / texel) != Math.rint(before / texel)) {
-                return true;
-            }
-        }
-        return false;
+    public static double wideSide(int across, int upward) {
+        return Math.ceil(2 * Math.sqrt(2) * Math.max(across, upward) * 16);
     }
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import cc.orthrus.quadrature.core.view.LightBox;
 import cc.orthrus.quadrature.core.view.ShadowLayers;
 import cc.orthrus.quadrature.core.view.ShadowMaps;
 import cc.orthrus.quadrature.core.view.View;
@@ -38,12 +39,12 @@ class FrameBlockLightTest {
             ShadowLayers layers = new ShadowLayers(true);
             ShadowMaps maps = new ShadowMaps(layers.count(), ShadowLayers.TEXELS, layers.bytes());
             maps.beginFrame(originX, originY, originZ, light[0], light[1], light[2]);
-            View near = new View();
-            View wide = new View();
-            ShadowLayers.nearBox(near, player, light[0], light[1], light[2], 544);
-            View.alongLight(wide, player, light[0], light[1], light[2], 544, ShadowLayers.TEXELS);
-            maps.layer(0, near, 192, 544, true);
-            maps.layer(1, wide, 544, true);
+            LightBox near = LightBox.around(light[0], light[1], light[2], originX, originY, originZ, ShadowLayers.NEAR_SIDE,
+                544, ShadowLayers.TEXELS);
+            LightBox wide = LightBox.around(light[0], light[1], light[2], originX, originY, originZ, 544, 544,
+                ShadowLayers.TEXELS);
+            maps.layer(0, View.throughLight(new View(), player, near), near, true, true);
+            maps.layer(1, View.throughLight(new View(), player, wide), wide, true, true);
             for (int layer = 0; layer < 2; layer++) {
                 double[] fromEye = FrameBlock.lightViewFromEye(maps.viewProjection(layer), eyeX - originX, eyeY - originY,
                     eyeZ - originZ);

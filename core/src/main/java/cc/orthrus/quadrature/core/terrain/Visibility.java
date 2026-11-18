@@ -28,7 +28,7 @@ import java.util.Arrays;
  *
  * <p>One instance serves one view and allocates only when the view's reach grows.
  */
-public final class Visibility implements CubeVisitor {
+public final class Visibility implements CubeVisitor, CubeList {
 
     /** The table of cubes a search reads. */
     public interface Cubes {
@@ -198,11 +198,13 @@ public final class Visibility implements CubeVisitor {
     }
 
     /** How many cubes the last search or sweep found. */
+    @Override
     public int count() {
         return count;
     }
 
     /** One of them, as a {@link CubeKey}. */
+    @Override
     public long key(int index) {
         return keys[index];
     }

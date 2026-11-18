@@ -44,6 +44,29 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: the extension names and query tokens as published.
 - Added: 2026-11-13
 
+### The light's depth drawn by tiles and spread over frames
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/view/LightBox.java`, `LightTiles.java`,
+  `LightLayerPlan.java`, `ShadowMaps.java`, `View.throughLight`;
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/CubeList.java`;
+  `src/main/java/cc/orthrus/quadrature/terrain/LightLayer.java`, `ShadowTarget.java`, and
+  `Terrain.lightFrame`, `drawLight`, `drawTiles`, `checkLayer`
+- Source: original in its rules. Ideas used: keeping a shadow map between frames and drawing
+  again only what has changed, from Insomniac's "CSM Scrolling: An acceleration technique for
+  the rendering of cascaded shadow maps" (Mike Acton, SIGGRAPH 2012, Advances in Real-Time
+  Rendering); refreshing the costliest part of a shadow map over several frames, from
+  "Shadows Optimizations in Cyberpunk 2077" (Kamil Dybisz and Paweł Witanowski, SIGGRAPH 2021
+  talks). OpenGL 4.6 specification: scissored framebuffer clears, `glCopyImageSubData` between
+  textures of one depth format.
+- Taken: that a kept map need be drawn again only where it changed, and that a full redraw
+  can be spread over frames.
+- Not taken: Insomniac's scrolling of a map by copying it across itself as the camera moves;
+  here a box stays put while the player is near its center and is replaced, drawn into a
+  scratch over several frames, only once they are not. The tiles, the rule that a cube
+  covering a tile is drawn whole, the budget counted in cubes, the boxes fixed in the world
+  and made into a view for each frame's origin, and the check against a box drawn whole are
+  this project's own.
+- Added: 2026-11-18
+
 ### GPU memory sources and the capability dump
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/platform/GpuMemory.java`,
   `GpuMemorySource.java`, `CapabilityReport.java`;
@@ -202,8 +225,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 
 ### The light's depth
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/ShadowTarget.java`, the depth program
-  in `TerrainProgram.java`, `core/src/main/java/cc/orthrus/quadrature/core/view/View.java`
-  (`alongLight` with a side and texels) and `ShadowMaps.java`
+  in `TerrainProgram.java`, `core/src/main/java/cc/orthrus/quadrature/core/view/LightBox.java`
+  and `ShadowMaps.java`
 - Source: Williams, "Casting Curved Shadows on Curved Surfaces", SIGGRAPH 1978, for depth
   drawn from the light; Valient, "Stable Rendering of Cascaded Shadow Maps", ShaderX6,
   2008, for a box of fixed size moved by whole texels; the OpenGL 4.6 compatibility

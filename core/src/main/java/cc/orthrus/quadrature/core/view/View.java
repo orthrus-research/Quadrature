@@ -73,90 +73,42 @@ public final class View {
     }
 
     /**
-     * Fills {@code out} as a view along a light's direction that holds everything {@code main} sees out
-     * to its horizontal reach: an orthographic box around the main view's volume, extended toward the
-     * light by that reach again so that what stands between the light and the volume is inside it.
-     *
-     * @param towardLightX a vector from the scene toward the light; it need not be of unit length
+     * Fills {@code out} as the view through a light's box for {@code main}'s origin: the box's axes as
+     * the model-view, with no translation, and an orthographic projection whose center is the box's
+     * center taken from that origin. Positions are relative to the origin, as in every view; clip depth
+     * runs from -1 nearest the light to 1 farthest. It has no reach of its own ({@link #UNBOUNDED}):
+     * what it holds is bounded by the box alone, so that what a layer drawn through it holds depends on
+     * the meshes held and not on which cube the player stood in when each part was drawn.
      */
-    public static View alongLight(View out, View main, double towardLightX, double towardLightY,
-        double towardLightZ) {
-        double length = Math.sqrt(towardLightX * towardLightX + towardLightY * towardLightY
-            + towardLightZ * towardLightZ);
-        double lx = towardLightX / length;
-        double ly = towardLightY / length;
-        double lz = towardLightZ / length;
-        // A basis with its third axis toward the light.
-        double ux = Math.abs(ly) < 0.99 ? 0 : 1;
-        double uy = Math.abs(ly) < 0.99 ? 1 : 0;
-        double ax = uy * lz;
-        double ay = -ux * lz;
-        double az = ux * ly - uy * lx;
-        double an = Math.sqrt(ax * ax + ay * ay + az * az);
-        ax /= an;
-        ay /= an;
-        az /= an;
-        double bx = ly * az - lz * ay;
-        double by = lz * ax - lx * az;
-        double bz = lx * ay - ly * ax;
-
-        // The main view's camera, its axes, and the corners of what it sees at its reach.
-        float[] m = main.modelView;
-        double cx = -(m[0] * m[12] + m[1] * m[13] + m[2] * m[14]);
-        double cy = -(m[4] * m[12] + m[5] * m[13] + m[6] * m[14]);
-        double cz = -(m[8] * m[12] + m[9] * m[13] + m[10] * m[14]);
-        double reach = main.across * 16.0;
-        double tanX = 1.0 / Math.abs(main.projection[0]);
-        double tanY = 1.0 / Math.abs(main.projection[5]);
-        double minA = ax * cx + ay * cy + az * cz;
-        double maxA = minA;
-        double minB = bx * cx + by * cy + bz * cz;
-        double maxB = minB;
-        double minL = lx * cx + ly * cy + lz * cz;
-        double maxL = minL;
-        for (int corner = 0; corner < 4; corner++) {
-            double sx = (corner & 1) == 0 ? -tanX : tanX;
-            double sy = (corner & 2) == 0 ? -tanY : tanY;
-            // Right, up and backward are the rows of the model-view's rotation.
-            double px = cx + reach * (sx * m[0] + sy * m[1] - m[2]);
-            double py = cy + reach * (sx * m[4] + sy * m[5] - m[6]);
-            double pz = cz + reach * (sx * m[8] + sy * m[9] - m[10]);
-            double a = ax * px + ay * py + az * pz;
-            double b = bx * px + by * py + bz * pz;
-            double l = lx * px + ly * py + lz * pz;
-            minA = Math.min(minA, a);
-            maxA = Math.max(maxA, a);
-            minB = Math.min(minB, b);
-            maxB = Math.max(maxB, b);
-            minL = Math.min(minL, l);
-            maxL = Math.max(maxL, l);
-        }
-        maxL += reach;
-
+    public static View throughLight(View out, View main, LightBox box) {
         float[] view = out.modelView;
         java.util.Arrays.fill(view, 0);
-        view[0] = (float) ax;
-        view[4] = (float) ay;
-        view[8] = (float) az;
-        view[1] = (float) bx;
-        view[5] = (float) by;
-        view[9] = (float) bz;
-        view[2] = (float) lx;
-        view[6] = (float) ly;
-        view[10] = (float) lz;
+        view[0] = (float) box.ax;
+        view[4] = (float) box.ay;
+        view[8] = (float) box.az;
+        view[1] = (float) box.bx;
+        view[5] = (float) box.by;
+        view[9] = (float) box.bz;
+        view[2] = (float) box.lx;
+        view[6] = (float) box.ly;
+        view[10] = (float) box.lz;
         view[15] = 1;
+        // The box's center from the origin, worked out in double precision before it is rounded.
+        double centerA = box.centerA - (box.ax * main.originX + box.ay * main.originY + box.az * main.originZ);
+        double centerB = box.centerB - (box.bx * main.originX + box.by * main.originY + box.bz * main.originZ);
+        double centerL = box.centerL - (box.lx * main.originX + box.ly * main.originY + box.lz * main.originZ);
+        double half = box.side / 2;
+        double deep = box.depth / 2;
+        float[] projection = out.projection;
+        java.util.Arrays.fill(projection, 0);
+        projection[0] = (float) (1 / half);
+        projection[5] = (float) (1 / half);
         // Eye space looks down its negative third axis: the nearest point is the one most toward the light.
-        double near = -maxL;
-        double far = -minL;
-        float[] box = out.projection;
-        java.util.Arrays.fill(box, 0);
-        box[0] = (float) (2 / (maxA - minA));
-        box[5] = (float) (2 / (maxB - minB));
-        box[10] = (float) (-2 / (far - near));
-        box[12] = (float) (-(maxA + minA) / (maxA - minA));
-        box[13] = (float) (-(maxB + minB) / (maxB - minB));
-        box[14] = (float) (-(far + near) / (far - near));
-        box[15] = 1;
+        projection[10] = (float) (-1 / deep);
+        projection[12] = (float) (-centerA / half);
+        projection[13] = (float) (-centerB / half);
+        projection[14] = (float) (centerL / deep);
+        projection[15] = 1;
         out.purpose = Purpose.DEPTH_ONLY;
         out.depth = Depth.CONVENTIONAL;
         out.originX = main.originX;
@@ -165,103 +117,15 @@ public final class View {
         out.eyeX = main.originX;
         out.eyeY = main.originY;
         out.eyeZ = main.originZ;
-        out.across = main.across;
-        out.upward = main.upward;
+        out.across = UNBOUNDED;
+        out.upward = UNBOUNDED;
         out.occlusion = false;
         out.derivePlanes();
         return out;
     }
 
-    /**
-     * Fills {@code out} as a view along a light's direction whose volume is a cube of a fixed side
-     * centered on {@code main}'s origin: a plain orthographic box, the same size whichever way the
-     * main view faces. The box is moved to the nearest whole texel of a map {@code texels} across, in
-     * the light's own axes measured from the world's origin, so that a map drawn through it does not
-     * shift by part of a texel as the main view moves.
-     *
-     * @param towardLightX a vector from the scene toward the light; it need not be of unit length
-     * @param side         the side of the box, in blocks
-     * @param texels       how many texels the map it is drawn into has along a side
-     */
-    public static View alongLight(View out, View main, double towardLightX, double towardLightY,
-        double towardLightZ, double side, int texels) {
-        return alongLight(out, main, towardLightX, towardLightY, towardLightZ, side, side, texels);
-    }
-
-    /**
-     * As {@link #alongLight(View, View, double, double, double, double, int)}, with a depth along the
-     * light of its own: the box is {@code side} across and {@code depth} deep, centered on the same
-     * place, so that a narrow box can still hold what stands far toward the light.
-     *
-     * @param depth the box's extent along the light, in blocks
-     */
-    public static View alongLight(View out, View main, double towardLightX, double towardLightY,
-        double towardLightZ, double side, double depth, int texels) {
-        double length = Math.sqrt(towardLightX * towardLightX + towardLightY * towardLightY
-            + towardLightZ * towardLightZ);
-        double lx = towardLightX / length;
-        double ly = towardLightY / length;
-        double lz = towardLightZ / length;
-        double ux = Math.abs(ly) < 0.99 ? 0 : 1;
-        double uy = Math.abs(ly) < 0.99 ? 1 : 0;
-        double ax = uy * lz;
-        double ay = -ux * lz;
-        double az = ux * ly - uy * lx;
-        double an = Math.sqrt(ax * ax + ay * ay + az * az);
-        ax /= an;
-        ay /= an;
-        az /= an;
-        double bx = ly * az - lz * ay;
-        double by = lz * ax - lx * az;
-        double bz = lx * ay - ly * ax;
-
-        // Where the origin lies along each of the light's axes, and how far the nearest texel is.
-        double texel = side / texels;
-        double a = ax * main.originX + ay * main.originY + az * main.originZ;
-        double b = bx * main.originX + by * main.originY + bz * main.originZ;
-        double l = lx * main.originX + ly * main.originY + lz * main.originZ;
-        double centerA = Math.rint(a / texel) * texel - a;
-        double centerB = Math.rint(b / texel) * texel - b;
-        double centerL = Math.rint(l / texel) * texel - l;
-        double half = side / 2;
-
-        float[] view = out.modelView;
-        java.util.Arrays.fill(view, 0);
-        view[0] = (float) ax;
-        view[4] = (float) ay;
-        view[8] = (float) az;
-        view[1] = (float) bx;
-        view[5] = (float) by;
-        view[9] = (float) bz;
-        view[2] = (float) lx;
-        view[6] = (float) ly;
-        view[10] = (float) lz;
-        view[15] = 1;
-        float[] box = out.projection;
-        java.util.Arrays.fill(box, 0);
-        box[0] = (float) (1 / half);
-        box[5] = (float) (1 / half);
-        // Eye space looks down its negative third axis: the nearest point is the one most toward the light.
-        double deep = depth / 2;
-        box[10] = (float) (-1 / deep);
-        box[12] = (float) (-centerA / half);
-        box[13] = (float) (-centerB / half);
-        box[14] = (float) (centerL / deep);
-        box[15] = 1;
-        out.purpose = Purpose.DEPTH_ONLY;
-        out.depth = Depth.CONVENTIONAL;
-        out.originX = main.originX;
-        out.originY = main.originY;
-        out.originZ = main.originZ;
-        out.eyeX = main.originX;
-        out.eyeY = main.originY;
-        out.eyeZ = main.originZ;
-        out.across = main.across;
-        out.upward = main.upward;
-        out.occlusion = false;
-        out.derivePlanes();
-        return out;
-    }
+    /** A reach in cubes that holds every cube a world can have: the view's volume alone bounds it. */
+    public static final int UNBOUNDED = Integer.MAX_VALUE / 4;
 
     /** The planes of the clip volume, from the rows of projection times model-view. */
     private void derivePlanes() {
