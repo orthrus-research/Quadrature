@@ -1093,8 +1093,11 @@ figures are fitted over 128 runs on three fresh instances, at the forest tour's 
 radius 12 and at seven of them at 16 and 20: bandwidth 348 and 350 GB/s; opaque terrain 0.062 +
 0.263 ms a million primitives at 1280 by 720, 0.097 + 0.289 at 1920 by 1080, 0.135 + 0.330 at
 2560 by 1440 and 0.187 + 0.867 at 3840 by 2160; the light's box -0.249 ms + 0.126 ms a million
-primitives + 0.053 ms a million fragments; the trace 376 million rays a second for MEDIUM's
-probes. A tier's cost on the reference card, in ms at 2560 by 1440 output, against a budget of 7
+primitives + 0.053 ms a million fragments; the trace 305 million rays a second for MEDIUM's
+probes. The trace's figure is 376 million over the 128 runs, measured on the walk that read the
+bricks' coarser bits, scaled to the walk as shipped by the trace's own times of the probe's
+batch, MEDIUM's at 64 blocks: 0.180 ms with those bits against 0.222 without, 0.81. The
+benchmark is at version 2 for it, so a result stored before is measured again. A tier's cost on the reference card, in ms at 2560 by 1440 output, against a budget of 7
 ms (85% of a frame at 120 frames a second), and the speed against this card a machine needs:
 
 | Group, and where its figure comes from | LOW | MEDIUM | HIGH | MAX |

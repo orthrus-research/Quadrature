@@ -43,9 +43,10 @@ final class TierCalibrationTableTest {
      * This card's own result, measured on the GPU (VERIFICATION, the tier benchmark: run 25 of the r16 tour, 2026-11-19,
      * the calibrated jar), at each output: the tiers the calibration in force chooses for it. At 1280 by 720, the
      * window it ran in, it chose HIGH, and the table it ran with chose HIGH at 1920 by 1080 and 2560 by 1440 and MEDIUM
-     * at 3840 by 2160. At 3840 by 2160 it stands on the boundary between LOW and MEDIUM once the scaler's cost is priced:
-     * MEDIUM's fit is 1.03 with the stage's gaps between passes held fixed, as measured, and would be 0.98 were they to
-     * follow the output's pixels; a measurement of the scaler at that output settles it.
+     * at 3840 by 2160. At 3840 by 2160 it stands near the boundary between LOW and MEDIUM: MEDIUM's fit is 1.07 with the
+     * scaler's gaps between passes held fixed, as measured, and would be 1.01 were they to follow the output's pixels; a
+     * measurement of the scaler at that output settles it. The run's trace was timed on the walk that read the bricks'
+     * coarser bits, and is scaled to the walk as shipped by the same factor as the reference, so its ratio stands.
      */
     @Test
     void thisCardsMeasuredResultTakesTheTiersItTookOnTheGpu() {
@@ -59,7 +60,7 @@ final class TierCalibrationTableTest {
                 terrain.add(new BenchmarkResult.TerrainPoint(sizes[i][0], sizes[i][1], millis[i], 0, fragments[i], 4_796_322));
             }
             BenchmarkResult result = new BenchmarkResult(TierBenchmark.VERSION, sizes[o][0], sizes[o][1], 347.671, 349.759, 0, 0,
-                terrain, null, 4.72576, 0, 19_338_946, 47_308_444, java.util.List.of(), 0.30918);
+                terrain, null, 4.72576, 0, 19_338_946, 47_308_444, java.util.List.of(), 0.30918 * 0.180 / 0.222);
             TierSelection.Outcome outcome = TierSelection.choose(result, TierCalibration.CURRENT, 8_637, null, null);
             assertEquals(expected[o], outcome.speed(), sizes[o][0] + " by " + sizes[o][1]);
             assertEquals(Tier.MAX, outcome.memory(), sizes[o][0] + " by " + sizes[o][1]);

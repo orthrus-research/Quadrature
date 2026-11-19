@@ -1069,7 +1069,11 @@ between them held fixed. The unit test of this card's measured run gives the tie
 before: HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440, with fits of 2.29, 1.82 and 1.37,
 and MEDIUM at 3840 by 2160 with 1.07 (the table before, 1.03); memory MAX at all four. On the
 reference card MEDIUM takes 6.62 ms of the 7 at 3840 by 2160, or 6.97 ms were the gaps to
-follow the pixels too, and this run MEDIUM either way. No run was made on the GPU for it.
+follow the pixels too, and this run MEDIUM either way. The trace probe walks the same way, so
+its reference rate, measured on the walk that read the coarser bits, is scaled by the probe's
+batch's own times on the two walks, 0.180 against 0.222 ms, to 305 million rays a second, and
+the run's trace in the test by the same factor (ARCHITECTURE 12.1.1); the benchmark's version is
+2. No run was made on the GPU for it.
 
 **A driver update, left to be run.** Every run so far is on driver 610.88. A driver is the
 user's to install, so the repeat across one is a step left:

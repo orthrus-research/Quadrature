@@ -49,6 +49,14 @@ final class TierCalibrationTable {
     /** MAX's far shadows: 2,097,152 rays toward a low sun at 256 blocks, 2.59 ms a million; an upper bound. */
     private static final double FAR_SHADOWS_MS = 2.59 * 2.097152;
 
+    /**
+     * The trace probe's rate on the reference card, in billions of rays a second: 0.376 over the 128 runs, measured on
+     * the walk that read the bricks' coarser bits, scaled to the walk as shipped by the trace's own times of the probe's
+     * batch, MEDIUM's at 64 blocks: 0.180 ms with those bits against 0.222 without (VERIFICATION, rays through the
+     * scene).
+     */
+    private static final double TRACE_GIGA_RAYS = 0.376 * 0.180 / 0.222;
+
     private TierCalibrationTable() {
     }
 
@@ -58,7 +66,7 @@ final class TierCalibrationTable {
             new TerrainLine(2.0736, 0.0969, 0.2886),
             new TerrainLine(3.6864, 0.1353, 0.3301),
             new TerrainLine(8.2944, 0.1868, 0.8668)),
-            -0.2486, 0.1257, 0.0528, 0.376);
+            -0.2486, 0.1257, 0.0528, TRACE_GIGA_RAYS);
         List<List<Cost>> costs = List.of(tier(Tier.LOW), tier(Tier.MEDIUM), tier(Tier.HIGH), tier(Tier.MAX));
         // Near terrain's arenas at the tier's radius, distant terrain's reach, the light's layers with their
         // scratch, the light scene's lookup and bricks (and for MAX its states within radius 12, sized); the
