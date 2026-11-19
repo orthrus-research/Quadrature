@@ -43,14 +43,16 @@ final class TierCalibrationTableTest {
      * This card's own result, measured on the GPU (VERIFICATION, the tier benchmark: run 25 of the r16 tour, 2026-11-19,
      * the calibrated jar), at each output: the tiers the calibration in force chooses for it. At 1280 by 720, the
      * window it ran in, it chose HIGH, and the table it ran with chose HIGH at 1920 by 1080 and 2560 by 1440 and MEDIUM
-     * at 3840 by 2160; at 3840 by 2160 the scaler's cost, priced since, takes MEDIUM past the budget.
+     * at 3840 by 2160. At 3840 by 2160 it stands on the boundary between LOW and MEDIUM once the scaler's cost is priced:
+     * MEDIUM's fit is 1.03 with the stage's gaps between passes held fixed, as measured, and would be 0.98 were they to
+     * follow the output's pixels; a measurement of the scaler at that output settles it.
      */
     @Test
     void thisCardsMeasuredResultTakesTheTiersItTookOnTheGpu() {
         int[][] sizes = {{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
         double[] millis = {1.3117, 1.4817, 1.7203, 3.2143};
         double[] fragments = {2_042_959, 4_440_170, 7_796_303, 17_329_617};
-        Tier[] expected = {Tier.HIGH, Tier.HIGH, Tier.HIGH, Tier.LOW};
+        Tier[] expected = {Tier.HIGH, Tier.HIGH, Tier.HIGH, Tier.MEDIUM};
         for (int o = 0; o < sizes.length; o++) {
             java.util.List<BenchmarkResult.TerrainPoint> terrain = new java.util.ArrayList<>();
             for (int i = 0; i < sizes.length; i++) {

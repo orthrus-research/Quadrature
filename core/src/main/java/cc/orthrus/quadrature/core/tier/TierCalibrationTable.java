@@ -71,10 +71,13 @@ final class TierCalibrationTable {
     }
 
     /**
-     * Own temporal anti-aliasing and the scaler (scaler, F2 at 0.67 of 2560 by 1440): the whole stage below the output
-     * resolution, 1.386 ms there; at the output resolution its temporal pass, motion and depth copies, 0.41 ms.
+     * Own temporal anti-aliasing and the scaler at 2560 by 1440 output (the scaler's F2 and F3, its edge kernel): the
+     * whole stage at LOW's 0.67, 1.386 ms, and at MEDIUM's 0.77, 1.26 ms, of which 0.28 ms lies between its passes,
+     * barriers and program changes, held fixed, and the passes follow the output's megapixels; at the output
+     * resolution its temporal pass, motion and depth copies, 0.41 ms.
      */
-    private static final double SCALER_MS_A_MEGAPIXEL = 1.386 / 3.6864;
+    private static final double SCALER_GAPS_MS = 0.28;
+    private static final double[] SCALER_MS_A_MEGAPIXEL = {(1.386 - SCALER_GAPS_MS) / 3.6864, (1.26 - SCALER_GAPS_MS) / 3.6864};
     private static final double TEMPORAL_MS_A_MEGAPIXEL = 0.41 / 3.6864;
 
     private static List<Cost> tier(Tier tier) {
@@ -87,7 +90,8 @@ final class TierCalibrationTable {
             new Cost("shading", Probe.BANDWIDTH, 0, 0.19, 0),
             new Cost("the game's other drawing", Probe.BANDWIDTH, 0, 0.33, 0),
             TierBenchmark.renderScale(tier) < 1
-                ? new Cost("own temporal anti-aliasing and the scaler", Probe.BANDWIDTH, 0, 0, SCALER_MS_A_MEGAPIXEL)
+                ? new Cost("own temporal anti-aliasing and the scaler", Probe.BANDWIDTH, SCALER_GAPS_MS, 0, 0,
+                    SCALER_MS_A_MEGAPIXEL[t])
                 : new Cost("own temporal anti-aliasing", Probe.BANDWIDTH, 0, 0, TEMPORAL_MS_A_MEGAPIXEL)));
         if (INDIRECT_MS[t] > 0) {
             costs.add(new Cost("indirect light's rays", Probe.TRACE, INDIRECT_MS[t], 0, 0));
