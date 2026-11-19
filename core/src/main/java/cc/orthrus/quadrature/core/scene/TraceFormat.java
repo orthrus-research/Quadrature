@@ -68,7 +68,7 @@ public final class TraceFormat {
         return word & 15;
     }
 
-    /** Nodes visited: cells, empty blocks of two cells a side, and cubes passed whole. */
+    /** Nodes visited: cells, and cubes passed whole. */
     public static int visits(int word) {
         return word >>> 4;
     }

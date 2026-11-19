@@ -406,10 +406,12 @@ the occupancy bricks of 5.1, the operation indirect light and far shadows both r
   and writes the results into another between two GPU timestamps, read in a later frame
   without waiting, and puts back every binding it changes. It also keeps a bit for each
   state that blocks light, 8 KiB, sent again when a state is first met.
-- **Three sizes of node, from the scene's own layout.** A cube of one state that does
-  not block is passed whole; in a brick, a block of two cells a side whose coarser bit is
-  clear is passed whole; otherwise one cell is tested with one 32-bit load. Leaving a node,
-  the nearest of its far faces is crossed, x before y before z on equal distances.
+- **Two sizes of node, from the scene's own layout.** A cube whose lookup entry names one
+  state that does not block is passed whole; in a cube with a brick each cell is tested
+  with one 32-bit load. The bricks' coarser bits are not read: a walk that also passed
+  blocks of two cells a side by them was built first, and set aside on 2026-11-19 by the
+  user's decision after the patent search of research R4, 7.8a. Leaving a node, the nearest
+  of its far faces is crossed, x before y before z on equal distances.
 - **To the bit.** Every distance is worked out afresh as `(face - origin) * inverse` from a
   whole-numbered face, marked `precise`, and never accumulated; after a node is passed the
   ray's cell on the other two axes is found by the same crossing test a walk of single
@@ -437,7 +439,10 @@ the occupancy bricks of 5.1, the operation indirect light and far shadows both r
   directions spread over the sphere, take 0.9, 3.9 and 9.3 ms at lengths of 16, 64 and 256
   blocks; two million rays toward a low sun, side by side and parallel, 1.3, 3.2 and 4.8 ms.
   Incoherent rays pass half as many nodes a second as coherent ones. Batches of 65,536 rays
-  leave the card partly idle.
+  leave the card partly idle. These figures, and the tiers' below, are the earlier walk's,
+  which also passed blocks by the coarser bits; the walk as it now is reaches the same
+  cells at the same distances visiting about one and a half times the nodes in the unit
+  tests' scenes, and is measured anew.
 - **The CPU never reads a buffer a trace reads.** A buffer read back is kept by the driver
   in host memory for a while, and probe rays traced from it took three to twelve times as
   long, coherent rays barely longer. The benchmark reads back only staging buffers filled by

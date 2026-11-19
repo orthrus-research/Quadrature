@@ -120,16 +120,18 @@ light. The scene for lighting already holds what that needs (ARCHITECTURE 5.1).
   incoherent by construction. Rays toward the sun from neighboring points are parallel
   and start side by side: coherent.
 
-*Implication, taken in the build:* the scene's own layout is already a three-level
-grid, so nothing is built for rays. A cube of one state that does not block is passed
-whole, a block of two cells a side whose coarser bit is clear is passed whole, and a cell
-is tested with one 32-bit load. The walk computes every distance afresh from the ray's
+*Implication, taken in the build:* the scene's own layout is already a grid of cubes over
+grids of cells, so nothing is built for rays. A cube of one state that does not block is
+passed whole, and a cell is tested with one 32-bit load. The bricks' coarser bits, which
+would let a block of two cells a side be passed whole, are not read (7.8a). The walk
+computes every distance afresh from the ray's
 origin rather than accumulating it, so that its results can be checked against a CPU
 reference to the bit (ARCHITECTURE 5.2). Probe rays and shadow rays are measured apart,
 since the published ratio between incoherent and coherent rays is about two.
 
-*Measured on the RTX 3060 (VERIFICATION, rays through the scene):* at P0 clocks, settled
-views and radius 20, 2.1 million rays took 0.92 ms at 16 blocks, 3.9 ms at 64 and 9.3 ms
+*Measured on the RTX 3060 (VERIFICATION, rays through the scene),* with the earlier walk
+that also passed blocks by the coarser bits: at P0 clocks, settled views and radius 20,
+2.1 million rays took 0.92 ms at 16 blocks, 3.9 ms at 64 and 9.3 ms
 at 256 for probe rays (2,290, 534 and 224 million a second), and 1.3, 3.2 and 4.8 ms for
 coherent rays toward a sun 20 degrees up (1,580, 657 and 438 million). At 256 blocks the
 probe rays visit 24 nodes and the coherent ones 26, so the published ratio holds here too:
@@ -215,10 +217,11 @@ active. Claim 1 of US 10,748,326 B2, word for word from its page
 > particular subset of voxels is occupied by geometry.
 
 Its claims 16 (a method) and 17 (a system that renders by casting rays to find their
-reflections) also involve rays, as do claims 1 and 16 of CN 110494895 B. The trace tests a
-brick's coarser bit for the block of two cells a side a ray stands in, passes the block
-whole where the bit is clear, and otherwise tests the cell's bit; above the bricks the cube
-lookup holds 32-bit codes (nothing known, one state, a brick's slot), not occupancy bits.
+reflections) also involve rays, as do claims 1 and 16 of CN 110494895 B. The trace as first
+committed tested a brick's coarser bit for the block of two cells a side a ray stood in,
+passed the block whole where the bit was clear, and otherwise tested the cell's bit; above
+the bricks the cube lookup holds 32-bit codes (nothing known, one state, a brick's slot), not
+occupancy bits.
 
 *Claims of the family that recite no ray.* Main line's scene has carried the coarser bits
 since 2026-11-15. Independent claims found that recite no ray each need more than the
@@ -242,8 +245,11 @@ A walk that reads no coarser bit, passing cubes of one state whole and stepping 
 time inside bricks, ends with the same distance and outcome for every ray, and in the same
 cell for every ray that does not miss, visiting about one and a half times the nodes in the
 unit tests' scenes. Set beside claim 1, its coarsest level is the lookup's codes and its one
-level of occupancy bits is the cells'. Whether it, or the walk with coarser bits, may ship
-is the user's decision.
+level of occupancy bits is the cells'.
+
+*Decision, 2026-11-19:* the user chose the walk that reads no coarser bit. It replaces the
+walk with coarser bits on the branch in a later commit, history kept: the trace and its CPU
+reference no longer read the bricks' coarser bits, which main line's scene still builds.
 
 ## 8. Shader system
 

@@ -126,19 +126,15 @@ final class TraceProgram {
                         }
                         cells = 16;
                     } else if (kind == 2u) {
+                        // A cell at a time: the brick's coarser bits are not read.
                         uint base = (entry & 0xFFFFFFu) * 144u;
                         ivec3 l = c & 15;
-                        uint coarse = uint((l.y >> 1) << 6 | (l.z >> 1) << 3 | l.x >> 1);
-                        if (((brickAt(base + 128u + (coarse >> 5)) >> (coarse & 31u)) & 1u) == 0u) {
-                            cells = 2;
-                        } else {
-                            uint cell = uint(l.y << 8 | l.z << 4 | l.x);
-                            if (((brickAt(base + (cell >> 5)) >> (cell & 31u)) & 1u) != 0u) {
-                                outcome = HIT;
-                                break;
-                            }
-                            cells = 1;
+                        uint cell = uint(l.y << 8 | l.z << 4 | l.x);
+                        if (((brickAt(base + (cell >> 5)) >> (cell & 31u)) & 1u) != 0u) {
+                            outcome = HIT;
+                            break;
                         }
+                        cells = 1;
                     } else {
                         outcome = NOT_AVAILABLE;
                         break;
