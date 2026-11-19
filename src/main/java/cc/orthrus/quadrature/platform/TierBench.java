@@ -185,6 +185,9 @@ public final class TierBench {
         }
         String gpu = TierBenchmark.gpuDigest(profile.vendor(), profile.renderer(), deviceUuid);
         String driver = TierBenchmark.driverDigest(profile.versionString(), driverUuid);
+        if (trace == TraceProbe.NONE && BrickTraceProbe.REQUESTED) {
+            trace = new BrickTraceProbe();
+        }
         instance = new TierBench(gpu, driver, memory, memory.read());
         TerrainHook.afterOpaque(instance::frame);
         Quadrature.LOGGER.info("Tier benchmark: {}, benchmark {}, key {} (GPU {}, driver {}); {}; stored: {}.", MODE.equals("off")
@@ -590,12 +593,19 @@ public final class TierBench {
                 steps.add(new Step(Kind.LIGHT, 0, round >= TierBenchmark.WARM_UP));
             }
             if (trace.ready()) {
+                // At the window's size: the trace's rays need not follow the render resolution.
                 for (int round = 0; round < TierBenchmark.WARM_UP + TierBenchmark.REPETITIONS; round++) {
-                    for (int size = 0; size < sizes.length; size++) {
-                        steps.add(new Step(Kind.TRACE, size, round >= TierBenchmark.WARM_UP));
-                    }
+                    steps.add(new Step(Kind.TRACE, -1, round >= TierBenchmark.WARM_UP));
                 }
             }
+            long targetBytes = 0;
+            for (int[] size : sizes) {
+                targetBytes += (long) size[0] * size[1] * 8;
+            }
+            // Said before it is taken, so that a run that fails for memory names what it asked for.
+            Quadrature.LOGGER.info("Tier benchmark: taking {} MiB of GPU memory for the bandwidth kernel's buffers and {} MiB "
+                + "for the probe's targets, for the run only.", (TierBenchmark.SMALL_BYTES + TierBenchmark.LARGE_BYTES) >> 20,
+                targetBytes >> 20);
             kernel.create(TierBenchmark.SMALL_BYTES, TierBenchmark.LARGE_BYTES);
             for (int i = 0; i < sizes.length; i++) {
                 int color = GL45.glCreateTextures(GL11.GL_TEXTURE_2D);
@@ -709,9 +719,15 @@ public final class TierBench {
                         traceRefused = true;
                         return;
                     }
+                    Minecraft minecraft = Minecraft.getMinecraft();
                     step.start = stamp();
-                    step.rays = trace.dispatch(sizes[step.setting][0], sizes[step.setting][1]);
+                    step.rays = trace.dispatch(minecraft.displayWidth, minecraft.displayHeight);
                     step.end = stamp();
+                    if (step.rays == 0) {
+                        traceRefused = true;
+                        Quadrature.LOGGER.info("Tier benchmark: the trace {} traced nothing; the run goes on without it.",
+                            trace.name());
+                    }
                     step.issued = true;
                 }
             }
@@ -813,8 +829,12 @@ public final class TierBench {
                     case LIGHT -> run.add(new BenchmarkRun.Light(nanos,
                         GL33.glGetQueryObjectui64(step.primitives, GL15.GL_QUERY_RESULT),
                         GL33.glGetQueryObjectui64(step.samples, GL15.GL_QUERY_RESULT)));
-                    case TRACE -> run.add(new BenchmarkRun.Trace(sizes[step.setting][0], sizes[step.setting][1], nanos,
-                        step.rays));
+                    case TRACE -> {
+                        if (step.rays > 0) {
+                            Minecraft minecraft = Minecraft.getMinecraft();
+                            run.add(new BenchmarkRun.Trace(minecraft.displayWidth, minecraft.displayHeight, nanos, step.rays));
+                        }
+                    }
                 }
             }
             return run;

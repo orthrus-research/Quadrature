@@ -20,9 +20,11 @@ public interface TraceProbe {
     boolean ready();
 
     /**
-     * Traces one frame's rays at a render resolution and returns how many rays it traced.
+     * Traces one frame's rays and returns how many it traced; 0 where it could trace nothing, which ends the
+     * probe for the run. The benchmark gives the window's size; a trace whose rays do not follow the
+     * resolution, as probes' do not, may ignore it.
      *
-     * @param width the render resolution's width in pixels
+     * @param width the window's width in pixels
      * @param height its height
      */
     long dispatch(int width, int height);
