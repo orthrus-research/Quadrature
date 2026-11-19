@@ -711,6 +711,16 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   phase rule; the quality modes' ratios.
 - Not taken: any code from NVIDIA's samples or anyone's integration; none were opened.
 - Added: 2026-11-19
+### Side-aware rebuilds: a touching cube's change rebuilds only what read it
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/SideReads.java`, the reads kept in `BuiltCube` and
+  `CubeMesher`, the following of touching changes in `Terrain.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/TouchingSides.java`
+- Source: original. Facts used: Cubature's cube source contract (`ICubeSourceListener`'s change kinds and
+  bounds, and its rule, in CUBE-SOURCE.md section 3, that a change in a cube's outermost layer or its arrival
+  or removal raises a change for each loaded cube touching it); that the block renderer lights a block only
+  for a face that passes the face test, as Quadrature's own `QuadWalk` does in following it.
+- Taken: the touching rule as the contract states it.
+- Added: 2026-11-19
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

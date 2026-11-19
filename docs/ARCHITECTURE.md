@@ -702,6 +702,20 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
   with each result and defined on the context thread. **Built.**
 - A cube the source says holds only air is settled without a snapshot or a build.
   **Built.**
+- **A change reaches a touching cube only where its last build read it.** A build reads
+  the world through a wrapper of its snapshot that notes, for each of the 26 cubes around,
+  whether it read their blocks (states, block entities, biomes) and whether it read their
+  light. The game's renderers read the light around a block only for a face they draw, so a
+  hidden block reads its face neighbors' states alone and nothing of its edges and corners.
+  The source's own changes of a touching cube carry the whole cube and no side, so they are
+  not followed; each cube's own arrival, departure and bounded change are, by the source's
+  rule for which touching cubes a change reaches (`TouchingSides` in `core`). A touching
+  cube is rebuilt if its last build read the changed one (only its light, for a change of
+  light alone), if it has no build yet, or if one is in flight; all air reads nothing.
+  Rebuilds that drew what they replaced fell by three quarters, and builds by a third while
+  the world generates around the player, with the pictures unchanged (VERIFICATION,
+  side-aware rebuilds). `-Dquadrature.terrain.neighbors=all` follows every touching change
+  as before. **Built.**
 - A build copies what it made into arrays of its own, so a result the pool drops leaves
   nothing to free; it allocates nothing on the heap per face. The context thread copies a
   result's vertices into one native staging buffer as it places them. **Built.**

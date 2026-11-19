@@ -42,10 +42,16 @@ final class BuiltCube {
     final long[] census;
     /** The time the build took on its thread. */
     final long nanos;
+    /**
+     * The cubes around it the build read ({@link SideReads}): the sides whose blocks it read in the low 27 bits, and
+     * those whose light it read in the 27 from bit 32. A change in a touching cube can change this build's mesh only
+     * where it read that cube for that kind of thing.
+     */
+    final long reads;
 
     BuiltCube(int x, int y, int z, long sequence, boolean empty, boolean any, short links, long geometry, short[] cells,
         long[] blocking, int[] newStates, byte[][] vertices, int[] vertexCounts, int[][] records, int[] recordCounts,
-        long[] faceCounts, long[] checkCounts, long[] census, long nanos) {
+        long[] faceCounts, long[] checkCounts, long[] census, long nanos, long reads) {
         this.x = x;
         this.y = y;
         this.z = z;
@@ -65,6 +71,17 @@ final class BuiltCube {
         this.checkCounts = checkCounts;
         this.census = census;
         this.nanos = nanos;
+        this.reads = reads;
+    }
+
+    /** The sides whose blocks a build read, from {@link #reads}. */
+    static int blockSides(long reads) {
+        return (int) (reads & 0x7FF_FFFFL);
+    }
+
+    /** The sides whose light a build read, from {@link #reads}. */
+    static int lightSides(long reads) {
+        return (int) (reads >>> 32 & 0x7FF_FFFFL);
     }
 
     /** What the cube draws, hashed; 0 for a cube that draws nothing. Computed once, where it is first asked. */

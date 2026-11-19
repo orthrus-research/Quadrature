@@ -1080,6 +1080,42 @@ rebuild's vertices and records are hashed and compared with the mesh it replaced
   for 105,266 and 147,817 arrivals), merged into a cube's pending hand-in where several come before it.
 - **Underground costs more by its volume:** 19,500 hand-ins a view against 15,200 at the surface,
   as more of the cubes around a cave view are mixed.
+### Side-aware rebuilds
+
+Measured 2026-11-19 with a jar built from tree 88e42c5b (commit 1bfc3cf and the side-aware rebuilds),
+own terrain at reach twelve with `quadrature.terrain.causes=true`, against the rule before it
+(`quadrature.terrain.neighbors=all`) in the same jar. Caves: eight views of Riven's underground tour,
+seed 8675309, on one instance after a run that generated them, and on a second, fresh instance whose
+first run generated them. Forest: the forest tour on a fresh instance of seed 2485331 at scale four,
+the game's terrain twice (settling, reference), then own terrain with each rule.
+
+| | Builds | Rebuilt for a touching cube | Of them drawing the same | All air settled again | Build time |
+|---|---|---|---|---|---|
+| Caves, generating, old rule | 149,126 | 75,478 | 69,269 | 99,523 | 202 s |
+| Caves, generating, side-aware (another instance) | 99,577 | 27,432 | 18,559 | 20,822 | 163 s |
+| Caves, generated, old rule | 88,875 | 16,987 | 14,156 | 83,409 | 125 s |
+| Caves, generated, side-aware | 79,155 | 6,603 | 2,916 | 22,311 | 109 s |
+| Forest, old rule | 73,349 | 15,482 | 12,915 | 292,910 | 119 s |
+| Forest, side-aware | 63,043 | 5,433 | 3,051 | 70,832 | 103 s |
+
+- **Most of what was redone for nothing is no longer done**: rebuilds that drew the same fell by
+  73% to 79%, and builds in all by a third while the world generates around the player and by 11% to
+  14% through terrain already generated, where far fewer touching changes come. Changes passed by as
+  unread: 835,995 while generating, 787,356 and 1,523,111 through generated caves and forest.
+- **Generation is where touching changes come from**: through the same eight cave views the old rule
+  rebuilt 75,478 cubes for a touching cube while the world generated and 16,987 once it had.
+- **The pictures are unchanged.** Own terrain passes all 17 forest views against the game's own draw
+  with either rule (the side-aware run's worst view 07, 0.0401%), and the two rules' runs pass against
+  each other, 8 of 17 identical byte for byte and the worst view 07 at 0.0311%, within the 0.0387% two
+  runs of one rule differ by. In the caves the two rules' runs pass at seven views, closer than two
+  runs of the old rule; at the eighth, a lava lake, they caught the lava's animated texture at another
+  frame, with the same geometry.
+- **Reading through the wrapper costs nothing measurable**: a build took 1.41 and 1.37 ms through the
+  generated caves and 1.62 and 1.63 ms through the forest, old rule and side-aware. The generating runs,
+  1.36 and 1.64 ms, ran on two instances while their servers generated.
+- **What is still redone for nothing** (2,916 to 18,559 rebuilds) comes from cubes that read the
+  touching cube's side and drew the same anyway: a change's bounds reach a whole face where the cube
+  read one layer of it, and a change of light over the whole cube reaches every side.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1575,6 +1611,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 | `quadrature.rays.bench=true` | With the scene's buffers: at a settled view, traces probe and shadow rays at three lengths in each tier's batch, from the scene's buffers and from a copy on the GPU, and logs GPU times, how the rays ended and the driver's moves of each buffer per set. `quadrature.rays.bench.settle`, `.every` and `.warm` set its seconds (3, 20, 2) |
 | `quadrature.rays.check=true` | With the benchmark: traces a sample of each batch's rays again on the CPU over the buffers read back through staging copies, and logs `RAYS CHECK FAILED` where any word differs |
+| `quadrature.terrain.neighbors=all` | Every change of a touching cube rebuilds a cube, as before the side-aware rebuilds: the source's own NEIGHBOR changes are followed and what a build read is not consulted |
 | `quadrature.terrain.causes=true` | Counts each cube's hand-in to be built by the first of its causes (arrival, resend, blocks, light, biomes, a touching cube alone) and whether each rebuild drew the same as the mesh it replaced, by a hash of its vertices made on the build's thread; appended to the terrain's summary |
 | `quadrature.rays.fetch=texture` | The trace reads the lookup and bricks through their buffer textures instead of storage blocks |
 

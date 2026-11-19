@@ -31,6 +31,7 @@ import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSource;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSourceListener;
 
+import cc.orthrus.quadrature.core.terrain.TouchingSides;
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -333,6 +334,65 @@ public final class Terrain
     private final long[] rebuiltBy = new long[CAUSE_NAMES.length];
     private final long[] sameBy = new long[CAUSE_NAMES.length];
 
+    /**
+     * Side-aware rebuilds, unless {@code -Dquadrature.terrain.neighbors=all}: a change in a cube reaches the cubes
+     * touching it only where their last build read it ({@link SideReads}). The source's own NEIGHBOR changes carry
+     * the whole cube and no side, so they are not followed; each cube's own arrival, departure and change, whose
+     * bounds say which faces it reached, are followed instead, by the same rule the source uses to raise them.
+     */
+    private static final boolean ALL_NEIGHBORS = "all".equals(System.getProperty("quadrature.terrain.neighbors"));
+    /** What each cube's last build read of the cubes around it ({@link BuiltCube#reads}); -1 where not known. */
+    private final Long2LongOpenHashMap readsOf = new Long2LongOpenHashMap();
+    {
+        readsOf.defaultReturnValue(-1L);
+    }
+    /** Changes that reached a touching cube: those that rebuilt it, and those passed by as unread there. */
+    private long touchingRebuilt;
+    private long touchingPassed;
+
+    /**
+     * A cube arrived, left or changed within the given bounds: each loaded cube touching it at a face, edge or
+     * corner the bounds reach is rebuilt if its last build read this cube (for light alone, its light), or if it has
+     * no build yet or one in flight, whose reads are not known.
+     */
+    private void touchingChanged(int x, int y, int z, int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
+        boolean lightAlone) {
+        int reached = TouchingSides.reached(minX, minY, minZ, maxX, maxY, maxZ);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if ((reached & TouchingSides.bit(dx, dy, dz)) == 0 || !source.isLoaded(x + dx, y + dy, z + dz)) {
+                        continue;
+                    }
+                    long key = CubeKey.of(x + dx, y + dy, z + dz);
+                    // The changed cube lies at minus this offset from the touching one.
+                    int side = TouchingSides.bit(-dx, -dy, -dz);
+                    long reads = readsOf.get(key);
+                    boolean needed;
+                    if (reads == -1L || !decided.containsKey(key) || tasks.containsKey(key)) {
+                        needed = true;
+                    } else {
+                        int sides = lightAlone ? BuiltCube.lightSides(reads)
+                            : BuiltCube.blockSides(reads) | BuiltCube.lightSides(reads);
+                        needed = (sides & side) != 0;
+                    }
+                    if (needed) {
+                        touchingRebuilt++;
+                        touch(key);
+                        if (CAUSES) {
+                            note(key, 5);
+                        }
+                        dirty.add(key);
+                        unsettle(key);
+                    } else {
+                        touchingPassed++;
+                    }
+                }
+            }
+        }
+    }
+
+
     private void note(long key, int cause) {
         causeEvents[cause]++;
         causes.put(key, (byte) (causes.get(key) | 1 << cause));
@@ -459,6 +519,9 @@ public final class Terrain
             note(key, links.containsKey(key) ? 1 : 0);
         }
         dirty.add(key);
+        if (!ALL_NEIGHBORS) {
+            touchingChanged(x, y, z, 0, 0, 0, 15, 15, 15, false);
+        }
         // Until it is meshed nothing is known of it, so it hides nothing.
         if (!links.containsKey(key)) {
             links.put(key, CubeConnectivity.ALL);
@@ -473,6 +536,9 @@ public final class Terrain
         touch(key);
         dirty.remove(key);
         forget(key, x, y, z);
+        if (!ALL_NEIGHBORS) {
+            touchingChanged(x, y, z, 0, 0, 0, 15, 15, 15, false);
+        }
     }
 
     /** A cube is no longer held: its mesh, its build and all that is kept of it go. */
@@ -482,6 +548,7 @@ public final class Terrain
             task.cancel();
         }
         decided.remove(key);
+        readsOf.remove(key);
         if (CAUSES) {
             causes.remove(key);
             buildCauses.remove(key);
@@ -512,18 +579,26 @@ public final class Terrain
     @Override
     public void cubeChanged(int x, int y, int z, int kinds, int minX, int minY, int minZ, int maxX, int maxY,
         int maxZ) {
+        int own = kinds & ~ICubeSourceListener.NEIGHBOR;
+        if (!ALL_NEIGHBORS && own == 0) {
+            // A touching cube's change alone: followed from that cube's own event, where its side is known.
+            return;
+        }
         touch(CubeKey.of(x, y, z));
         if (CAUSES) {
             long key = CubeKey.of(x, y, z);
             for (int kind = 0; kind < 4; kind++) {
                 // BLOCKS, LIGHT, BIOMES and NEIGHBOR are the source's bits 0 to 3, causes 2 to 5 here.
-                if ((kinds & 1 << kind) != 0) {
+                if ((kinds & 1 << kind) != 0 && (ALL_NEIGHBORS || kind < 3)) {
                     note(key, kind + 2);
                 }
             }
         }
         dirty.add(CubeKey.of(x, y, z));
         unsettle(CubeKey.of(x, y, z));
+        if (!ALL_NEIGHBORS) {
+            touchingChanged(x, y, z, minX, minY, minZ, maxX, maxY, maxZ, own == ICubeSourceListener.LIGHT);
+        }
     }
 
     private void clear() {
@@ -538,6 +613,7 @@ public final class Terrain
         }
         tasks.clear();
         decided.clear();
+        readsOf.clear();
         causes.clear();
         buildCauses.clear();
         settled.clear();
@@ -809,6 +885,8 @@ public final class Terrain
     /** A cube known to hold nothing: no mesh, its faces all open to each other, settled. */
     private void empty(long key, int x, int y, int z, long order) {
         decided.put(key, order);
+        // All air draws nothing whatever lies around it: no touching cube's change can change that.
+        readsOf.put(key, 0L);
         release(meshes.remove(key));
         emptied++;
         setLinks(key, CubeConnectivity.ALL);
@@ -827,6 +905,7 @@ public final class Terrain
         int z = built.z;
         boolean builtBefore = decided.containsKey(key);
         decided.put(key, built.sequence);
+        readsOf.put(key, built.reads);
         setLinks(key, built.links);
         if (built.census != null) {
             for (int i = 0; i < faceCensus.length; i++) {
@@ -2187,6 +2266,8 @@ public final class Terrain
             superseded, emptyUnread, sameShape, dirty.size(), lastSubmitNanos / 1e6,
             frames == 0 ? 0.0 : submitNanos / 1e6 / frames, mostSubmitNanos / 1e6, reprioritized, poolNanosThisFrame / 1e6,
             frames == 0 ? 0.0 : poolNanos / 1e6 / frames, mostPoolNanos / 1e6);
+        line += ALL_NEIGHBORS ? "; every touching change rebuilds"
+            : String.format("; touching changes: %d rebuilt, %d passed by as unread", touchingRebuilt, touchingPassed);
         if (CAUSES) {
             StringBuilder causeLine = new StringBuilder("; build causes: events");
             for (int i = 0; i < CAUSE_NAMES.length; i++) {

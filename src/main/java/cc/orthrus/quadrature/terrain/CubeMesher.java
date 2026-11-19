@@ -66,6 +66,8 @@ final class CubeMesher {
      */
     static final boolean FACES = Boolean.getBoolean("quadrature.faces");
     private final QuadWalk walk = FACE_CHECK || FACES ? new QuadWalk() : null;
+    /** What each build reads of the cubes around it. */
+    private final SideReads sideReads = new SideReads();
     /**
      * A diagnostic, off unless {@code -Dquadrature.faces.count=true}: counts in every cube meshed the
      * quads that a record for a whole face could hold.
@@ -135,8 +137,9 @@ final class CubeMesher {
         long began = System.nanoTime();
         long geometry = geometry(snapshot);
         if (snapshot.centerEmpty()) {
+            // Nothing in it is drawn, whatever lies around it: it read nothing of its neighbors.
             return new BuiltCube(cubeX, cubeY, cubeZ, sequence, true, false, CubeConnectivity.ALL, geometry, null, null,
-                null, NO_VERTICES, NO_COUNTS, null, null, null, null, null, System.nanoTime() - began);
+                null, NO_VERTICES, NO_COUNTS, null, null, null, null, null, System.nanoTime() - began, 0);
         }
         try {
             boolean any = mesh(snapshot, cubeX, cubeY, cubeZ, task);
@@ -145,6 +148,7 @@ final class CubeMesher {
             }
             return copy(cubeX, cubeY, cubeZ, sequence, any, geometry, System.nanoTime() - began);
         } finally {
+            sideReads.end();
             done();
         }
     }
@@ -193,7 +197,8 @@ final class CubeMesher {
         }
         return new BuiltCube(cubeX, cubeY, cubeZ, sequence, false, any, links, geometry,
             keepCells ? cells.clone() : null, keepCells ? opaque.clone() : null, keepCells ? newStates.toIntArray() : null,
-            vertices, vertexCounts, records, recordCounts, faceCounts, FACE_CHECK ? checkCounts.clone() : null, census, nanos);
+            vertices, vertexCounts, records, recordCounts, faceCounts, FACE_CHECK ? checkCounts.clone() : null, census, nanos,
+            (long) sideReads.light() << 32 | sideReads.blocks() & 0xFFFF_FFFFL);
     }
 
     /**
@@ -207,6 +212,8 @@ final class CubeMesher {
         int minX = cubeX << 4;
         int minY = cubeY << 4;
         int minZ = cubeZ << 4;
+        // The models and lighters read the world through this, so what they read of the cubes around is known.
+        SideReads world = sideReads.begin(snapshot, minX, minY, minZ);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         java.util.Arrays.fill(opaque, 0);
         java.util.Arrays.fill(checkCounts, 0);
@@ -253,15 +260,15 @@ final class CubeMesher {
                                 }
                                 if (FACES && walk.usable() && state.getRenderType() == EnumBlockRenderType.MODEL) {
                                     // The dispatcher takes a block's actual state before it asks for the model.
-                                    walk.render(dispatcher, snapshot, state.getActualState(snapshot, pos), pos, builders[layer],
+                                    walk.render(dispatcher, world, state.getActualState(world, pos), pos, builders[layer],
                                         LightScene.index(x, y, z), layer, Block.getStateId(state) & 0xFFFF);
                                 } else if (FACES) {
                                     // Not a model: what is drawn is still noted, with the block's state.
                                     int from = builders[layer].getVertexCount();
-                                    dispatcher.renderBlock(state, pos, snapshot, builders[layer]);
+                                    dispatcher.renderBlock(state, pos, world, builders[layer]);
                                     walk.foreign(builders[layer], from, LightScene.index(x, y, z), layer, Block.getStateId(state) & 0xFFFF);
                                 } else {
-                                    dispatcher.renderBlock(state, pos, snapshot, builders[layer]);
+                                    dispatcher.renderBlock(state, pos, world, builders[layer]);
                                 }
                             } catch (RuntimeException e) {
                                 if (failures++ < 5) {
@@ -269,7 +276,7 @@ final class CubeMesher {
                                 }
                             }
                             if (FACE_CHECK) {
-                                walk(dispatcher, snapshot, state, pos, layer, LightScene.index(x, y, z), minX, minY, minZ);
+                                walk(dispatcher, world, state, pos, layer, LightScene.index(x, y, z), minX, minY, minZ);
                             }
                         }
                     }
