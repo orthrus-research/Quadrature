@@ -360,6 +360,10 @@ it follows. **Built, behind a switch.**
   motion image and carried back by the stand-in checks every 600 frames, and after each world
   change and resize, that the output came from that frame.
 
+Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
+alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the
+client 0.06 ms a frame; the four images take 32 and 57 MiB, the Vulkan device 5 to 6 MiB more.
+
 Not built: DLSS's evaluation, jitter, exposure, the bridge as a stage with declared resources
 in the pass graph, and the motion vectors it needs from every draw (D21).
 
