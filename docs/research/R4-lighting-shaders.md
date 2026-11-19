@@ -143,6 +143,108 @@ probe rays traced from it took three to twelve times as long while coherent rays
 changed. Reading the lookup and bricks through buffer textures rather than storage blocks
 made under 5% difference on this card, whose L1 and texture caches are one.
 
+**7.8a Patents searched for the ray work. [2026-11-19; a record, not a legal conclusion]**
+Searched on Google Patents, its search pages and each patent's page with the claims as
+text, after general searches to find candidates. Statuses are Google Patents' on that day.
+Whether anything below may ship is the user's decision.
+
+*The grid walk to the nearest boundary (Amanatides and Woo).*
+- US 7,088,361 B2, "Raycasting perspective views", IBM, later LinkedIn; priority 2003-05-14
+  (GB 0311048.3); expired, fees unpaid. Claim 1: incremental 3-D DDA denominator vectors
+  across a line of samples.
+- CN 102509341 B, "Method for intersecting light and voxel", Institute of Automation,
+  Chinese Academy of Sciences; priority 2011-10-17; expired, fees unpaid. Claim 1: isosurface
+  intersection from trilinear samples along the ray in each voxel.
+- US 11,282,260 B2, "Bounded volume hierarchy (BVH) tree traversal using spatial division",
+  Qualcomm; priority 2020-06-09; active, anticipated expiry 2040-06-09. Claim 1: a BVH, a grid
+  generated from it with each node mapped to cells, a start node chosen from the cell of the
+  ray's first intersection, and a 3-D DDA to a further cell where a cell is empty or visited,
+  ending on the distance to a primitive. Citations it names include Siemens' bricked volumes
+  (US 2009/0295800 A1), Arm (US 2014/0139534 A1), Samsung (US 9,355,491 B2) and Qualcomm
+  (US 2017/0249779 A1). The trace has no BVH, no mapping of nodes to cells, no primitives.
+
+*Hierarchical DDA (Museth; OpenVDB, NanoVDB) and two-level grids (Kalojanov, Billeter,
+Slusallek).* No patent was found claiming either. The phrase "hierarchical digital
+differential analyzer" appears in four pending applications (Tencent US 2025/0218111 A1, a
+light update for a virtual scene, priority 2023-03-21; NTT Docomo JP 2025-165258 A;
+CN 121616734 A; NetEase CN 120346519 A), a matter for the lighting work. Ken Museth's eight
+patents claim neither; the nearest, Digital Domain's US 2010/0114909 A1 (priority 2008-11-05,
+blocks stored as value tables and element bit-masks), is abandoned. "Two-level grid" with
+an acceleration structure and rays: nothing. Imagination's US 8,717,357 B2 (priority
+2011-08-05, active to 2032) claims building an acceleration structure by binning primitives
+into volumetric portions; Mental Images' JP 4858795 B2 (active to 2027, Japan) a bounding
+interval hierarchy; its US 7,952,583 B2 has expired.
+
+*Raycasting with an approximate traversal.* WO 2020/047338 A1, "Computer vision system",
+Movidius, now Intel; priority 2018-08-29. Its first claim casts rays through a sparse
+hierarchical voxel structure and finds occupied voxels "according to an approximate
+traversal", which leaves some lower-level voxels unchecked. The granted members, US
+12,122,420 B2 (active to 2041), CN 113228114 B, JP 7485482 B2, JP 7665901 B2 and KR
+102933525 B1, claim pose estimation from visual and inertial data by a neural network
+instead; ray claims remain only in the pending EP 3844722 and DE 11 2019 004364. The trace
+checks every cell a walk of single cells would.
+
+*Probe grids casting rays over the sphere (DDGI), the benchmark's workload only.* US
+2021/0012562 A1, "Probe-based dynamic global illumination", NVIDIA (Luebke, Majercik,
+McGuire); priority 2019-07-11; finally rejected 2021-09-08 and abandoned 2023-08-23 after
+an appeal. Claim 1: computing an irradiance field probe's diffuse irradiance and the
+statistics of a distance distribution, and encoding both in the probe. Prior art named in
+its background: light probes holding spherical irradiance maps, and light field probes.
+
+*Occupancy bits at several levels of detail: in force, with claims near the trace.* The
+family "Rendering operations using sparse volumetric data", Movidius, now Intel; priority
+2016-08-19 (US provisional 62/377,471; PCT/US2017/047696); anticipated expiry 2037-08-19 for
+the members read: US 10,748,326 B2, CN 110494895 B, KR 102546996 B1 and EP 3501008 B1, all
+active. Claim 1 of US 10,748,326 B2, word for word from its page
+(https://patents.google.com/patent/US10748326B2/en):
+
+> 1. An apparatus comprising: a data processing apparatus; lookup logic to: identify
+> coordinates of a ray to be cast into a particular volume; obtain a volumetric data
+> structure corresponding to the particular volume, wherein the volumetric data structure
+> describes the particular volume at a plurality of levels of detail, a first entry in the
+> volumetric data structure comprises a first set of bits representing voxels at a first one
+> of the plurality of levels of detail, the first level of detail comprises the lowest level
+> of detail in the plurality of levels of detail, values of the first set of bits indicate
+> whether a corresponding one of the voxels is at least partially occupied by respective
+> geometry, wherein the volumetric data structure further comprises a number of second
+> entries representing voxels at a second level of detail higher than the first level of
+> detail, and the voxels at the second level of detail represent subvolumes of the voxels at
+> the first level of detail; determine that the ray is to pass through a particular subset of
+> the voxels at the first level of detail; and intersection logic to determine, from the
+> first entry in the volumetric data structure, that at least a particular one of the
+> particular subset of voxels is occupied by geometry.
+
+Its claims 16 (a method) and 17 (a system that renders by casting rays to find their
+reflections) also involve rays, as do claims 1 and 16 of CN 110494895 B. The trace tests a
+brick's coarser bit for the block of two cells a side a ray stands in, passes the block
+whole where the bit is clear, and otherwise tests the cell's bit; above the bricks the cube
+lookup holds 32-bit codes (nothing known, one state, a brick's slot), not occupancy bits.
+
+*Claims of the family that recite no ray.* Main line's scene has carried the coarser bits
+since 2026-11-15. Independent claims found that recite no ray each need more than the
+occupancy bits:
+- EP 3501008 B1, claim 1: "the number of second entries corresponds to a number of bits in
+  the first set of bits with values indicating that a corresponding voxel volume is
+  occupied", the entry "immediately following the first entry" holding the occupied voxel's
+  subvoxels, and the structure used to identify geometry; a ray comes only in a dependent
+  claim. KR 102546996 B1's claims, read in part in the page's machine translation, run
+  parallel. The scene's brick is 128 words of bits for all 4,096 cells, then
+  16 words of coarser bits: every cell's bit is kept, before the coarser bits, however many
+  of those are set.
+- US 11,222,459 B2, claims 1, 15 and 17: loading "a portion of the volumetric data structure"
+  into a second or on-board memory "based on the portion of the volumetric data structure
+  representing a particular subset of the plurality of levels of detail". The scene's buffers
+  receive whole bricks, both levels, of the cubes that changed, 64 a frame.
+- US 11,965,743 B2, claim 1: rendering through a machine learning model fed the occupied
+  voxels' values. Quadrature has no such model.
+
+A walk that reads no coarser bit, passing cubes of one state whole and stepping a cell at a
+time inside bricks, ends with the same distance and outcome for every ray, and in the same
+cell for every ray that does not miss, visiting about one and a half times the nodes in the
+unit tests' scenes. Set beside claim 1, its coarsest level is the lookup's codes and its one
+level of occupancy bits is the cells'. Whether it, or the walk with coarser bits, may ship
+is the user's decision.
+
 ## 8. Shader system
 
 **8.1 Format. [K]**
