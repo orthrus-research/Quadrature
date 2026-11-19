@@ -82,6 +82,24 @@ final class DriverMessages {
         }
     }
 
+    /**
+     * How many times the driver has said it is copying or moving a buffer from one kind of memory to
+     * another, by the buffer's name, to a kind named in the message ("HOST", "DMA CACHED") or to any where
+     * {@code to} is null. 0 where messages are not asked for.
+     */
+    static long moves(int buffer, String to) {
+        String object = "Buffer object " + buffer + " ";
+        String destination = to == null ? "" : "to " + to + " memory";
+        long moves = 0;
+        for (Map.Entry<String, AtomicLong> entry : COUNTS.entrySet()) {
+            String text = entry.getKey();
+            if (text.contains(object) && text.contains("copied/moved") && text.contains(destination)) {
+                moves += entry.getValue().get();
+            }
+        }
+        return moves;
+    }
+
     private static boolean powerOfTen(long n) {
         while (n % 10 == 0) {
             n /= 10;

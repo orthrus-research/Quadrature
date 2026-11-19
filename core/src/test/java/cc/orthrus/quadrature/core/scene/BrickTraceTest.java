@@ -334,6 +334,33 @@ class BrickTraceTest {
     }
 
     @Test
+    void readsNoCoarserBit() {
+        Random random = new Random(29);
+        World world = terrain(random, 3, 2, 0, 0, 0);
+        SceneBricks bricks = new SceneBricks(world.scene, 3, 2);
+        bricks.update(0, 0, 0);
+        int[] ints = TraceFormat.brickInts(bricks.bricks(), bricks.slots());
+        int[] cleared = ints.clone();
+        for (int slot = 0; slot < bricks.slots(); slot++) {
+            java.util.Arrays.fill(cleared, slot * PublishedScene.BRICK_INTEGERS + 128,
+                (slot + 1) * PublishedScene.BRICK_INTEGERS, 0);
+        }
+        int[] blocking = TraceFormat.blockingStates(world.scene);
+        BrickTrace with = new BrickTrace();
+        with.scene(3, 2, 0, 0, 0, bricks.lookup().clone(), ints, blocking);
+        BrickTrace without = new BrickTrace();
+        without.scene(3, 2, 0, 0, 0, bricks.lookup().clone(), cleared, blocking);
+        int[] a = new int[TraceFormat.RESULT_INTS];
+        int[] b = new int[TraceFormat.RESULT_INTS];
+        for (int i = 0; i < 4_000; i++) {
+            float[] ray = ray(random, 3, 2, 256);
+            with.trace(ray, 0, a, 0);
+            without.trace(ray, 0, b, 0);
+            assertTrue(java.util.Arrays.equals(a, b), "ray " + i);
+        }
+    }
+
+    @Test
     void passesEmptyCubesWholeAndVisitsFewNodes() {
         World world = new World();
         for (int y = -2; y <= 2; y++) {

@@ -166,6 +166,14 @@ public final class TerrainHook {
     }
 
     /**
+     * A diagnostic, with {@code -Dquadrature.glDebug=true}: how many times the driver has said it moved a
+     * buffer, by name, to a kind of memory ("HOST", "DMA CACHED"), or to any where {@code to} is null.
+     */
+    public static long driverMoves(int buffer, String to) {
+        return DriverMessages.moves(buffer, to);
+    }
+
+    /**
      * What is published each frame of the depth drawn along the light: the texture, its samplers, and
      * each layer's matrix. Null when own terrain is off or the light's view is not drawn.
      */

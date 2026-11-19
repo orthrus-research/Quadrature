@@ -6,11 +6,11 @@ package cc.orthrus.quadrature.core.scene;
  * reference the compute program is checked against and does what the program does, step for step, in
  * the same single-precision arithmetic.
  *
- * <p>The walk has three sizes of node: a cube of one state that does not block light is passed whole;
- * in a brick, a block of two cells a side whose coarser bit is clear is passed whole; otherwise a single
- * cell is visited. Leaving a node, the distance to each of its far faces is worked out from the ray's
- * origin and the inverse of its direction, {@code (face - origin) * inverse}, never accumulated, and the
- * nearest face is crossed, x before y before z where two are equal. The ray then stands in the cell just
+ * <p>The walk has two sizes of node: a cube of one state that does not block light, as the lookup's entry
+ * names it, is passed whole; otherwise a single cell is visited, its bit read from the cube's brick. The
+ * bricks' coarser bits are not read. Leaving a node, the distance to each of its far faces is worked out
+ * from the ray's origin and the inverse of its direction, {@code (face - origin) * inverse}, never
+ * accumulated, and the nearest face is crossed, x before y before z where two are equal. The ray then stands in the cell just
  * past that face; along the other two axes it stands in the last cell whose near face it crossed before
  * that distance, by the same rule. That is exactly where a walk of one cell at a time, crossing the
  * nearest face each step, would stand: the walk visits fewer nodes but ends in the same cell at the same
@@ -123,20 +123,12 @@ public final class BrickTrace {
                 size = 16;
             } else if (kind == 2) {
                 int base = (entry & 0xFFFFFF) * PublishedScene.BRICK_INTEGERS;
-                int lx = c[0] & 15;
-                int ly = c[1] & 15;
-                int lz = c[2] & 15;
-                int coarse = (ly >> 1) << 6 | (lz >> 1) << 3 | lx >> 1;
-                if ((bricks[base + 128 + (coarse >>> 5)] >>> (coarse & 31) & 1) == 0) {
-                    size = 2;
-                } else {
-                    int cell = ly << 8 | lz << 4 | lx;
-                    if ((bricks[base + (cell >>> 5)] >>> (cell & 31) & 1) != 0) {
-                        outcome = TraceFormat.HIT;
-                        break;
-                    }
-                    size = 1;
+                int cell = (c[1] & 15) << 8 | (c[2] & 15) << 4 | c[0] & 15;
+                if ((bricks[base + (cell >>> 5)] >>> (cell & 31) & 1) != 0) {
+                    outcome = TraceFormat.HIT;
+                    break;
                 }
+                size = 1;
             } else {
                 outcome = TraceFormat.NOT_AVAILABLE;
                 break;

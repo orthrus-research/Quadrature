@@ -637,7 +637,11 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   two-level grids of Kalojanov, Billeter and Slusallek, Eurographics 2011. OpenGL 4.6 specification:
   compute shaders, shader storage blocks, buffer textures, `precise`, timestamp queries.
 - Taken: the step to the nearest boundary, and skipping a node known to be empty. The nodes are the
-  scene's own: a cube of one state, a block of two cells a side whose coarser bit is clear, a cell.
+  scene's own: a cube of one state, named so by its lookup entry, and a cell.
+- Not taken: skipping a block of two cells a side by the bricks' coarser bits. It was built first and
+  set aside on 2026-11-19 by the user's decision, after a patent search found a family in force that
+  claims rays looked up in occupancy bits at several levels of detail (research R4, 7.8a); the walk
+  now reads only the lookup's entries and the cell bits.
 - Not taken: the incremental form of the walk, which adds each axis's step to a running distance.
   Here each distance is worked out afresh from the origin and a whole-numbered boundary, and the cell
   on the other axes after a node is passed is found by the same crossing test a walk of single cells
@@ -647,7 +651,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Added: 2026-11-18
 
 ### The ray benchmark and its check
-- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`
+- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`,
+  `Staging.java`; `DriverMessages.moves`, `TerrainHook.driverMoves`
 - Source: original in its classes and schedule. Ideas used: probes about the camera casting rays
   in directions spread over the sphere, as in Majercik, Guertin, Nowrouzezahrai, McGuire, "Dynamic
   Diffuse Global Illumination with Ray-Traced Irradiance Fields", JCGT 8(2), 2019; that coherent and
@@ -658,6 +663,11 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   GPU Rendering", JCGT 9(3), 2020, after O'Neill's PCG (2014); its published constants are used.
 - Taken: the shape of the work measured: probe grids, rays a probe, and rays toward the sun from
   surfaces.
+- Original: timing in interleaved rounds after an untimed warm-up; timing each batch from the
+  scene's buffers and from a copy made on the GPU; reading back only staging buffers filled by GPU
+  copies; counting the driver's reported buffer moves per set. Facts used: the OpenGL 4.6
+  specification (`glCopyNamedBufferSubData`, `GL_CLIENT_STORAGE_BIT`, timestamp queries, sync
+  objects) and the driver's own debug messages.
 - Not taken: any probe update, irradiance storage or shading; only the trace is measured.
 
 ### Tier benchmark: bandwidth kernel and timed probes
