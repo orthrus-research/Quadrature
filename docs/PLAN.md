@@ -173,17 +173,59 @@ built whole before any run; the runs and the analysis follow.
 | 8 | Ablation: a mod removed from both sides of a fresh instance, its cost measured by difference | Built; refuses a removal that leaves a mod without one it requires |
 | 9 | Report: the costliest owner per critical resource, the engine work each mod leans on, the engine's CPU by system beside the mods patching it, Cleanroom's own costs, runs compared, a Markdown readout | Built; run on the base configuration's cave tour and route flight |
 | 9a | Clocks against samples: the plan's named methods timed by JFR's method timing, each set beside the time its samples imply, and a verdict per thread. Execution samples see a thread only while it runs Java code: on the base run they put autosave discovery at up to 71% of the server thread in a minute, three times its own budget | Built and calibrated 2026-11-19: the meshing pool's samples agree with its clock (0.89 to 0.99); the server thread's are off three to seven times either way, so its measure is the clocks and Cubature's phase times ([DIAGNOSTICS.md](DIAGNOSTICS.md)) |
-| 10 | Runs: base, full stack, then ablations of the mods attribution cannot settle. Plans are kept with the evidence; the generating cave tour is `tools/tours/caves-8675309.json`; the flight a 2,400-block square loop at 16 blocks a second with a 15 s stop, flown by the motion helper's route (0.2.0) | Base, full stack (without DLSS: its handoff switch was missing, which `check` now refuses) and a clocked base run done 2026-11-19, every route complete with no tick held; the full stack with DLSS running |
-| 11 | Code analysis of what the runs find, with requisitions for Riven and Cubature | After 10 |
-| 12 | Engine work to take over: the engine's CPU by system on the server tick and the frame, set against what each of our mods already patches, ranked by what taking it over would save and what it would free | After 10 |
-| 13 | Cleanroom integration: Forge's, Cleanroom's, Mixin's and LWJGL's own CPU, startup by owner, event dispatch and compilation churn, each as a change to propose to Cleanroom or to work around in our mods | After 10 |
+| 10 | Runs: base, full stack, then ablations of the mods attribution cannot settle. Plans are kept with the evidence; the generating cave tour is `tools/tours/caves-8675309.json`; the flight a 2,400-block square loop at 16 blocks a second with a 15 s stop, flown by the motion helper's route (0.2.0) | Done 2026-11-19 on four fresh instances: base, full stack without DLSS (its handoff switch was missing, which `check` now refuses), base with clocks, and full stack with DLSS and clocks; every route complete with no tick held. No ablation was needed |
+| 11 | Code analysis of what the runs find, with requisitions for Riven and Cubature | Done 2026-11-19: requisitions raised for Riven (the distant preview's work per column, ore placement, allocation and recompiles), Cubature (construction by runs, surface tracking by columns, the entity pass's cube lookups) and GTCEu Reloaded (its render-layer hook). Findings below |
+| 12 | Engine work to take over: the engine's CPU by system on the server tick and the frame, set against what each of our mods already patches, ranked by what taking it over would save and what it would free | Designed 2026-11-19 (below); not started |
+| 13 | Cleanroom integration: Forge's, Cleanroom's, Mixin's and LWJGL's own CPU, startup by owner, event dispatch and compilation churn, each as a change to propose to Cleanroom or to work around in our mods | Leads below; not started |
 
-Leads from recordings made before the tool, their shares directions only: Riven is 99% of the generation workers' CPU, and its ore placement rebuilds the
-27 node cells around a block for every block of every ore body's range (an exact fix: the nodes
-once a cube); Riven's `Drainage.build` and `Hydro.networks` are compiled by C2 again and again,
-0.5 to 0.9 s each; Riven allocates about 200 MB/s while a world generates, Cubature 13; block
-state numbers are looked up through Forge's map for every block a primer is given and every block
-saved.
+Findings, on the base configuration unless named. Figures on the server tick and the frame are clocks or the
+features' own counters; pool figures are samples, which agree with the clock on the meshing pool.
+
+- Riven owns the most CPU and allocation. Its `generateCube` took 426 ms of each second of the generating cave tour.
+  Ore placement is about a third of the generation pool's samples: each rock block hashes the 27 node cells around
+  it for every ore body within reach. With distant terrain the preview pool takes 1.1 to 1.9 cores, 306 ms of
+  sampling for a 66-by-66 tile. Half of that is continental kernel evaluations, of which a coastal column makes five
+  (its sample and four probes for the coast normal) and the climate a sixth.
+- 34 to 38% of each side's sampled allocation is the two-element array that `StrictMath.sin` and `cos` allocate on
+  every call (OpenJDK 26.0.2's Java port of fdlibm). Another 15% of the client's is the lambdas Riven's cell memo
+  allocates on every lookup, hits included. With ZGC the collector itself takes little CPU.
+- Cubature on the server tick, by clock: the delivery tick, installs included, took 3.2 ms a tick on the cave tour.
+  After cuts A, C1 and A2 the largest install phases left are construction (72 microseconds a cube) and surface
+  tracking (57). Both loop per block through the game's storage and Cubature's height map.
+- The game still meshes everything. Its chunk-meshing threads took 188.6 CPU s over the cave tour, against 134.9 s
+  for Quadrature's. It also rebuilds render chunks within about 28 blocks of the player on the frame thread, since
+  Forge's `alwaysSetupTerrainOffThread` is off. Those rebuilds were 49% of the frame thread's samples over the base
+  cave tour, up to 85% in a minute after an arrival, and 5% over the full stack's.
+- Inside Quadrature's meshing the game's and Forge's code take about 80%: Forge's smooth lighting and quad pipeline
+  about 35%, the game's face test 21%, model quads 10%, and GTCEu Reloaded's render-layer hook 10%. On the pinned
+  build that hook also asks Forge's mod list for CTM on every call; the fix is on a branch of GTCEu Reloaded, not
+  yet on master.
+- Full stack with DLSS against base, route flight: the GPU render bracket's median went from 2.4 to 7.7 ms and its
+  99th percentile from 4.8 to 10.1 ms. The frame's 99th percentile went from 13.4 to 16.7 ms. Distant terrain took
+  2.3 ms of GPU a frame and DLSS 0.80 ms at the median.
+- For item 13:
+  - the near-rebuild switch above;
+  - Mixin's cancellable injects in the game's per-block layer test (Mixin is 12% of the game's meshing threads);
+  - JFR's method timing cannot instrument classes that resolve game classes through the launch class loader;
+  - the client's compilation doubles with the full stack, and Riven's methods are half of its long compilations.
+
+### Engine take-over (item 12)
+
+Under own terrain the game's opaque-layer meshes are never drawn, but the game still builds them. It also builds the
+rest the same way: the translucent layer, the block entity lists and its visibility graph. Quadrature takes this
+work over in steps. Before the next step starts, each is verified against a game-drawn run of the same instance
+(17 of 17 views under the near profile) and measured on the base plan's cave tour.
+
+| Step | Change | What must hold | Measure |
+|---|---|---|---|
+| 12a | Under own terrain the game's chunk rebuild answers false to its per-block layer test for the three opaque layers, through a wrap of `Block.canRenderInLayer` in `RenderChunk.rebuildChunk` that chains with other mods' wraps. The game then renders only translucent blocks; its block entities and visibility graph are found as before | Every picture unchanged. Only the draw Quadrature replaces reads the opaque layers' buffers; the game's only other reader of a compiled chunk's layers is the debug screen's count of non-empty render chunks. The pack's survey checks for mods that read them | The game's meshing threads' CPU (188.6 s), the frame thread's rebuild share, GTCEu Reloaded's share |
+| 12b | Forge's `alwaysSetupTerrainOffThread` turned on while own terrain is, unless 12a leaves the frame thread's rebuilds negligible | No rebuild on the frame thread. The game's translucent terrain near the player may follow a change a frame later | The frame's 99th percentile over the cave tour's arrivals |
+| 12c | Quadrature lights baked-model quads itself. Each vertex takes its light and shade from a padded copy of the snapshot's light and occlusion, built once a cube, in place of Forge's per-block light matrix and its vertex lighter. Blocks with renderers of their own (fluids, CodeChickenLib's) keep those | Pictures within the near profile against the game's lighting; Quadrature's own formulation, recorded in PROVENANCE | Meshing time a cube (1.40 ms), builds a second |
+| 12d | The face test by table, for blocks that keep the game's own test: per state, which faces its shape fills and whether it is an opaque cube, read in place of `Block.shouldSideBeRendered` | The same faces, checked per cube against the game's test as `quadrature.faces.check` does | As 12c |
+| 12e | Translucent terrain in Quadrature, meshed with the other layers and ordered back to front per cube as the eye moves. The game's chunk rebuild then stops altogether | Translucent views within the near profile. First, a policy for mods that add to the game's chunk meshes (the risk below) | The game's meshing threads idle |
+| 12f | Block entities and entities come from Quadrature's view: the game's entity pass reads the visible cubes that hold them, not the game's render chunks | The same entities and block entities drawn | The frame thread's entity pass. Cubature's lookup per render chunk (6.5 to 9.4% of the frame thread's samples) is gone |
+
+12a and 12b need no new technique. Steps 12c to 12f each get a PROVENANCE record in the commit that adds them.
 
 ## Reading rules
 
