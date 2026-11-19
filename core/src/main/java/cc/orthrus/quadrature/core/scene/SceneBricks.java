@@ -46,10 +46,15 @@ public final class SceneBricks implements LightScene.Changes {
     private final int[] lookup;
     private long[] bricks = new long[BRICK_WORDS * 64];
     private long[] cubeOfSlot = new long[64];
-    /** Cubes to take from the scene, a ring. */
-    private long[] waiting = new long[1024];
+    /**
+     * Lookup entries whose cube waits to be taken from the scene, in the order queued: a ring of entry indices,
+     * each at most once, so it never holds more than the box has entries.
+     */
+    private final int[] waiting;
     private int waitingHead;
-    private int waitingTail;
+    private int waitingCount;
+    /** A bit for each lookup entry, set while it waits in {@link #waiting}. */
+    private final long[] queued;
     private int[] freeSlots = new int[64];
     private int freeCount;
     private int slots;
@@ -83,6 +88,8 @@ public final class SceneBricks implements LightScene.Changes {
         sizeZ = sizeX;
         lookup = new int[sizeX * sizeY * sizeZ];
         entryDirty = new long[(lookup.length + 63) / 64];
+        waiting = new int[lookup.length];
+        queued = new long[(lookup.length + 63) / 64];
     }
 
     // The box.
@@ -172,15 +179,17 @@ public final class SceneBricks implements LightScene.Changes {
             }
         }
         seen = scene.changesSince(seen, this);
-        for (int taken = 0; taken < most && waitingHead != waitingTail; taken++) {
-            long key = waiting[waitingHead];
+        for (int taken = 0; taken < most && waitingCount > 0; taken++) {
+            int index = waiting[waitingHead];
             waitingHead = (waitingHead + 1) % waiting.length;
-            int x = CubeKey.x(key);
-            int y = CubeKey.y(key);
-            int z = CubeKey.z(key);
-            if (inside(x, y, z)) {
-                take(x, y, z);
-            }
+            waitingCount--;
+            queued[index >> 6] &= ~(1L << index);
+            // The entry stands for the cube of the box that lies there now, whichever was queued.
+            int fx = index % sizeX;
+            int fz = index / sizeX % sizeZ;
+            int fy = index / (sizeX * sizeZ);
+            take(placedAt(fx, originX - across, sizeX), placedAt(fy, originY - upward, sizeY),
+                placedAt(fz, originZ - across, sizeZ));
         }
         if (moved || marks != before) {
             generation++;
@@ -204,27 +213,28 @@ public final class SceneBricks implements LightScene.Changes {
         }
     }
 
-    /** Queues a cube to be taken from the scene. */
+    /**
+     * Queues a cube of the box to be taken from the scene. Its entry is queued once: one already waiting is not
+     * queued again, since taking it reads the scene as it is then.
+     */
     private void await(int cubeX, int cubeY, int cubeZ) {
-        int next = (waitingTail + 1) % waiting.length;
-        if (next == waitingHead) {
-            long[] larger = new long[waiting.length * 2];
-            int count = 0;
-            for (int i = waitingHead; i != waitingTail; i = (i + 1) % waiting.length) {
-                larger[count++] = waiting[i];
-            }
-            waiting = larger;
-            waitingHead = 0;
-            waitingTail = count;
-            next = count + 1;
+        int index = entryIndex(cubeX, cubeY, cubeZ);
+        if ((queued[index >> 6] >>> index & 1) != 0) {
+            return;
         }
-        waiting[waitingTail] = CubeKey.of(cubeX, cubeY, cubeZ);
-        waitingTail = next;
+        queued[index >> 6] |= 1L << index;
+        waiting[(waitingHead + waitingCount) % waiting.length] = index;
+        waitingCount++;
     }
 
-    /** Cubes queued to be taken from the scene. */
+    /** The coordinate along one axis, from {@code low} for {@code size} cubes, that the box wraps to {@code wrapped}. */
+    private static int placedAt(int wrapped, int low, int size) {
+        return low + Math.floorMod(wrapped - low, size);
+    }
+
+    /** Cubes queued to be taken from the scene: no more than the box has entries. */
     public int cubesWaiting() {
-        return (waitingTail - waitingHead + waiting.length) % waiting.length;
+        return waitingCount;
     }
 
     /** The cube whose brick is at a slot, as {@link CubeKey} packs it. */

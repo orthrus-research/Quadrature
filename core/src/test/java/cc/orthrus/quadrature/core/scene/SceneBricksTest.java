@@ -173,8 +173,8 @@ class SceneBricksTest {
         }
         put(scene, 0, 0, 1, 7);
         bricks.update(0, 0, 0, 2);
-        // The box's 25 cubes are queued, and the six the scene reports as new once more; two are taken.
-        assertEquals(25 + 6 - 2, bricks.cubesWaiting());
+        // The box's 25 cubes are queued once each, the six the scene reports as new among them; two are taken.
+        assertEquals(25 - 2, bricks.cubesWaiting());
         int known = 0;
         for (int entry : bricks.lookup()) {
             known += entry != SceneBricks.NOT_AVAILABLE ? 1 : 0;
@@ -198,5 +198,52 @@ class SceneBricksTest {
         assertEquals(bricks.entryIndex(-1, 0, 0), bricks.entryIndex(4, 0, 0));
         assertEquals(SceneBricks.NOT_AVAILABLE, bricks.lookup()[bricks.entryIndex(-1, 0, 0)]);
         assertEquals(SceneBricks.UNIFORM | STONE, bricks.entry(1, 0, 0));
+    }
+
+    @Test
+    void aCubeWaitsOnceHoweverOftenTheSceneReportsIt() {
+        LightScene scene = scene();
+        SceneBricks bricks = new SceneBricks(scene, 2, 1);
+        int box = bricks.lookup().length;
+        // Nothing may be taken while the scene changes one cube a hundred times: the queue holds the box once.
+        for (int i = 0; i < 100; i++) {
+            put(scene, 1, 0, -1, i % 64 + 1);
+            bricks.update(0, 0, 0, 0);
+            assertEquals(box, bricks.cubesWaiting());
+        }
+        for (int i = 0; i < 10 && bricks.cubesWaiting() > 0; i++) {
+            bricks.update(0, 0, 0, 16);
+        }
+        assertEquals(0, bricks.cubesWaiting());
+        // Taken once, as the scene held it last.
+        int slot = bricks.entry(1, 0, -1) & 0xFFFFFF;
+        assertTrue(bit(bricks.bricks(), slot * SceneBricks.BRICK_WORDS, 99 % 64 + 1));
+        assertEquals(1, bricks.bricksHeld());
+    }
+
+    @Test
+    void aWaitingEntryIsTakenForTheCubeThatLiesThereThen() {
+        LightScene scene = scene();
+        SceneBricks bricks = new SceneBricks(scene, 1, 0);
+        for (int x = -4; x <= 4; x++) {
+            scene.putUniform(x, 0, 0, x < 0 ? LightScene.AIR : STONE);
+        }
+        // Queued about 0 and not taken; the box moves on twice before anything is taken.
+        bricks.update(0, 0, 0, 0);
+        bricks.update(2, 0, 0, 0);
+        bricks.update(3, 0, 0, 0);
+        assertTrue(bricks.cubesWaiting() <= bricks.lookup().length);
+        for (int i = 0; i < 10 && bricks.cubesWaiting() > 0; i++) {
+            bricks.update(3, 0, 0, 2);
+        }
+        assertEquals(0, bricks.cubesWaiting());
+        // Each entry of the box names the cube that lies there now: the stone of 2 to 4, never the air of the
+        // cubes left behind, whose entries were queued first.
+        for (int x = 2; x <= 4; x++) {
+            assertEquals(SceneBricks.UNIFORM | STONE, bricks.entry(x, 0, 0));
+        }
+        for (int entry : bricks.lookup()) {
+            assertNotEquals(SceneBricks.UNIFORM | LightScene.AIR, entry);
+        }
     }
 }
