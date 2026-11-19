@@ -311,6 +311,27 @@ final class StandIn implements AutoCloseable {
         return true;
     }
 
+    /**
+     * Waits up to {@code timeoutNanos} for a slot's last batch to finish; returns whether it did. A batch that does
+     * not finish has not received OpenGL's signal.
+     */
+    boolean finished(int slot, long timeoutNanos) {
+        int result = vkWaitForFences(vulkan.device, fences[slot], true, timeoutNanos);
+        if (result == VK_TIMEOUT) {
+            return false;
+        }
+        check(result, "vkWaitForFences");
+        return true;
+    }
+
+    /** Signals a timeline value from the client, to let a batch whose OpenGL signal never came run out. */
+    void signalFromClient(long value) {
+        try (MemoryStack stack = stackPush()) {
+            check(org.lwjgl.vulkan.VK12.vkSignalSemaphore(vulkan.device, org.lwjgl.vulkan.VkSemaphoreSignalInfo.calloc(stack)
+                .sType$Default().semaphore(semaphores.vkToVulkan).value(value)), "vkSignalSemaphore");
+        }
+    }
+
     /** Submits a slot's batch: wait for {@code wait}, signal {@code signal} (values ignored for binary semaphores). */
     void submit(int slot, boolean evaluates, long wait, long signal) {
         waitValue.put(0, wait);

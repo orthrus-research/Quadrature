@@ -116,6 +116,11 @@ public final class VulkanHandoff implements Handoff {
     private Phase previousG0Phase;
     private boolean previousG0Measured;
     private long roundTrips;
+    /** Round trips still to prove before OpenGL waits on one unproved. */
+    private int unproven = 2;
+    private static final long PROOF_TIMEOUT = 2_000_000_000L;
+    /** Whether OpenGL can copy the game's depth into the shared depth image, which needs the same format. */
+    private boolean depthFilled;
 
     // What the run found.
     private final Map<Phase, PhaseStatistics> statistics = new EnumMap<>(Phase.class);
@@ -356,9 +361,11 @@ public final class VulkanHandoff implements Handoff {
         }
         GL45.glBlitNamedFramebuffer(frame.framebuffer(), color.glFramebuffer, 0, 0, frame.width(), frame.height(), 0, 0,
             color.width, color.height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_LINEAR);
-        GL45.glBlitNamedFramebuffer(frame.framebuffer(), depth.glFramebuffer, 0, 0, frame.width(), frame.height(), 0, 0,
-            depth.width, depth.height, GL11.GL_DEPTH_BUFFER_BIT | (depth.stencil ? GL11.GL_STENCIL_BUFFER_BIT : 0),
-            GL11.GL_NEAREST);
+        if (depthFilled) {
+            GL45.glBlitNamedFramebuffer(frame.framebuffer(), depth.glFramebuffer, 0, 0, frame.width(), frame.height(), 0,
+                0, depth.width, depth.height, GL11.GL_DEPTH_BUFFER_BIT | (depth.stencil ? GL11.GL_STENCIL_BUFFER_BIT : 0),
+                GL11.GL_NEAREST);
+        }
         if (scissor) {
             GL11.glEnable(GL11.GL_SCISSOR_TEST);
         }
@@ -384,6 +391,9 @@ public final class VulkanHandoff implements Handoff {
         long t2 = System.nanoTime();
         standIn.submit(vkSlot, evaluates, signal, wait);
         long t3 = System.nanoTime();
+        if (unproven > 0) {
+            prove(vkSlot, signal);
+        }
         if (semaphores.timeline) {
             EXTSemaphore.glSemaphoreParameterui64EXT(semaphores.glToOpenGl, NVTimelineSemaphore.GL_TIMELINE_SEMAPHORE_VALUE_NV,
                 wait);
@@ -393,6 +403,28 @@ public final class VulkanHandoff implements Handoff {
         record.cpuSubmit = t3 - t2;
         record.cpuGl = (t2 - t1) + (t4 - t3);
         record.cpuRoundTrip = t4 - t0;
+    }
+
+    /**
+     * The first round trips are proved before OpenGL waits on one: Vulkan's batch must finish, which it can only
+     * once OpenGL's signal has reached it. A signal that never arrives would leave Vulkan's queue waiting and then
+     * OpenGL's, the game's frame with it; instead the batch is let run out from the client and the handoff stops.
+     * These frames are the first of a turn, which are never measured.
+     */
+    private void prove(int vkSlot, long signal) {
+        long start = System.nanoTime();
+        boolean arrived = standIn.finished(vkSlot, PROOF_TIMEOUT);
+        if (!arrived) {
+            if (semaphores.timeline) {
+                standIn.signalFromClient(signal);
+                standIn.finished(vkSlot, PROOF_TIMEOUT);
+            }
+            throw new IllegalStateException("OpenGL's signal did not reach Vulkan within " + PROOF_TIMEOUT / 1_000_000
+                + " ms on round trip " + roundTrips + "; OpenGL is not made to wait, and the handoff stops.");
+        }
+        unproven--;
+        event(String.format(Locale.ROOT, "Round trip %d proved: Vulkan's batch finished %.2f ms after submission",
+            roundTrips, (System.nanoTime() - start) / 1e6));
     }
 
     private void copyOut(Frame frame) {
@@ -469,8 +501,19 @@ public final class VulkanHandoff implements Handoff {
         try {
             color = new SharedImage(vulkan, SharedImage.Role.COLOR, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, GL30.GL_RGBA16F,
                 render.width(), render.height(), SharedImageSizes.COLOR_TEXEL, false, false);
-            depth = new SharedImage(vulkan, SharedImage.Role.DEPTH, depthFormats[0], depthFormat, render.width(),
-                render.height(), depthFormats[2], true, depthFormats[1] != 0);
+            try {
+                depth = new SharedImage(vulkan, SharedImage.Role.DEPTH, depthFormats[0], depthFormat, render.width(),
+                    render.height(), depthFormats[2], true, depthFormats[1] != 0);
+                depthFilled = true;
+            } catch (IllegalStateException refused) {
+                // A finding, not the end of the measurement: the round trip still carries a depth image, unfilled.
+                event("The game's depth format 0x" + Integer.toHexString(depthFormat) + " (Vulkan " + depthFormats[0]
+                    + ") could not be shared: " + refused.getMessage() + " A 32-bit float depth image is shared instead, "
+                    + "which OpenGL cannot copy the game's depth into.");
+                depth = new SharedImage(vulkan, SharedImage.Role.DEPTH, VK10.VK_FORMAT_D32_SFLOAT, GL30.GL_DEPTH_COMPONENT32F,
+                    render.width(), render.height(), 4, true, false);
+                depthFilled = false;
+            }
             motion = new SharedImage(vulkan, SharedImage.Role.MOTION, VK10.VK_FORMAT_R16G16_SFLOAT, GL30.GL_RG16F,
                 render.width(), render.height(), SharedImageSizes.MOTION_TEXEL, false, false);
             output = new SharedImage(vulkan, SharedImage.Role.OUTPUT, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, GL30.GL_RGBA16F,
