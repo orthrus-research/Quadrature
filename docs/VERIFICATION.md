@@ -1037,15 +1037,13 @@ dwell tour and the forest tour stand alike, against radius 12 on the two instanc
   changes no code path: this tour's choices were made with bd0d324's table, and a unit test
   feeds the new table this card's measured run (radius 16, the rainforest's high view) at four
   outputs. It takes HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440, as bd0d324's table did,
-  and MEDIUM at 3840 by 2160 as bd0d324's did, with MEDIUM's fit about 1.0 there once the scaler is
-  priced: held fixed, the 0.28 ms between the scaler's passes leaves MEDIUM 6.91 ms of the 7;
-  following the pixels, it would take 7.26 ms and the card LOW. A boundary case, open until the
-  scaler is measured at that output.
+  and MEDIUM at 3840 by 2160 as bd0d324's did, a boundary case with LOW (below, the walk and the
+  scaler as they ship).
 
 **The final code on the GPU.** The branch at 6067440, its settle rule and its floor of
-primitives with ddd8c29's table (d4940d2 since changes the scaler's cost alone, under the test
-above), on a fresh instance: the dwell tour at radius 20, five waits a place, then the forest
-tour at radius 12.
+primitives with ddd8c29's table (the scaler's and the rays' costs since changed under the test
+above, below), on a fresh instance: the dwell tour at radius 20, five waits a place, then the
+forest tour at radius 12.
 
 | Tour | Runs | Caught up, after the view came to rest | Meshes held then | Primitives drawn | Tier at 1280 by 720 |
 |---|---|---|---|---|---|
@@ -1061,6 +1059,17 @@ tour at radius 12.
   within 5%, at the top state's times all the same (the arithmetic pass 2.01 to 2.23 ms against
   2.03 at the median of the rest); one late reading off by more kept the agreement from holding,
   and the cap let them go on.
+
+**The walk and the scaler as they ship.** With item 4 merged at 1230d57, the table takes the
+rays' costs of the walk that reads no coarser bits (rays through the scene, above; that run
+sampled no clocks, and its figures are taken as the top state's): MEDIUM 0.53 ms a frame, HIGH
+0.87, MAX's cascades 2.13 and its far shadows 5.43. The scaler's are its plain kernel's, the one
+it ships, at 2560 by 1440 output: 0.92 ms of passes at 0.67 and 0.78 at 0.77, the 0.28 ms
+between them held fixed. The unit test of this card's measured run gives the tiers it gave
+before: HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440, with fits of 2.29, 1.82 and 1.37,
+and MEDIUM at 3840 by 2160 with 1.07 (the table before, 1.03); memory MAX at all four. On the
+reference card MEDIUM takes 6.62 ms of the 7 at 3840 by 2160, or 6.97 ms were the gaps to
+follow the pixels too, and this run MEDIUM either way. No run was made on the GPU for it.
 
 **A driver update, left to be run.** Every run so far is on driver 610.88. A driver is the
 user's to install, so the repeat across one is a step left:

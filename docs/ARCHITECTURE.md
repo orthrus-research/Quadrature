@@ -1102,12 +1102,16 @@ ms (85% of a frame at 120 frames a second), and the speed against this card a ma
 | Opaque terrain drawn forward at the tier's radius and render scale, the median place (radii 12, 16, 20 measured; 8 scaled) | 0.27 | 0.54 | 0.94 | 1.18 |
 | The targets for shading, half the forward draw (the near radius's table) | 0.14 | 0.27 | 0.47 | 0.59 |
 | The light's depth a frame that draws it: one layer, both layers (PLAN, capability work, item 2) | 0.17 | 0.17 | 0.49 | 0.49 |
-| Indirect light's rays as item 4 schedules them: MEDIUM every probe a frame, HIGH and MAX a quarter; MAX's far shadows, an upper bound | | 0.37 | 0.67 | 1.70 + 4.78 |
+| Indirect light's rays as item 4 schedules them, on the walk as shipped: MEDIUM every probe a frame, HIGH and MAX a quarter; MAX's far shadows, an upper bound | | 0.53 | 0.87 | 2.13 + 5.43 |
 | Shading, 0.19 ms a render megapixel (the stage handed over in a folder) | 0.31 | 0.42 | 0.70 | 0.70 |
 | The game's other drawing, 0.33 ms a render megapixel (the stage reports) | 0.55 | 0.72 | 1.22 | 1.22 |
-| Own temporal anti-aliasing, with the scaler below the output's resolution, at 0.67 and 0.77 (item 6): 0.28 ms between its passes held fixed, the passes by output megapixel | 1.39 | 1.26 | 0.41 | 0.41 |
-| **In all, 2560 by 1440** | **2.82** | **3.75** | **4.89** | **11.07** |
-| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.28 / 0.40 / 0.78 | 0.39 / 0.54 / 0.99 | 0.52 / 0.70 / 1.38 | 1.40 / 1.58 / 2.29 |
+| Own temporal anti-aliasing, with the scaler below the output's resolution, at 0.67 and 0.77 (item 6, its plain kernel): 0.28 ms between its passes held fixed, the passes by output megapixel | 1.20 | 1.06 | 0.41 | 0.41 |
+| **In all, 2560 by 1440** | **2.63** | **3.71** | **5.09** | **12.15** |
+| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.26 / 0.38 / 0.71 | 0.40 / 0.53 / 0.95 | 0.54 / 0.73 / 1.41 | 1.55 / 1.74 / 2.45 |
+
+The rays' figures are item 4's last measurement, of the walk that reads no coarser bits
+([VERIFICATION.md](VERIFICATION.md), rays through the scene). That run sampled no clocks; its
+figures are taken as the top state's, as the other items' settled runs are.
 
 - Opaque terrain at radius 12, the median place, takes 0.476, 0.571, 0.670 and 1.778 ms from
   1280 by 720 to 3840 by 2160. At the same views radius 16 takes 1.46, 1.39, 1.37 and 1.24 times
@@ -1117,21 +1121,20 @@ ms (85% of a frame at 120 frames a second), and the speed against this card a ma
 - Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
   shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
   when measured, which can only raise the speeds needed.
-- **Rendering below the output costs time at today's frame.** The scaler stage takes 1.39 ms at
-  2560 by 1440 output from 0.67 and 1.26 from 0.77, and 0.67 of the resolution saves 0.98 ms of
-  the world's drawing (item 6):
-  a render below the output pays only once a tier's resolution-dependent work passes about
-  2.5 ms. Render scale stays a preset of each tier, never a lever the selection turns; whether
-  LOW and MEDIUM keep 67% and 77% is D23's to decide. At 3840 by 2160 output LOW and MEDIUM pay
-  about 2.8 and 2.5 ms for a scaler that a render at 100% would not need. The stage's passes
-  are carried in proportion to the output's megapixels from 2560 by 1440, the one output
-  measured, and the 0.28 ms between them, barriers and program changes, is held fixed: MEDIUM
-  takes 6.91 ms of the 7 at 3840 by 2160, and this card MEDIUM there, with a fit of about 1.01.
-  Were the gaps to follow the pixels too, MEDIUM would take 7.26 ms and this card LOW. **This card
-  at 3840 by 2160 is a boundary case**, open until the scaler is measured at that output; the
-  band keeps whichever tier is stored first. The scaler's cost is that of its edge-adaptive
-  kernel: if the plain kernel ships, its cost replaces it, and the test of this card's tiers is
-  run again.
+- **Rendering below the output costs time at today's frame.** The scaler stage, its plain
+  kernel, takes 1.20 ms at 2560 by 1440 output from 0.67 and 1.06 from 0.77, and 0.67 of the
+  resolution saves 0.98 ms of the world's drawing (item 6): a render below the output pays only
+  once a tier's resolution-dependent work passes about 2.2 ms at 0.67 and 2.6 ms at 0.77. Render
+  scale stays a preset of each tier, never a lever the selection turns; whether LOW and MEDIUM
+  keep 67% and 77% is D23's to decide. At 3840 by 2160 output LOW and MEDIUM pay about 2.3 and
+  2.0 ms for a scaler that a render at 100% would not need. The stage's passes are carried in
+  proportion to the output's megapixels from 2560 by 1440, the one output measured, and the
+  0.28 ms between them, barriers and program changes, is held fixed: MEDIUM takes 6.62 ms of the
+  7 at 3840 by 2160, and this card MEDIUM there, with a fit of 1.07 on the run the unit test
+  holds. Were the gaps to follow the pixels too, MEDIUM would take 6.97 ms and this card MEDIUM
+  still, with a fit of 1.01. **This card at 3840 by 2160 is a boundary case**, open until
+  the scaler is measured at that output: its score runs 0.85 to 1.14 between places, and a place
+  low in that range takes LOW there. The band keeps whichever tier is stored first.
 - The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's
   arenas 128 to 704 MiB, distant terrain's reach about 40 to 250 MiB by DISTANT's survey, the
   light's layers with their scratch 32 to 256 MiB, the light scene's lookup and bricks 8.6, 15.0

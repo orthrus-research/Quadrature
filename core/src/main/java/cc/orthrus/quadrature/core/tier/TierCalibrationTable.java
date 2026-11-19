@@ -40,13 +40,14 @@ final class TierCalibrationTable {
     /** The light's depth a frame that draws it: one layer (LOW, MEDIUM) and both (HIGH, MAX). */
     private static final double[] LIGHT_MS = {0.17, 0.17, 0.49, 0.49};
     /**
-     * Indirect light's rays a frame, by the trace's own measurement at the top state (rays, f1154a0): MEDIUM's
-     * 65,536 rays every frame at 256 blocks; a quarter of HIGH's 524,288 a frame at 256 blocks; MAX's two cascades
-     * of 1,048,576, the near at 64 blocks and the far at 256, a quarter a frame.
+     * Indirect light's rays a frame, by the trace's own measurement of the walk as shipped, which reads no coarser
+     * bits (VERIFICATION, rays through the scene; that run sampled no clocks, and its figures are taken as the top
+     * state's): MEDIUM's 65,536 rays every frame at 256 blocks; a quarter of HIGH's 524,288 a frame at 256 blocks;
+     * MAX's two cascades of 1,048,576, the near at 64 blocks and the far at 256, a quarter a frame.
      */
-    private static final double[] INDIRECT_MS = {0, 0.37, 0.67, 1.7};
-    /** MAX's far shadows: 2,097,152 rays toward a low sun at 256 blocks, 2.28 ms a million; an upper bound. */
-    private static final double FAR_SHADOWS_MS = 4.78;
+    private static final double[] INDIRECT_MS = {0, 0.527, 3.465 / 4, (4.892 + 12.170) / 2 / 4};
+    /** MAX's far shadows: 2,097,152 rays toward a low sun at 256 blocks, 2.59 ms a million; an upper bound. */
+    private static final double FAR_SHADOWS_MS = 2.59 * 2.097152;
 
     private TierCalibrationTable() {
     }
@@ -71,13 +72,17 @@ final class TierCalibrationTable {
     }
 
     /**
-     * Own temporal anti-aliasing and the scaler at 2560 by 1440 output (the scaler's F2 and F3, its edge kernel): the
-     * whole stage at LOW's 0.67, 1.386 ms, and at MEDIUM's 0.77, 1.26 ms, of which 0.28 ms lies between its passes,
-     * barriers and program changes, held fixed, and the passes follow the output's megapixels; at the output
-     * resolution its temporal pass, motion and depth copies, 0.41 ms.
+     * Own temporal anti-aliasing and the scaler at 2560 by 1440 output (the scaler's F4 and F6, its plain kernel, the
+     * one it ships): at LOW's 0.67 two depth copies of 0.033 ms, motion 0.056, the temporal pass 0.313, the scale
+     * 0.385 and the depth's stretch 0.096; at MEDIUM's 0.77 copies of 0.040, motion 0.061, temporal 0.294, scale
+     * 0.274 and stretch 0.072. About 0.28 ms more lies between the passes, barriers and program changes, held fixed,
+     * and the passes follow the output's megapixels. At the output resolution its temporal pass, motion and depth
+     * copies, 0.41 ms.
      */
     private static final double SCALER_GAPS_MS = 0.28;
-    private static final double[] SCALER_MS_A_MEGAPIXEL = {(1.386 - SCALER_GAPS_MS) / 3.6864, (1.26 - SCALER_GAPS_MS) / 3.6864};
+    private static final double[] SCALER_MS_A_MEGAPIXEL = {
+        (2 * 0.033 + 0.056 + 0.313 + 0.385 + 0.096) / 3.6864,
+        (2 * 0.040 + 0.061 + 0.294 + 0.274 + 0.072) / 3.6864};
     private static final double TEMPORAL_MS_A_MEGAPIXEL = 0.41 / 3.6864;
 
     private static List<Cost> tier(Tier tier) {
