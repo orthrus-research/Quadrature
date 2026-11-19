@@ -146,8 +146,8 @@ final class TraceProgram {
 
                     // Leave the node: the nearest of its far faces, x before y before z where two are equal.
                     ivec3 n = c & ivec3(-cells);
-                    ivec3 far = n + ivec3(greaterThan(s, ivec3(0))) * cells;
-                    precise vec3 exit = (vec3(far) - o) * inv;
+                    ivec3 face = n + ivec3(greaterThan(s, ivec3(0))) * cells;
+                    precise vec3 exit = (vec3(face) - o) * inv;
                     int axis = 0;
                     float leave = exit.x;
                     if (exit.y < leave) {
@@ -178,8 +178,9 @@ final class TraceProgram {
                     c[axis] = s[axis] > 0 ? n[axis] + cells : n[axis] - 1;
                     t = leave;
                 }
-                uvec3 packed = uvec3(c + 512) & 1023u;
-                results[id] = uvec4(floatBitsToUint(t), packed.x | packed.y << 10 | packed.z << 20, outcome | visits << 4, 0u);
+                // Not "packed": NVIDIA's compiler keeps the word reserved, as GLSL 1.20 did.
+                uvec3 biased = uvec3(c + 512) & 1023u;
+                results[id] = uvec4(floatBitsToUint(t), biased.x | biased.y << 10 | biased.z << 20, outcome | visits << 4, 0u);
             }
             """;
     }

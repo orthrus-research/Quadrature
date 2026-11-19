@@ -41,14 +41,14 @@ final class RayCheck {
         final float[] rays = new float[RUNS * RUN * TraceFormat.RAY_FLOATS];
         final int[] results = new int[RUNS * RUN * TraceFormat.RESULT_INTS];
 
-        Sample(String label, PublishedScene scene) {
+        Sample(String label, long generation, int originX, int originY, int originZ, int sizeX, int sizeY) {
             this.label = label;
-            generation = scene.generation();
-            originX = scene.originX();
-            originY = scene.originY();
-            originZ = scene.originZ();
-            sizeX = scene.sizeX();
-            sizeY = scene.sizeY();
+            this.generation = generation;
+            this.originX = originX;
+            this.originY = originY;
+            this.originZ = originZ;
+            this.sizeX = sizeX;
+            this.sizeY = sizeY;
         }
     }
 
@@ -69,9 +69,13 @@ final class RayCheck {
         samples.clear();
     }
 
-    /** Reads back two runs of a finished trace's rays and results; the trace must be complete. */
-    void sample(String label, int rayBuffer, int resultBuffer, int count, PublishedScene scene) {
-        Sample sample = new Sample(label, scene);
+    /**
+     * Reads back two runs of a finished trace's rays and results; the trace must be complete. The scene is
+     * given as the trace read it: its generation, origin cube and box when the trace was dispatched.
+     */
+    void sample(String label, int rayBuffer, int resultBuffer, int count, long generation, int originX, int originY,
+        int originZ, int sizeX, int sizeY) {
+        Sample sample = new Sample(label, generation, originX, originY, originZ, sizeX, sizeY);
         for (int run = 0; run < RUNS; run++) {
             // Two places that move from set to set and measurement to measurement.
             long mixed = (set * 1_000_003L + samples.size() * 7_919L + run * 104_729L) * 2_654_435_761L;

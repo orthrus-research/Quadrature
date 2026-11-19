@@ -68,6 +68,11 @@ public final class RayTracer implements RayTrace {
         return program != 0;
     }
 
+    /** Whether the trace program failed to build, so that nothing can be traced. */
+    public boolean failed() {
+        return failed;
+    }
+
     /** The buffer of a bit for each state that blocks light, brought up to the scene. */
     int blockingBuffer() {
         LightScene light = TerrainHook.lightScene();

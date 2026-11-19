@@ -105,6 +105,13 @@ public final class RayBench {
         final double[] millis = new double[REPEATS];
         int repeat;
         int[] census;
+        /** The scene as the last repeat's trace read it: its generation, origin cube and box. */
+        long generation;
+        int originX;
+        int originY;
+        int originZ;
+        int sizeX;
+        int sizeY;
 
         Step(int rayClass, Tier tier, int length) {
             this.rayClass = rayClass;
@@ -172,8 +179,9 @@ public final class RayBench {
         if (scene == null) {
             if (!warned) {
                 warned = true;
-                Quadrature.LOGGER.error("Ray benchmark: no light scene on the GPU to trace; it needs -Dquadrature.scene=true "
-                    + "and -Dquadrature.scene.gpu=true.");
+                Quadrature.LOGGER.error(tracer.failed() ? "Ray benchmark: the trace program did not build; nothing is traced."
+                    : "Ray benchmark: no light scene on the GPU to trace; it needs -Dquadrature.scene=true and "
+                    + "-Dquadrature.scene.gpu=true.");
             }
             return;
         }
@@ -295,7 +303,8 @@ public final class RayBench {
                 running.census = new int[BenchPrograms.CENSUS_WORDS];
                 censusBack.get(running.census);
                 if (check != null) {
-                    check.sample(running.label(), rayBuffer, resultBuffer, running.tier.rays(), scene);
+                    check.sample(running.label(), rayBuffer, resultBuffer, running.tier.rays(), running.generation,
+                        running.originX, running.originY, running.originZ, running.sizeX, running.sizeY);
                 }
                 report(running);
                 next++;
@@ -364,6 +373,12 @@ public final class RayBench {
         }
         timing = tracer.trace(rayBuffer, resultBuffer, rays);
         if (step.repeat == REPEATS - 1) {
+            step.generation = scene.generation();
+            step.originX = scene.originX();
+            step.originY = scene.originY();
+            step.originZ = scene.originZ();
+            step.sizeX = scene.sizeX();
+            step.sizeY = scene.sizeY();
             GL45.glClearNamedBufferData(censusBuffer, GL30.GL_R32UI, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT,
                 (java.nio.ByteBuffer) null);
             state.save();
