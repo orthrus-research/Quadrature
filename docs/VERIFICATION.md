@@ -780,16 +780,25 @@ above, from builds on the client thread within 4 ms a frame.
   built about 950 a second, 1.16 ms each: it takes snapshots only when it is pumped, for
   as many builds as the permits and one a thread, and is pumped about once a frame, so its
   threads stood idle for most of each frame.
-- **What the client allocates.** The lab's client runs with G1 and an 8 GiB heap, and its
-  long frames are its collector's pauses, wherever they land. Measured on 2026-11-18 over a
-  radius-20 dwell tour, with a build of Cubature whose pool keeps its threads busy: before
+- **What the client allocates.** On the lab's former G1 profile with an 8 GiB heap, the
+  client's long frames were its collector's pauses, wherever they landed. Measured on
+  2026-11-18 over a radius-20 dwell tour, with a build of Cubature whose pool keeps its threads busy: before
   the walk made its own face test, 61% of what the client allocated was on the build
   threads, 47% of everything a position the game's face test makes for each face. With the
   face test below and the consumer's offset kept at the origin, the client allocates 57 GB
   over the tour where it allocated 128 GB, and pauses of 20 ms or more fall from 40 to 29;
   the build threads' share falls to 25%. The face check meshes 110,866 cubes both ways with
-  none differing. The longest pauses remain mixed collections with the heap near full,
+  none differing. The longest pauses remained mixed collections with the heap near full,
   once with an evacuation failure at 7.6 GiB.
+- **Kept cube copies and the collector.** Cubature 45e636a6 lets go of a cube's copy for
+  snapshots once no snapshot has asked for it in 200 ticks: the client's live heap after a
+  place settles falls from 1,492 to 1,777 MiB to 838 to 1,132 MiB at radius 20, at the cost
+  of 28% more copies (0.35 s of client time over the tour). G1's pauses were unchanged by
+  it: their length followed the young generation's survivors while a place arrived. On ZGC
+  with the same fixed 8 GiB heap, the lab's default since Cubature 19f9961a, the longest
+  pause is 0.07 ms on the client and 0.03 ms on the server, against 179 and 140 ms on G1,
+  with no allocation stalls; places settle in the same 24 and 27 s, client CPU is the same,
+  and the worst frame in the build pool's calls falls from 32.8 to 9.1 ms.
 
 ### Diagnostics
 
