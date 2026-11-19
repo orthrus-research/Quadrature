@@ -1,5 +1,7 @@
 package cc.orthrus.quadrature.terrain;
 
+import net.minecraft.block.Block;
+import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BlockRendererDispatcher;
@@ -10,6 +12,7 @@ import net.minecraft.client.renderer.color.BlockColors;
 import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.block.model.IBakedModel;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.IBlockAccess;
@@ -34,10 +37,39 @@ import java.util.List;
  * <p>This stands in for the game's dispatcher only where the game would itself take that path: a block
  * drawn by its model, the game's block model renderer in place, and its lighting pipeline on. Anything
  * else is left to the dispatcher, and its quads come without a note.
+ *
+ * <p>Two things the game's path makes anew for every block are not made here, since the walk runs for
+ * every block of every cube on Cubature's build threads: the position of the neighbor a face is tested
+ * against, for blocks that keep the game's own face test (see {@link #drawsSide}), and the copy of the
+ * block's position the game's consumer keeps as its offset, which the walk puts in the buffer's
+ * translation instead. The vertices written are the same to the bit.
  */
 final class QuadWalk {
 
     private static final EnumFacing[] SIDES = EnumFacing.values();
+    /** The face test's names: as the development environment names them, and as the game runs. */
+    private static final String BLOCK_TEST = runtimeName(Block.class, "shouldSideBeRendered", "func_176225_a",
+        IBlockState.class, IBlockAccess.class, BlockPos.class, EnumFacing.class);
+    private static final String STATE_TEST = runtimeName(BlockStateContainer.StateImplementation.class,
+        "shouldSideBeRendered", "func_185894_c", IBlockAccess.class, BlockPos.class, EnumFacing.class);
+    /** Whether a class of block keeps the game's own face test. */
+    private static final ClassValue<Boolean> BLOCK_KEEPS_TEST = new ClassValue<Boolean>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return declaredBy(type, Block.class, BLOCK_TEST, IBlockState.class, IBlockAccess.class, BlockPos.class,
+                EnumFacing.class);
+        }
+    };
+    /** Whether a class of block state hands the face test to its block, as the game's own states do. */
+    private static final ClassValue<Boolean> STATE_KEEPS_TEST = new ClassValue<Boolean>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            return declaredBy(type, BlockStateContainer.StateImplementation.class, STATE_TEST, IBlockAccess.class,
+                BlockPos.class, EnumFacing.class);
+        }
+    };
+    /** The neighbor a face is tested against, set for each test. */
+    private final BlockPos.MutableBlockPos beside = new BlockPos.MutableBlockPos();
 
     private final VertexLighterFlat flat;
     private final VertexLighterSmoothAo smooth;
@@ -113,7 +145,13 @@ final class QuadWalk {
         this.state = state;
         this.occluded = occluded;
         consumer.setBuffer(buffer);
-        consumer.setOffset(pos);
+        // The consumer's offset stays at the origin; the block's place in its cube goes in the buffer's
+        // translation for the block, and the cube's back after it. The game adds the two before the
+        // vertex's own coordinate, so the sum, and the vertex, are the same.
+        int cellX = cell & 15;
+        int cellY = cell >> 8 & 15;
+        int cellZ = cell >> 4 & 15;
+        buffer.setTranslation(cellX, cellY, cellZ);
         lighter.setParent(consumer);
         long random = MathHelper.getPositionRandom(pos);
         lighter.setWorld(world);
@@ -128,7 +166,7 @@ final class QuadWalk {
         }
         for (EnumFacing side : SIDES) {
             list = model.getQuads(state, side, random);
-            if (!list.isEmpty() && state.shouldSideBeRendered(world, pos, side)) {
+            if (!list.isEmpty() && drawsSide(state, world, pos, side)) {
                 if (empty) {
                     lighter.updateBlockInfo();
                 }
@@ -137,7 +175,76 @@ final class QuadWalk {
             }
         }
         lighter.resetBlockInfo();
+        buffer.setTranslation(cellX - pos.getX(), cellY - pos.getY(), cellZ - pos.getZ());
         return !empty;
+    }
+
+    /**
+     * The game's test of whether a side of a block is drawn. A block that keeps the game's own test, in
+     * a state that hands it to its block, is tested here as the game's test does it: a side its bounds
+     * stop short of is drawn, and otherwise one the neighbor does not block. The game's test makes two
+     * positions for the neighbor; this sets one it keeps. Any other block is asked as the game asks it.
+     */
+    private boolean drawsSide(IBlockState state, IBlockAccess world, BlockPos pos, EnumFacing side) {
+        if (!STATE_KEEPS_TEST.get(state.getClass()) || !BLOCK_KEEPS_TEST.get(state.getBlock().getClass())) {
+            return state.shouldSideBeRendered(world, pos, side);
+        }
+        AxisAlignedBB bounds = state.getBoundingBox(world, pos);
+        switch (side) {
+            case DOWN:
+                if (bounds.minY > 0.0) {
+                    return true;
+                }
+                break;
+            case UP:
+                if (bounds.maxY < 1.0) {
+                    return true;
+                }
+                break;
+            case NORTH:
+                if (bounds.minZ > 0.0) {
+                    return true;
+                }
+                break;
+            case SOUTH:
+                if (bounds.maxZ < 1.0) {
+                    return true;
+                }
+                break;
+            case WEST:
+                if (bounds.minX > 0.0) {
+                    return true;
+                }
+                break;
+            case EAST:
+                if (bounds.maxX < 1.0) {
+                    return true;
+                }
+                break;
+            default:
+                break;
+        }
+        beside.setPos(pos).move(side);
+        return !world.getBlockState(beside).doesSideBlockRendering(world, beside, side.getOpposite());
+    }
+
+    /** The name a method goes by where the game runs: the development name if it has one, else the game's own. */
+    private static String runtimeName(Class<?> owner, String development, String game, Class<?>... parameters) {
+        try {
+            owner.getMethod(development, parameters);
+            return development;
+        } catch (NoSuchMethodException running) {
+            return game;
+        }
+    }
+
+    /** Whether a class's public method of this name and parameters is the one declared by the owner. */
+    private static boolean declaredBy(Class<?> type, Class<?> owner, String name, Class<?>... parameters) {
+        try {
+            return type.getMethod(name, parameters).getDeclaringClass() == owner;
+        } catch (NoSuchMethodException | SecurityException unknown) {
+            return false;
+        }
     }
 
     private void pipe(List<BakedQuad> list, VertexLighterFlat lighter, BufferBuilder buffer, int cell) {

@@ -80,7 +80,6 @@ tasks.named('compileJava') { dependsOn 'verifyCubature' }
 // so that the pin names a commit; build it there first, since this cannot tell what the JAR was built from.
 tasks.register('refreshCubature') {
     def pin = platform.cubature
-    def jar = cubaturePin
     def checkout = file(providers.gradleProperty('cubatureCheckout').getOrElse('../Cubature'))
     def commitText = providers.exec { commandLine 'git', '-C', checkout.path, 'rev-parse', 'HEAD' }.standardOutput.asText
     def statusText = providers.exec { commandLine 'git', '-C', checkout.path, 'status', '--porcelain' }.standardOutput.asText
@@ -89,17 +88,20 @@ tasks.register('refreshCubature') {
         if (!statusText.get().trim().isEmpty()) {
             throw new GradleException("${checkout} has uncommitted changes; a pin must name a commit.")
         }
-        def built = new File(checkout, "cleanroom/build/cleanroom/libs/${pin.jar}")
+        // Cubature names its JAR by version alone; the pin's copy carries the commit it was built from.
+        def built = new File(checkout, "cleanroom/build/cleanroom/libs/Cubature-${pin.version}-cleanroom.jar")
         if (!built.exists()) {
             throw new GradleException("No build at ${built}; run ./gradlew build in ${checkout}/cleanroom first.")
         }
+        def name = "Cubature-${pin.version}-${commit.take(8)}-cleanroom.jar"
+        def jar = file("pins/${name}")
         jar.parentFile.mkdirs()
         java.nio.file.Files.copy(built.toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         def found = sha256Of(jar)
-        logger.lifecycle("Copied ${built} to ${jar}\n  commit ${commit}\n  sha256 ${found}")
-        logger.lifecycle(commit == pin.commit && found == pin.sha256 ? 'This is what platform.json pins.'
-            : "platform.json pins commit ${pin.commit}, sha256 ${pin.sha256}: record the values above there " +
-                'to build against this JAR.')
+        logger.lifecycle("Copied ${built} to ${jar}\n  commit ${commit}\n  jar ${name}\n  sha256 ${found}")
+        logger.lifecycle(commit == pin.commit && found == pin.sha256 && name == pin.jar ? 'This is what platform.json pins.'
+            : "platform.json pins ${pin.jar} at commit ${pin.commit}, sha256 ${pin.sha256}: record the values above " +
+                'there to build against this JAR.')
     }
 }
 
@@ -189,6 +191,11 @@ cleanroom {
                 // -Pprobe=offscreen|visible runs a development stage of Quadrature's own inside the world pass.
                 if (project.hasProperty('probe')) {
                     systemProperty 'quadrature.probe', project.property('probe')
+                }
+                // -Pcapabilities logs the context's limits and extensions at startup and writes them to
+                // the client's quadrature-capabilities.txt.
+                if (project.hasProperty('capabilities')) {
+                    systemProperty 'quadrature.capabilities', 'true'
                 }
                 // -PstateAudit reads OpenGL state at every stage boundary and reports what each stage leaves.
                 if (project.hasProperty('stateAudit')) {

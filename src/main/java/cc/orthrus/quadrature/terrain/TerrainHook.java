@@ -40,6 +40,14 @@ public final class TerrainHook {
         /** The light scene as a shader reads it, or null when it is not copied to the GPU. */
         PublishedScene publishedScene();
 
+        /**
+         * What the light scene's copy on the GPU has yet to take from the scene and copy, or -1 when the scene is
+         * not copied.
+         */
+        default long sceneCopyWaiting() {
+            return -1;
+        }
+
         /** For each chunk column of the box, whether its surface is loaded and meshed; null when not worked out. */
         CoverageMap coverage();
 
@@ -82,6 +90,60 @@ public final class TerrainHook {
         default String cubeReport(double x, double y, double z) {
             return "no near terrain";
         }
+
+        /** What the tier benchmark draws again, or null where near terrain offers nothing to it. */
+        default Probes probes() {
+            return null;
+        }
+    }
+
+    /**
+     * What the tier benchmark asks of near terrain (D22): whether it has caught up, and the frame's own
+     * draws issued again. Called on the client thread, only from inside {@link #afterOpaque}'s callback.
+     */
+    public interface Probes {
+        /** How many cubes wait to be meshed or sorted; 0 once near terrain has caught up. */
+        int waiting();
+
+        /**
+         * How many meshes near terrain holds. Nothing waits in a place whose cubes have not arrived yet, so
+         * caught up means this has stopped changing as well.
+         */
+        int held();
+
+        /**
+         * Draws one opaque layer of the frame's view again, with the commands and records already handed to
+         * the driver this frame, into whatever framebuffer is bound, under the state that is set. Nothing is
+         * counted, searched or written for shading.
+         *
+         * @return false where the frame's draws cannot be issued again: drawn by a call a cube
+         */
+        boolean opaqueAgain(BlockRenderLayer layer);
+
+        /**
+         * Draws the light view's wide box whole into its scratch layer, the way the light's depth check does,
+         * where no box is being drawn into the scratch over frames. {@code before} runs after the cubes are
+         * chosen and the commands handed to the driver, just before the first draw, and {@code after} just
+         * after the last, so that only the drawing lies between them.
+         *
+         * @return false where the light's depth is off, or its scratch is in use
+         */
+        boolean lightAgain(Runnable before, Runnable after);
+    }
+
+    private static Runnable afterOpaque;
+
+    /** The tier benchmark's probes, or null where own terrain is off or offers none. */
+    public static Probes probes() {
+        return drawer == null ? null : drawer.probes();
+    }
+
+    /**
+     * Sets what runs once a frame after near terrain's last opaque layer is drawn, under the state the game
+     * set for that layer; null for nothing. For the tier benchmark: it puts back what it changes.
+     */
+    public static void afterOpaque(Runnable callback) {
+        afterOpaque = callback;
     }
 
     private static Drawer drawer;
@@ -106,6 +168,25 @@ public final class TerrainHook {
             mainView = drawer.mainView(partialTicks, viewer);
         }
         drawer.draw(layer, mainView);
+        if (afterOpaque != null && layer == BlockRenderLayer.CUTOUT) {
+            afterOpaque.run();
+        }
+    }
+
+    /**
+     * A diagnostic, with {@code -Dquadrature.glDebug=true}: how many times the driver has said it moved a
+     * buffer, by name, to a kind of memory ("HOST", "DMA CACHED"), or to any where {@code to} is null.
+     */
+    public static long driverMoves(int buffer, String to) {
+        return DriverMessages.moves(buffer, to);
+    }
+
+    /**
+     * What the light scene's copy on the GPU has yet to take from the scene and copy: cubes queued, bricks and lookup
+     * entries not yet copied; -1 when own terrain is off or the scene is not copied. Read only.
+     */
+    public static long sceneCopyWaiting() {
+        return drawer == null ? -1 : drawer.sceneCopyWaiting();
     }
 
     /**

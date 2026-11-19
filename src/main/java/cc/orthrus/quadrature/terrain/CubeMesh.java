@@ -36,6 +36,8 @@ final class CubeMesh {
     final int[] faceCounts = new int[LAYERS];
     /** The terrain's mesh version when the mesh was put in place: a diagnostic. */
     long placedAt = -1;
+    /** What the cube's shape was built from, as {@link BuiltCube#geometry} gives it. */
+    long geometry = BuiltCube.NO_GEOMETRY;
 
     CubeMesh(int x, int y, int z) {
         this.x = x;
@@ -43,13 +45,17 @@ final class CubeMesh {
         this.z = z;
     }
 
-    /** A mesh in buffers of its own, from what the mesher last built. */
-    static CubeMesh owned(int x, int y, int z, CubeMesher mesher) {
+    /** A mesh in buffers of its own, from a built cube's vertices. Client thread. */
+    static CubeMesh owned(int x, int y, int z, BuiltCube built) {
         CubeMesh mesh = new CubeMesh(x, y, z);
         mesh.owned = true;
         for (int layer = 0; layer < LAYERS; layer++) {
-            if (mesher.count(layer) > 0) {
-                mesh.set(layer, mesher.data(layer), mesher.count(layer));
+            int count = built.vertexCount(layer);
+            if (count > 0) {
+                byte[] bytes = built.vertices(layer);
+                ByteBuffer data = ByteBuffer.allocateDirect(bytes.length).order(java.nio.ByteOrder.nativeOrder());
+                data.put(bytes).flip();
+                mesh.set(layer, data, count);
             }
         }
         return mesh;

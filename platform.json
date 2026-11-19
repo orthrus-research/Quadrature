@@ -7,16 +7,17 @@
     "vendor": "Eclipse Adoptium"
   },
   "cleanroom": {
-    "version": "0.7.14-alpha"
+    "version": "0.7.14-alpha",
+    "lwjgl": "3.4.3"
   },
   "cleanroomGradle": {
     "version": "0.23.0"
   },
   "cubature": {
     "version": "1.12.2-0.1.4.0",
-    "commit": "a8ebb701cf9fe0a859757853f93e5bd3f362c8e6",
-    "jar": "Cubature-1.12.2-0.1.4.0-a8ebb701-cleanroom.jar",
-    "sha256": "cf20e23f6805788551aabfa60ed7200b7931cb080c8d8634549a0c537215b1ed"
+    "commit": "19f9961a8f6e700bc539f2a1613183b9399246ae",
+    "jar": "Cubature-1.12.2-0.1.4.0-19f9961a-cleanroom.jar",
+    "sha256": "37da448876803e0c01283ef89ec95993b909345b55f1e41335558f3b946dbf9f"
   },
   "graphics": {
     "api": "OpenGL",

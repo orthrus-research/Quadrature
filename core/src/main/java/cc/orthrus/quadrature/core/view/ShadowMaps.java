@@ -5,13 +5,16 @@ package cc.orthrus.quadrature.core.view;
  * array texture of depth, and for each of its layers the matrix it was drawn through and the box that
  * matrix covers.
  *
- * <p>A layer's matrix takes a position relative to the published origin, in blocks, to the layer's clip
- * space: a plain orthographic box, clip depth from -1 nearest the light to 1 farthest. The previous
- * frame's matrix is relative to the previous frame's origin. The host draws with no depth bias beyond
- * the polygon offset named here; a sampler biases as it sees fit.
+ * <p>A layer's matrix takes a position relative to this frame's origin, in blocks, to the layer's clip
+ * space: a plain orthographic box, clip depth from -1 nearest the light to 1 farthest. It is made each
+ * frame from the layer's {@link LightBox}, which is fixed in the world, so it stays exact however long
+ * the layer is kept. The previous frame's matrix is relative to the previous frame's origin. The host
+ * draws with no depth bias beyond the polygon offset named here; a sampler biases as it sees fit.
  *
- * <p>The texture is not drawn every frame. The matrices and origin published are always those it was
- * last drawn with, never the light's of the moment, which is published beside them.
+ * <p>A layer is drawn a tile at a time and its box is replaced only when a new one has been drawn
+ * whole, so the light a layer was drawn along can trail this frame's by a set angle, and each layer
+ * by its own; both are published. A box need not be centered on the player: it is moved only once the
+ * player has come a share of its side from its center ({@link LightLayerPlan#DRIFT_SHARE}).
  *
  * <p>The texture can be sampled two ways, through one of two sampler objects: as depth compared with
  * a reference, filtered, or as the depth itself, unfiltered.
@@ -28,15 +31,14 @@ public final class ShadowMaps {
     private final float[][] previousViewProjection;
     private final double[] boxSide;
     private final double[] boxDepth;
+    private final float[][] drawnTowardLight;
     private final double[] origin = new double[3];
     private final double[] previousOrigin = new double[3];
     private final float[] towardLight = new float[3];
-    private final float[] drawnTowardLight = new float[3];
     private float polygonOffsetFactor;
     private float polygonOffsetUnits;
     private long generation;
     private long contentGeneration;
-    private boolean drawn;
 
     /**
      * @param layers how many layers the texture has
@@ -51,6 +53,7 @@ public final class ShadowMaps {
         previousViewProjection = new float[layers][16];
         boxSide = new double[layers];
         boxDepth = new double[layers];
+        drawnTowardLight = new float[layers][3];
     }
 
     // What the host sets.
@@ -66,28 +69,16 @@ public final class ShadowMaps {
         polygonOffsetUnits = units;
     }
 
-    /**
-     * Starts a frame in which the texture is drawn again: what was current becomes previous, and the
-     * frame's origin and light are the ones it is drawn with.
-     */
+    /** Starts a frame: what was current becomes previous; the frame's origin and light are given. */
     public void beginFrame(double originX, double originY, double originZ, double towardLightX,
         double towardLightY, double towardLightZ) {
-        hold(towardLightX, towardLightY, towardLightZ);
-        origin[0] = originX;
-        origin[1] = originY;
-        origin[2] = originZ;
-        System.arraycopy(towardLight, 0, drawnTowardLight, 0, 3);
-    }
-
-    /**
-     * Starts a frame in which the texture is kept as it is: its matrices and origin stay those it was
-     * drawn with, the frame before's become the same, and only the direction toward the light moves on.
-     */
-    public void hold(double towardLightX, double towardLightY, double towardLightZ) {
         for (int layer = 0; layer < layers; layer++) {
             System.arraycopy(viewProjection[layer], 0, previousViewProjection[layer], 0, 16);
         }
         System.arraycopy(origin, 0, previousOrigin, 0, 3);
+        origin[0] = originX;
+        origin[1] = originY;
+        origin[2] = originZ;
         double length = Math.sqrt(towardLightX * towardLightX + towardLightY * towardLightY
             + towardLightZ * towardLightZ);
         towardLight[0] = (float) (towardLightX / length);
@@ -96,18 +87,15 @@ public final class ShadowMaps {
     }
 
     /**
-     * Sets a layer's matrix from the view it is drawn through.
+     * Publishes a layer for this frame.
      *
-     * @param contentChanged whether what the layer holds can differ from the frame before apart from
-     *                       the light's own motion: a mesh in the box was placed, replaced or
-     *                       released, or the box moved to another texel
+     * @param view           the view through the layer's box for this frame's origin
+     *                       ({@link View#throughLight})
+     * @param contentChanged whether what the layer holds may differ apart from the light's own motion
+     *                       since the frame before: tiles drawn again, or a box for another place
+     * @param boxChanged     whether the layer's box was replaced since the frame before
      */
-    public void layer(int layer, View view, double boxSide, boolean contentChanged) {
-        layer(layer, view, boxSide, boxSide, contentChanged);
-    }
-
-    /** As {@link #layer(int, View, double, boolean)}, for a box whose depth along the light is not its side. */
-    public void layer(int layer, View view, double boxSide, double boxDepth, boolean contentChanged) {
+    public void layer(int layer, View view, LightBox box, boolean contentChanged, boolean boxChanged) {
         float[] out = viewProjection[layer];
         float[] p = view.projection();
         float[] m = view.modelView();
@@ -120,36 +108,16 @@ public final class ShadowMaps {
                 out[column * 4 + row] = sum;
             }
         }
-        this.boxSide[layer] = boxSide;
-        this.boxDepth[layer] = boxDepth;
-        boolean moved = !drawn || origin[0] != previousOrigin[0] || origin[1] != previousOrigin[1]
-            || origin[2] != previousOrigin[2] || !java.util.Arrays.equals(out, previousViewProjection[layer]);
-        if (moved || contentChanged) {
+        boxSide[layer] = box.side();
+        boxDepth[layer] = box.depth();
+        for (int axis = 0; axis < 3; axis++) {
+            drawnTowardLight[layer][axis] = (float) box.toward(axis);
+        }
+        if (contentChanged || boxChanged) {
             generation++;
         }
-        if (contentChanged || !drawn) {
+        if (contentChanged) {
             contentGeneration++;
-        }
-        drawn = true;
-    }
-
-    /**
-     * Keeps a layer that is not drawn again in a frame begun by {@link #beginFrame}: what it holds
-     * stays, and its matrix is carried from the frame before's origin to this frame's, so that every
-     * layer's matrix is relative to the one origin published. Its box's side and depth stay.
-     */
-    public void keep(int layer) {
-        float[] before = previousViewProjection[layer];
-        float[] out = viewProjection[layer];
-        double dx = origin[0] - previousOrigin[0];
-        double dy = origin[1] - previousOrigin[1];
-        double dz = origin[2] - previousOrigin[2];
-        // A position p from the new origin is p + d from the old: the matrix's last column takes M (d, 1).
-        for (int row = 0; row < 4; row++) {
-            out[row] = before[row];
-            out[4 + row] = before[4 + row];
-            out[8 + row] = before[8 + row];
-            out[12 + row] = (float) (before[row] * dx + before[4 + row] * dy + before[8 + row] * dz + before[12 + row]);
         }
     }
 
@@ -218,9 +186,9 @@ public final class ShadowMaps {
         return towardLight;
     }
 
-    /** The direction toward the light the texture was last drawn along; the light may have turned a little since. */
-    public float[] drawnTowardLight() {
-        return drawnTowardLight;
+    /** The direction toward the light a layer was drawn along; the light may have turned a little since. */
+    public float[] drawnTowardLight(int layer) {
+        return drawnTowardLight[layer];
     }
 
     public float polygonOffsetFactor() {
@@ -237,9 +205,10 @@ public final class ShadowMaps {
     }
 
     /**
-     * Changes only when what the texture holds can differ apart from the light's own motion: a mesh in
-     * the box was placed, replaced or released, or the box moved to another texel. The matrices say how
-     * far the light has turned; how much of that matters is the sampler's to judge.
+     * Changes only when what the texture holds can differ apart from the light's own motion: tiles were
+     * drawn again for meshes placed, replaced or released, or a layer's box was replaced by one for
+     * another place. The matrices say how far the light has turned; how much of that matters is the
+     * sampler's to judge.
      */
     public long contentGeneration() {
         return contentGeneration;

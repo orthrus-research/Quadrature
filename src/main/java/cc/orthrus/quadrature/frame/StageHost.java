@@ -252,7 +252,7 @@ public final class StageHost {
         for (float value : frame.lightViews[0]) {
             matrix.append(matrix.length() == 0 ? "" : " ").append(String.format("%.6g", value));
         }
-        float[] drawnToward = shadows == null ? null : shadows.drawnTowardLight();
+        float[] drawnToward = shadows == null ? null : shadows.drawnTowardLight(0);
         Quadrature.LOGGER.info("Stage probe: {} diagnostic outputs kept; toward the sun {} {} {}, toward the light {} {} {}; {} light "
             + "views given; the first, column-major: {}; its scales {} {}; the light's view generation {}, content {}, drawn "
             + "toward {}, {} cubes; half side {}, cloud height {}.", probed.size(), frame.sun[0], frame.sun[1], frame.sun[2],
@@ -390,7 +390,7 @@ public final class StageHost {
             } else if (at == null) {
                 held = "no place: the light's matrix has no inverse";
             } else {
-                float[] toward = shadows.drawnTowardLight();
+                float[] toward = shadows.drawnTowardLight(layer);
                 double[] world = {eyeWorld[0] + at[0], eyeWorld[1] + at[1], eyeWorld[2] + at[2]};
                 double dx = world[0] - seen[0];
                 double dy = world[1] - seen[1];
@@ -457,7 +457,7 @@ public final class StageHost {
         }
         int layers = 0;
         if (shadows != null) {
-            // The map is kept between frames: its matrices, its origin and its light are those it was drawn with.
+            // Each layer's matrix is made this frame from the box it was drawn through, relative to this frame's origin.
             double[] origin = shadows.origin();
             layers = Math.min(shadows.layers(), FrameBlock.LIGHT_VIEWS);
             for (int layer = 0; layer < layers; layer++) {

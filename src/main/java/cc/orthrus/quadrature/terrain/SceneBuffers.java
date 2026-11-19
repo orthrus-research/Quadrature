@@ -5,6 +5,7 @@ import cc.orthrus.quadrature.core.scene.LightScene;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.scene.SceneBricks;
 import cc.orthrus.quadrature.core.scene.ScenePalette;
+import cc.orthrus.quadrature.platform.Staging;
 
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL31;
@@ -82,6 +83,8 @@ final class SceneBuffers {
     private int stateTexture;
     private long statesSeen = -1;
     private long stateTables;
+    /** Where the check reads the buffers back: never the buffers themselves, which the GPU reads. */
+    private final Staging checkStaging = new Staging("the light scene's check");
     private long checks;
     private long checkedBricks;
     private long mismatches;
@@ -94,6 +97,14 @@ final class SceneBuffers {
 
     PublishedScene published() {
         return published;
+    }
+
+    /**
+     * What the buffers have yet to take from the scene and copy, as the last frame left it: cubes queued, bricks
+     * and lookup entries changed and not copied. Read only; 0 before the first frame, when nothing is held either.
+     */
+    long waiting() {
+        return bricks == null ? 0 : (long) bricks.cubesWaiting() + bricks.bricksWaiting() + bricks.entriesWaiting();
     }
 
     /** Makes the buffers for a box of this reach, dropping any made for another. */
@@ -289,7 +300,7 @@ final class SceneBuffers {
     private void check() {
         int wrong = 0;
         ByteBuffer back = ByteBuffer.allocateDirect(copied.length * 4).order(ByteOrder.LITTLE_ENDIAN);
-        GL45.glGetNamedBufferSubData(lookupBuffer, 0, back);
+        checkStaging.read(lookupBuffer, 0, back);
         for (int i = 0; i < copied.length; i++) {
             if (back.getInt(i * 4) != copied[i]) {
                 wrong++;
@@ -317,7 +328,7 @@ final class SceneBuffers {
             if (blocking == null || cells == null || bricks.entry(x, y, z) != entry) {
                 continue;
             }
-            GL45.glGetNamedBufferSubData(brickBuffer, (long) slot * SceneBricks.BRICK_BYTES, brick);
+            checkStaging.read(brickBuffer, (long) slot * SceneBricks.BRICK_BYTES, brick);
             boolean stale = false;
             for (int word = 0; word < SceneBricks.BRICK_WORDS && !stale; word++) {
                 stale = brick.getLong(word * 8) != words[slot * SceneBricks.BRICK_WORDS + word];
@@ -334,8 +345,8 @@ final class SceneBuffers {
                 }
             }
             if (states) {
-                GL45.glGetNamedBufferSubData(cellBuffer, (long) slot * LightScene.CELLS, cellsBack);
-                GL45.glGetNamedBufferSubData(listBuffer, (long) slot * ScenePalette.STATES * 2, listBack);
+                checkStaging.read(cellBuffer, (long) slot * LightScene.CELLS, cellsBack);
+                checkStaging.read(listBuffer, (long) slot * ScenePalette.STATES * 2, listBack);
                 boolean clamped = palette.build(cells, cellIndices, cellStates) > ScenePalette.STATES;
                 for (int cell = 0; cell < LightScene.CELLS && !clamped; cell++) {
                     if (listBack.getShort((cellsBack.get(cell) & 0xFF) * 2) != cells[cell]) {

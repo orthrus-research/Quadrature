@@ -63,31 +63,11 @@ final class MainView {
     }
 
     /**
-     * Fills {@code view} as a view along the direction of the sun, or of the moon while the sun is
-     * down, that holds what {@code main} sees.
+     * The direction toward the sun, or the moon while the sun is down, this frame. The sun circles the
+     * north-south axis: overhead at angle 0, in the east at three quarters; leaned toward the south
+     * where a tilt is set.
      */
-    static View alongLight(View view, View main, double partialTicks) {
-        // The sun circles the north-south axis: overhead at angle 0, in the east at three quarters;
-        // leaned toward the south where a tilt is set.
-        double[] toward = new double[3];
+    static void towardLight(double partialTicks, double[] toward) {
         SunPath.towardLight(Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks), SUN_TILT, toward);
-        return View.alongLight(view, main, toward[0], toward[1], toward[2]);
-    }
-
-    /**
-     * Fills {@code view} as a view along the same light whose box is a cube of a fixed side centered on
-     * the player and moved to a whole texel: every cube the client holds lies inside it whatever the
-     * hour, since they lie within the view's reach to every side.
-     *
-     * @param toward filled with the direction toward the light
-     * @return the side of the box, in blocks
-     */
-    static double alongLight(View view, View main, double partialTicks, int texels, double[] toward) {
-        SunPath.towardLight(Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks), SUN_TILT, toward);
-        // The cubes held lie in a square of twice the reach about the player; its diagonal is the most
-        // any axis across the light can span.
-        double side = Math.ceil(2 * Math.sqrt(2) * Math.max(main.across(), main.upward()) * 16);
-        View.alongLight(view, main, toward[0], toward[1], toward[2], side, texels);
-        return side;
     }
 }

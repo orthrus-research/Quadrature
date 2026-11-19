@@ -31,9 +31,24 @@ public final class PlatformGateHandler {
         if (failures == null) {
             PlatformProfile profile = PlatformReader.read();
             Quadrature.LOGGER.info("Platform: {}", profile.describe());
+            if (CapabilityDump.enabled()) {
+                // Before the gate, so the dump is written on a platform the gate refuses too.
+                try {
+                    CapabilityDump.run(profile, PlatformReader.memorySource(profile.extensions()));
+                } catch (RuntimeException e) {
+                    Quadrature.LOGGER.error("The capability dump failed; the game continues without it.", e);
+                }
+            }
             failures = PlatformGate.evaluate(profile, requirements);
             if (failures.isEmpty()) {
                 Quadrature.LOGGER.info("Platform gate passed.");
+                if (TierBench.enabled()) {
+                    try {
+                        TierBench.atGate(profile, PlatformReader.memorySource(profile.extensions()));
+                    } catch (RuntimeException e) {
+                        Quadrature.LOGGER.error("The tier benchmark could not start; the game continues without it.", e);
+                    }
+                }
             } else {
                 for (GateFailure failure : failures) {
                     Quadrature.LOGGER.fatal("Stopping: {} {} {}", failure.found(), failure.required(), failure.remedy());

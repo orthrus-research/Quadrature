@@ -59,6 +59,26 @@ same view.
 | `tools/comparison/near.json` | Near terrain only, no Distant Horizons: 0.1% changed, mean 0.05 |
 | `tools/comparison/repeat.json` | With Distant Horizons, settled: 2% changed, mean 1.0 |
 
+## Stage times by view
+
+A client run with `-Dquadrature.frameLog=true` logs a stage report every five seconds: the
+median and 95th percentile of each stage's CPU and GPU time over the last 256 frames, about
+two seconds, and the terrain summary. A tour captures a view once the player has held still
+for the settle time, 400 ticks, so the last report before a capture is that view.
+
+```sh
+python tools/stage_views.py views LOG [--tour TOUR] [--stage NAME]
+python tools/stage_views.py summary LOG [LOG ...] [--stage NAME] [--json OUT]
+```
+
+`views` prints a row per captured view: the stage's times, the meshes still waiting, the
+cubes the main view saw and the vertices of the last frame. A view is settled when no mesh
+waits at its report. A view whose terrain is still arriving draws less and reads cheaper,
+so `summary` takes its statistics over the views settled in every log it is given, which
+makes runs of different settings comparable view for view. It also gives the median over
+all of a log's reports, the statistic stage reports were read by before 2026-11-18, which
+mixes settled views with the loading between them.
+
 ## Measured repeatability
 
 Measured 2026-11-13: the forest tour (`forests-2485331`, 17 views, 1280 by 720) captured
@@ -678,6 +698,649 @@ at 0.021%. Stage medians at the last view: opaque terrain 0.375 ms on the CPU an
 on the GPU; in sum 0.746 and 2.511 ms. 59,043 meshes built at 1.130 ms each. A measurement
 on the same machine began 13 seconds before the run's end.
 
+### Opaque terrain against the near radius
+
+Measured 2026-11-18 on an RTX 3060 12 GB, driver 610.88, at 1280 by 720, with one build.
+One instance at the lab's baseline had its horizontal radius raised to 16 and 20 for a run,
+its vertical radius held at 12; a second was prepared with the reduced profile near-8, 8
+each way. Two configurations were run at each radius: drawn forward (own terrain, reversed
+depth, face records), and with the targets for shading as well. The light's depth, the
+stage and every diagnostic were off.
+
+The forest tour does not settle past radius 12. At 20 none of its 17 views had its terrain
+meshed at the capture: 11,000 to 31,000 cubes were waiting. Meshing runs on the client
+thread within 4 ms a frame, so a place takes longer to fill than the tour's 20-second views.
+The runs used a tour of three of its places instead. Each place is held for five captures
+9 blocks apart before its far and near views, and the forest tour's last view ends the
+tour. Every measured view of every run was settled. Times are `stage_views.py summary` over
+the seven measured views: the median of the views' medians, and the worst view.
+
+| Horizontal radius | 8 | 12 | 16 | 20 |
+|---|---|---|---|---|
+| Vertical radius | 8 | 12 | 12 | 12 |
+| Cubes the main view sees, median | 623 | 1,401 | 2,666 | 4,267 |
+| Opaque terrain drawn forward, GPU, median and worst | 0.96 and 1.94 ms | 1.81 and 2.30 ms | 2.23 and 2.49 ms | 2.32 and 2.73 ms |
+| With the targets as well | 2.15 and 2.69 ms | 2.72 and 3.37 ms | 2.86 and 4.59 ms | 3.74 and 6.73 ms |
+| CPU, median, drawn forward | 0.13 ms | 0.19 ms | 0.27 ms | 0.45 ms |
+| Records and kept vertices in use | 64 and 15 MiB | 165 and 43 MiB | 307 and 85 MiB | 497 and 129 MiB |
+| A new place settles in | 8 to 9 s | 10 to 18 s | 30 to 43 s | 70 to 88 s |
+| Cubes waiting, most after arriving | 2,700 | 15,000 | 36,000 | 68,000 |
+
+- **The forward draw grows far more slowly than what it draws.** From radius 8 to 20 the
+  cubes seen grow 6.8 times and the GPU time 2.4 times; from 16 to 20, 1.6 times and 1.04
+  times. Most of the stage's time does not follow the cubes drawn. Distant cubes add
+  triangles that cover few pixels.
+- **The targets' second draw grows past radius 12:** on average over the views it adds
+  0.85, 0.74, 1.07 and 1.81 ms, and 4.0 ms at the last view at radius 20.
+- **Memory** is 0.33 to 0.37 MiB a column held at a vertical radius of 12, 626 MiB at
+  radius 20. The arenas' capacity was 704 MiB at 20, inside near terrain's 1.5 GiB.
+- **Filling a place limits the radius before drawing does.** While cubes are waiting the
+  client thread meshes or finds empty about 1,000 cubes a second at every radius, so the
+  time to settle grows with the volume held: 70 to 88 seconds at radius 20.
+- The terrain summary's vertices are only the kept vertices, about 8% of quads; records
+  are not counted. The line gives no figure for the geometry a frame draws.
+- Radius 8 ran on its own instance: its views compare with the others by place.
+- These runs were measured before the card's clock was found to follow its load (the tier
+  benchmark, below), and record no clock state: under the game alone the card runs at 1.3 to
+  1.4 GHz or lower, and its times read up to a quarter above a settled card's. For
+  calibration the tier benchmark's table at settled clocks supersedes this one.
+
+### Meshes built on Cubature's build pool
+
+Measured 2026-11-18 on one fresh instance at the lab's baseline, with Cubature at the pinned
+commit and its build pool of 4 threads. The radius figures before are those of the section
+above, from builds on the client thread within 4 ms a frame.
+
+- **The picture.** Own terrain against a game-drawn run of the same instance, forest tour
+  at radius 12: 17 of 17 views pass `near.json`, the worst view 07 at 0.039%. The
+  reference was checked against its settling run; no view was captured facing elsewhere.
+  No driver message came during a terrain draw.
+- **What is drawn** is unchanged at every measured view of the dwell tour: the same cubes
+  seen, vertices and memory. Opaque terrain drawn forward takes 2.23 ms on the GPU at
+  radius 16 either way, and 2.61 against 2.32 ms at radius 20, on another instance.
+- **Settling.** Every view of the forest tour at radius 12 was settled at its capture,
+  where builds on the client thread left 3,000 to 5,000 cubes waiting at two views.
+
+| Dwell tour, a new place | Builds on the client thread | On the build pool |
+|---|---|---|
+| Radius 20, settled in | 74 and 87 s | 44 and 37 s |
+| Radius 20, cubes waiting at most | 65,000 and 68,000 | 21,000 and 20,000 |
+| Radius 16, settled in | 34 and 42 s | 24 and 18 s |
+| Radius 16, cubes waiting at most | 33,000 and 34,000 | 12,000 and 11,000 |
+
+- **The client thread.** Opaque terrain took 0.12 to 0.20 ms of CPU at the settled views
+  of the forest tour, where a view whose terrain was still arriving took 5.4 ms with
+  builds on the client thread. While a place arrives the frame's terrain setup takes
+  0.77 ms at the median and 1.5 ms at the 95th percentile. Its worst frame took 30.5 ms
+  in the pool's calls during an arrival, which is not explained, and 11.8 ms in the first
+  frames of the world, as the pool started.
+- **Empty cubes** are settled from the source's own count, without a snapshot: 330,268
+  times over the forest tour, against 68,847 builds. Builds on the client thread took a
+  snapshot for each of the 60,283 empty cubes of a tour.
+- **The light's depth** with both layers and the check every 600 frames: 137 checks, none
+  with a texel off by a step of depth. 5,680 meshes put in place with the shape of the
+  one they replaced kept their tiles.
+- **Builds a second.** At radius 20, with 4 permits and 20,000 builds waiting, the pool
+  built about 950 a second, 1.16 ms each: it takes snapshots only when it is pumped, for
+  as many builds as the permits and one a thread, and is pumped about once a frame, so its
+  threads stood idle for most of each frame.
+- **What the client allocates.** On the lab's former G1 profile with an 8 GiB heap, the
+  client's long frames were its collector's pauses, wherever they landed. Measured on
+  2026-11-18 over a radius-20 dwell tour, with a build of Cubature whose pool keeps its threads busy: before
+  the walk made its own face test, 61% of what the client allocated was on the build
+  threads, 47% of everything a position the game's face test makes for each face. With the
+  face test below and the consumer's offset kept at the origin, the client allocates 57 GB
+  over the tour where it allocated 128 GB, and pauses of 20 ms or more fall from 40 to 29;
+  the build threads' share falls to 25%. The face check meshes 110,866 cubes both ways with
+  none differing. The longest pauses remained mixed collections with the heap near full,
+  once with an evacuation failure at 7.6 GiB.
+- **Kept cube copies and the collector.** Cubature 45e636a6 lets go of a cube's copy for
+  snapshots once no snapshot has asked for it in 200 ticks: the client's live heap after a
+  place settles falls from 1,492 to 1,777 MiB to 838 to 1,132 MiB at radius 20, at the cost
+  of 28% more copies (0.35 s of client time over the tour). G1's pauses were unchanged by
+  it: their length followed the young generation's survivors while a place arrived. On ZGC
+  with the same fixed 8 GiB heap, the lab's default since Cubature 19f9961a, the longest
+  pause is 0.07 ms on the client and 0.03 ms on the server, against 179 and 140 ms on G1,
+  with no allocation stalls; places settle in the same 24 and 27 s, client CPU is the same,
+  and the worst frame in the build pool's calls falls from 32.8 to 9.1 ms.
+
+### The handoff from OpenGL to Vulkan
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with commit 8c8b3e1 (which merges
+feat/build-pool 089e9e9) on one fresh instance, behind `-Dquadrature.handoff=measure`
+(ARCHITECTURE.md 4.9). The window was 1920x1080 or 2560x1440, the render scale two thirds
+(1280x720 and 1707x960 inputs). The handoff's parts took turns in segments of 120 frames over
+the forest tour (1440p) and over the forest tour followed by the Nether and back (1080p): nothing,
+the round trip alone, the round trip with the stand-in, OpenGL's copies alone, and all of it.
+An `nvidia-smi` sampler every 250 ms tagged each frame with the GPU's power state; the card sat
+in P3 (885 to 997 MHz) for most frames and in P0 (1,282 and 1,395 MHz median) for the rest, so
+P0 is given first and P3 after. The lab caps the game at 120 frames a second without vsync.
+
+| Median GPU time, P0 (P3) | 1920x1080 | 2560x1440 |
+|---|---|---|
+| Round trip alone: OpenGL's signal to its resumption | 0.374 (0.499) ms | 0.355 (0.466) ms |
+| of which signal to Vulkan's start | 0.197 (0.261) ms | 0.192 (0.248) ms |
+| of which Vulkan's end to resumption | 0.173 (0.234) ms | 0.162 (0.210) ms |
+| Round trip with the stand-in | 0.477 (0.679) ms | 0.525 (0.739) ms |
+| of which the stand-in on Vulkan | 0.115 (0.162) ms | 0.182 (0.263) ms |
+| The stand-in's copies: in, out | 0.113, 0.083 ms | 0.150, 0.118 ms |
+| All of it | 0.651 (0.913) ms | 0.773 (1.048) ms |
+| Client time a frame: round trip alone, all of it | 0.056, 0.102 ms | 0.058, 0.104 ms |
+| GPU memory: the images (their texels) | 31.9 (29.9) MiB | 56.8 (53.1) MiB |
+
+- **The handoff costs a fixed latency, not bandwidth.** The round trip with no work on Vulkan
+  takes 0.36 to 0.37 ms at P0 and 0.47 to 0.50 ms at P3 at both sizes, split nearly evenly
+  between the way into Vulkan and the way back; the barriers that hand the images between the
+  queues take no measurable time of their own (Vulkan's batch, 0.000 ms). The 99th percentile
+  of the round trip is 0.76 to 0.78 ms at P0. On the client, the round trip costs 0.014 ms in
+  `vkQueueSubmit`, 0.028 ms in OpenGL's semaphore calls and 0.004 ms on fences.
+- **Against DLSS's published cost.** NVIDIA gives the RTX 3060 1.45 ms at 1080p and 2.39 ms at
+  1440p with presets J and K in Performance mode, 2.81 and 5.05 ms with preset M (research R1,
+  1.9). With the round trip measured here, a DLSS evaluation in this handoff would take about
+  1.82 and 2.75 ms (J and K) or 3.18 and 5.41 ms (M) at P0, before its own inputs at Quality
+  mode's larger render size. The copies are the stand-in's: in the bridge OpenGL draws into the
+  shared images and the post effects read the output, so they do not count.
+- **Memory.** Opening the Vulkan device takes 5 to 6 MiB of GPU memory; the images take what
+  their allocations say, 31.9 and 56.8 MiB, so the handoff holds about 38 and 63 MiB beside
+  DLSS's own 85.8 to 119.3 MB at 1080p and 143.5 to 207.4 MB at 1440p. VK_EXT_memory_budget's
+  usage for the process rose 246 to 455 MiB over a run with the handoff's allocations unchanged:
+  on this driver it counts the process's OpenGL memory too.
+- **The frame interval** stays at the cap, 8.33 to 8.34 ms in every part: under the cap the
+  handoff's time fits in the frame's slack, so its cost shows in a GPU-bound frame only.
+- **Checks.** 81 of 81 stamp checks passed at 1080p and 73 of 73 at 1440p, with no OpenGL error
+  on a checked frame and no result dropped; the first two round trips were proved in 1.2 to 1.5 ms.
+- **Formats.** The game's depth renderbuffer is `GL_DEPTH24_STENCIL8`, shared as
+  `VK_FORMAT_D24_UNORM_S8_UINT`; color and output as `RGBA16F`, motion as `RG16F`. The driver
+  accepted every image with every usage its format supports and the mutable-format bit, and
+  prefers, without requiring, dedicated memory for them.
+- **The picture.** With the whole round trip on every frame and the output not written into it,
+  at 1280x720, 17 of 17 forest views pass `near.json` against a game-drawn run of the same
+  instance, 15 of them with no changed pixel and the worst view 07 at 0.0679%. The reference was
+  checked against that run; no view was captured facing elsewhere.
+
+Failure modes, on commit 2f2595e and a fresh instance of its own (its handoff differs from
+8c8b3e1 only in the frame's wall-clock column and in how the check reads the stamp):
+
+- **A device that does not match.** Every opening lists each Vulkan device with its verdict; the
+  integrated UHD 770 beside the card is refused because its driver UUID differs. Forced onto it
+  (`quadrature.handoff.device=other`), the handoff opened a Vulkan device there and OpenGL
+  refused the first handle it was given, the semaphore's, with `GL_INVALID_VALUE`; the handoff
+  turned off with that reason and the frame went on, with no hang.
+- **A window resize** (to 1440x810 and back, with Vulkan's validation layer on): the images were
+  made again in 8.0 and 6.8 ms, and the next round trip's check passed each time.
+- **A world change** (the Nether and back, and leaving the world): the images were kept and the
+  next round trip's check passed each time, on both instances. Nothing in the handoff depends on
+  the world.
+- **Validation.** Over the smoke run, Vulkan's validation layer reported nothing.
+
+The first build measured, 75509b6, never opened: the RTX 3060's driver lists 276 device
+extensions, and reading them on LWJGL's 64 KiB thread stack overflowed it. LWJGL reports that
+as an `OutOfMemoryError`, which escaped into the game's loop, and the game dropped the world.
+Since ea636b6, Vulkan's enumerations read into memory allocated for them, image sizes are
+bounded before anything is allocated, and no error leaves the handoff for the game.
+
+Not measured: DLSS itself, which needs its SDK; a GPU-bound frame, where the round trip's time
+adds to the frame's; a queue of compute alone; binary semaphores.
+
+### Rays through the scene
+
+Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
+5.2 (`-Dquadrature.rays.bench=true -Dquadrature.rays.check=true`) and the scene's buffers on, on three
+fresh instances, over the dwell tour of three places: radius 12 with jars from f8aa79e, radius 20 and
+12 again from b2c32e7, radius 16 and 20 again from 19df819. Each set traces three classes at three
+lengths in each tier's batch: probe rays from a grid about the player in directions spread over the
+sphere; shadow
+rays from just above the first thing met straight down at each point of a square 256 blocks across,
+toward the hour's light, which the tour holds overhead at noon; and the same toward a sun 20 degrees
+above the horizon ("low sun"). GPU clocks were sampled beside every tour.
+
+**The trace is the reference's, to the bit.** `BrickTrace`'s eight unit tests require it to end
+where a walk of single cells over the scene as defined ends, outcome, distance and cell, on terrain,
+scattered cells at three fills, a wrapped origin and a moved box, and to agree with points along the
+ray in double precision except where a cell is crossed in under two of their steps; with the tie rule
+broken, four of the eight fail. On the GPU, after each measurement two runs of 256 rays and their
+results were read back and traced again on the CPU over the buffers the trace read:
+
+| Run | Sets | Rays compared | The same word for word | Differing | Passed over |
+|---|---|---|---|---|---|
+| Radius 12, dwell tour | 21 | 580,608 | 580,608 | 0 | 0 |
+| Radius 12, underground | 41 | 1,133,568 | 1,133,568 | 0 | 0 |
+| Radius 20, dwell tour | 5 | 138,240 | 138,240 | 0 | 0 |
+| Radius 12, dwell tour, again | 20 | 552,960 | 552,960 | 0 | 0 |
+| Radius 16, dwell tour | 17 | 470,016 | 470,016 | 0 | 0 |
+| Radius 20, dwell tour, again | 12 | 317,952 | 317,952 | 0 | 13,824 |
+| Radius 16, dwell tour, the walk as shipped | 17 | 470,016 | 470,016 | 0 | 0 |
+| Radius 20, dwell tour, the walk as shipped | 12 | 317,952 | 317,952 | 0 | 13,824 |
+
+Every compared word was equal, 3,981,312 rays in all: the distance's bits, the cell, the outcome
+and the nodes visited, through storage blocks and through buffer textures in the first four runs,
+from the scene's buffers and from a copy of them on the GPU in the last four. The first six traced
+the earlier walk, which also passed blocks of two cells a side by the bricks' coarser bits; the last
+two, from 71e966d, the walk as shipped, which reads no coarser bit (ARCHITECTURE 5.2). The rays passed over
+were traced while a cube arrived, under another generation than the copy read back. The light scene
+checks of the first four runs found no difference between the scene and its buffers.
+
+**Memory.** The lookup and room for a brick for every cube of the box:
+
+| Box | Lookup | Brick room | Bricks in use, most seen | With each cell's state as well |
+|---|---|---|---|---|
+| Radius 12, vertical 12 | 61 KiB | 8.6 MiB | 5,863 (4,273 underground) | 77.8 MiB |
+| Radius 16, vertical 12 | 106 KiB | 15.0 MiB | 10,969 | 135 MiB |
+| Radius 20, vertical 12 | 164 KiB | 23.1 MiB | 17,401 | 208 MiB |
+| Radius 20, vertical 8 | 112 KiB | 15.7 MiB | | 142 MiB |
+
+The trace reads the lookup and bricks alone. The benchmark's own buffers take 96 MiB, room for the
+largest batch.
+
+**What disturbed the first timings.** Two things, each found from evidence the runs carried:
+
+- *The clock.* Under the game's light load the card idles in P5 or P3 (memory at 810 or 5,001 MHz)
+  and reaches P0 (1,935 MHz, memory 7,501 MHz) 0.7 to 2.0 seconds into a set's load, once 3.3. In the
+  first sets probe rays ran first and so met the lower clocks. Sets now trace in rounds, every
+  measurement once a round, untimed for two seconds; within a set the five repeats then agree to a few
+  percent.
+- *Where the driver keeps the brick buffer.* With the clock settled, the same probe work still ran 3 to
+  12 times slower in some sets than in others, with the same node counts and the same longest rays,
+  while coherent rays in the same sets held steady and GPU utilization was no higher. With
+  `-Dquadrature.glDebug=true` the driver reported moving buffers from video to host memory: the
+  benchmark's rays, results and census, which the check read back after every measurement, over a
+  thousand times a run; the scene's lookup and bricks, which the light scene check and the end of each
+  set read back, ten to twenty times. In both runs at radius 12 the scene's brick buffer was first moved
+  to "DMA cached" memory 11 and 12 seconds before the slow stretch began, and the sets before it were
+  fast. A trace whose rays miss the cache reads such memory across the bus; coherent rays mostly hit
+  the cache. The CPU now reads only staging buffers filled by copies on the GPU.
+
+**With neither disturbance** (radius 16 and 20, the light scene check off, every read through a
+staging copy, the driver's moves counted per set): no buffer was moved in any of 29 whole sets, and
+the same work took the same time wherever it was measured. Probe rays at 256 blocks in HIGH's batch
+took 2.36 to 3.08 ms at the far views of every place at radius 16 (1.48 to 1.94 ms at the near views,
+where more probes begin among trees) and 2.42 to 2.80 ms at radius 20, where a set at radius 20 had
+taken 30 ms before. Each measurement was also timed from a copy of the lookup and bricks made on the
+GPU at the set's start and never read back. Over 783 measurements the ratio of the copy's median to
+the scene's was 1.000 at its middle and within 2% in 88% of them at radius 16 and 95% at 20; the few
+further apart fell either way, the copy faster in 30 and slower in 40. The scene's buffers, made with
+`glNamedBufferStorage` and `GL_DYNAMIC_STORAGE_BIT` and written with `glNamedBufferSubData`, are as
+fast to trace as a copy the CPU never touches, so long as the CPU does not read them. The light scene
+check (`-Dquadrature.scene.check=true`) reads them every 600 frames through a staging buffer filled by
+`glCopyNamedBufferSubData`, as the ray check does; a buffer used only as a copy's source was not moved
+in any measured set.
+
+**Speed.** GPU time of a batch at radius 20, the median over 12 sets of each set's median of five,
+from the scene's own buffers: the walk as shipped (from 71e966d, 2026-11-19); in brackets the earlier
+walk with coarser bits, at P0 clocks (from 19df819). The walk as shipped was run without clock
+samples, the sampler not having been started for those tours; the five repeats of each of its sets
+agreed as closely as the earlier walk's did at P0: the most less the least, over the median, was
+0.6 to 0.7% at its median over the measurements, against 0.8 to 1.6%.
+
+| Class, length in blocks | 65,536 rays (MEDIUM) | 524,288 (HIGH) | 2,097,152 (MAX) | Nodes a ray, MAX's batch |
+|---|---|---|---|---|
+| Probes, 16 | 0.062 ms (0.057) | 0.339 ms (0.308) | 1.056 ms (0.917) | 5.8 (4.0) |
+| Probes, 64 | 0.220 ms (0.176) | 1.413 ms (1.183) | 4.892 ms (3.928) | 17.3 (11.3) |
+| Probes, 256 | 0.528 ms (0.409) | 3.340 ms (2.676) | 12.170 ms (9.344) | 34.1 (23.6) |
+| Low sun, 16 | 0.058 ms (0.072) | 0.359 ms (0.385) | 1.353 ms (1.328) | 15.1 (9.3) |
+| Low sun, 64 | 0.197 ms (0.190) | 1.038 ms (0.948) | 3.550 ms (3.192) | 31.5 (18.3) |
+| Low sun, 256 | 0.336 ms (0.285) | 1.615 ms (1.476) | 5.438 ms (4.784) | 40.5 (25.6) |
+| Noon, 16 | 0.051 ms (0.055) | 0.294 ms (0.276) | 1.179 ms (1.054) | 14.6 (8.4) |
+| Noon, 64 | 0.097 ms (0.081) | 0.514 ms (0.426) | 1.952 ms (1.604) | 21.3 (13.2) |
+| Noon, 256 | 0.137 ms (0.114) | 0.781 ms (0.653) | 2.955 ms (2.502) | 32.1 (24.0) |
+
+In million rays a second, MAX's batch as shipped: probes 1,985, 429 and 172 at 16, 64 and 256
+blocks; toward the low sun 1,550, 591 and 386; at noon 1,780, 1,075 and 710.
+
+- **Without the coarser bits** the walk visits 1.3 to 1.7 times the nodes and takes 1.07 to 1.30
+  times as long for probe rays and 0.79 to 1.22 times as long for rays toward the sun: a cell's step
+  costs less than a block's, so the time grows more slowly than the nodes. It ends every ray in the
+  same cell at the same distance.
+- **Probe rays run at well under half the rate of coherent ones per node.** In MAX's batch at 256
+  blocks a probe ray visits 34.1 nodes and a ray toward the low sun 40.5, but the batch takes 12.2
+  against 5.4 ms: 5.9 against 15.6 billion nodes a second (with coarser bits, 5.3 against 11.2).
+- **The radius barely matters.** Probe rays at 256 blocks in MAX's batch, as shipped: 11.44 and
+  12.17 ms at radii 16 and 20; with coarser bits 7.40, 9.08 and 9.34 ms at 12, 16 and 20, where 43%
+  of them left the box at radius 12, 18% at 16 and 13% at 20.
+- **Small batches leave the card idle:** 65,536 rays run at 50 to 74% of the rate of two million.
+- **Noon is the easy case.** The tour holds the sun overhead; rays toward it climb out of the box,
+  97 to 100% leaving it, so far shadows are priced from the low sun.
+- **Where each ends, probes:** at 256 blocks in the MEDIUM and HIGH batches 54 to 60% hit; in every
+  batch 9 to 23% began in a cell that blocks (probes are not moved out of terrain), and 0.2 to 5% met a
+  cube not known; in HIGH's batch 11 to 27% left the box.
+- **Underground**, at y 22 and 30 inside rock, with the earlier walk, 97% of probes begin in a cell
+  that blocks and every probe batch takes under 0.6 ms (the shadow classes start from the surface and
+  cost what they do above); the tour's capture never fires inside rock, so only this one place was
+  measured, and no open cave was found for this seed.
+
+**Each tier's batch as it would run**, the walk as shipped, at its own radius (HIGH 16, MAX 20;
+MEDIUM at 16 as well, radius 12 not being measured again: with coarser bits it took 0.18 and 0.37 ms
+there against 0.18 and 0.41 at 16), and spread over frames; in brackets the earlier walk:
+
+| Tier | Batch | Whole update | A quarter a frame |
+|---|---|---|---|
+| MEDIUM | 16x8x16 probes, 32 rays: 65,536 rays at 64 blocks; at 256 | 0.22 ms; 0.53 ms (0.18; 0.41) | 0.06 ms; 0.13 ms |
+| HIGH | 32x8x32 probes, 64 rays: 524,288 rays at 64 blocks; at 256 | 1.45 ms; 3.47 ms (1.19; 2.66) | 0.36 ms; 0.87 ms |
+| MAX | two cascades of 32x8x32 probes, 128 rays: the near one (4 blocks apart) at 64 blocks and the far one (16 apart) at 256 | about 8.5 ms (6.6) | about 2.1 ms |
+| MAX far shadows | a ray toward the low sun at 256 blocks, a million of them | 2.59 ms (2.28) | 0.65 ms |
+
+MAX's two cascades were measured together at one length (4.89 ms at 64, 12.17 ms at 256); the line
+above takes half of each. The far-shadow line is per million rays: a whole 2560 by 1440 picture is
+3.7 million.
+
+### The tier benchmark
+
+Measured 2026-11-18 and 19 on an RTX 3060 12 GB, driver 610.88, window 1280 by 720, with
+`-Dquadrature.tierBench=calibrate`, which runs the benchmark wherever the player holds still with
+near terrain caught up, three times a place, and appends each run to the client's
+`quadrature-tier-runs.jsonl`. The card's clocks were sampled beside every tour by `nvidia-smi`,
+as evidence only. Instances are fresh, seed 2485331, scale 4, without distant terrain;
+`quadrature-tier-02` ran an exploratory build without the settling load, `quadrature-tier-03`
+and `-04` a build of the committed branch (b110221), and `quadrature-tier-05` the calibrated
+build (bd0d324).
+
+**The picture is unchanged with the benchmark on.** Own terrain with the benchmark running
+(54 runs over the tour) against the game's terrain in the same instance, forest tour at radius
+12: 17 of 17 views pass `near.json`, the worst view 07 at 0.024%. The reference was checked
+against its settling run; no view was captured facing elsewhere. The captures fall seconds
+after each place's runs, so they also show that the probes leave no state behind. No driver
+error came during the tour.
+
+**The card's clock decides what a probe reads.** One place, one build, the view held still, a
+radius of 20, six runs: the first three timed while the card sat in a low state, the last three
+once it had reached its top one.
+
+| Runs | Bandwidth, 256 MiB | Opaque terrain at 1280 by 720 | At 2560 by 1440 | At 3840 by 2160 | The light's box |
+|---|---|---|---|---|---|
+| 1 to 3 | 137 to 193 GB/s | 2.51 to 2.64 ms | 2.96 to 4.25 ms | 5.36 to 7.50 ms | 7.27 to 9.11 ms |
+| 4 to 6 | 348 to 351 GB/s | 1.305 to 1.309 ms | 1.714 to 1.726 ms | 3.11 to 3.13 ms | 4.04 to 4.11 ms |
+
+- Under the game alone the card moves among P5, P3 and P0, graphics 510 to 1,440 MHz and
+  memory 810, 5,001 or 7,501 MHz, and reaches about 1,950 MHz and 7,501 MHz only under added
+  load. A whole run left in P3 reads the bandwidth kernel at two thirds, the ratio of the
+  memory clocks.
+- At one place and one state the runs agree to a tenth of a percent: over the forest tour's
+  places, the median spread of a figure over a place's runs was 0.03 to 0.07%.
+- Without a settling load the first run at each place was the slow one; the benchmark now runs
+  one until two series of its own times agree (ARCHITECTURE 12.1.1).
+- **A place whose cubes have not arrived** reads as caught up, since nothing waits to be
+  meshed: 13 of the first tour's 65 runs drew no terrain. A run now also needs the count of
+  meshes held to stay the same, and above none, while the view stands still.
+
+**Repeatability, with the settling load.** The committed branch at b110221 on two fresh
+instances, the forest tour at radius 12, own terrain drawn forward with both layers of the
+light's depth and the light scene on the GPU: 100 runs, three a place, 93 of them settled and
+drawn. The other 7 never met the 2% agreement then asked of the settling load, with times at
+the top state's; the rule now asks 5%. The settling load agreed after 13 to 15 frames in most
+runs and within 40 in nearly all. A place's first run now reads as its later ones: 0.841 ms at
+1280 by 720 at the first place, where an instance's settled runs before read 0.838.
+
+| The score's spread, (max - min) / median | Median | Worst |
+|---|---|---|
+| The runs at one still view, one instance | 0.46% | 18.3% |
+| One place, two fresh instances, each place's median | 0.48% | 15.2% |
+| The 17 places, each place's median | 26.3% | standard deviation 6.8% |
+
+- By probe, across places: terrain a standard deviation of 8.6%, the light's box 7.1%,
+  bandwidth 1.9%, the trace 26.5%. At one place the trace read 4,267 million rays a second,
+  against 290 to 460 at the rest: its rays met the light scene's copy before it had caught up
+  (below, the light scene's copy), which the benchmark now waits for.
+- **The band exceeds the spread.** At 15% of the budget it is thirty times the spread at one
+  place and on two instances, and 2.2 standard deviations of the spread between places. A card
+  that sits exactly on a boundary changes tier on a run at another place about once in seventy
+  runs; elsewhere, less.
+- The worst cases at one place came from interference that recurs every few frames landing on
+  one resolution, since each round took the sizes in one order: 1280 by 720 read 1.39 ms where
+  1920 by 1080 read 1.23. The order now turns each round.
+- The card's score against the calibration fitted on these runs (bd0d324): 0.97 at the median,
+  0.86 to 1.17 over the 93 runs; against the one refitted over three radii (ddd8c29), 0.96, 0.85
+  to 1.14 over 128.
+
+**Radii 16 and 20, and the calibrated choice.** The calibrated build (bd0d324) on a fresh
+instance, the short dwell tour (two waits a place, 13 views) at radius 20 and then 16, with the
+light's depth, the scene on the GPU and the trace probe. Opaque terrain at the views where the
+dwell tour and the forest tour stand alike, against radius 12 on the two instances above:
+
+| Against radius 12, the same views | 1280 by 720 | 1920 by 1080 | 2560 by 1440 | 3840 by 2160 |
+|---|---|---|---|---|
+| Radius 16, seven views, median | 1.46 | 1.39 | 1.37 | 1.24 |
+| Radius 20, two views (this tour's one sound view and the exploratory build's) | 1.95 | 1.83 | 1.72 | 1.44 |
+
+- The step falls with the resolution: a farther radius adds primitives, and their share of the
+  time falls as the pixels rise. The table holds a curve for each radius.
+- **At 1280 by 720, the window, every counted run chose HIGH** for speed and MAX for memory,
+  8,637 MiB being free at the first screen; the scores ran 0.78 to 1.06, 0.98 to 1.06 at most
+  places. DLSS had room above HIGH there.
+- **At radius 20 four runs measured a place still arriving.** The count of meshes held still for
+  the 240 frames between batches while the view's search passed through about 9,600 cubes not
+  loaded; the probe drew about 5,000 primitives, read the card at 3.6 times the reference and
+  chose MAX, which the band does not stop, before the place's later runs chose HIGH again. A run
+  now needs the search to meet no cube that is not loaded, or that count to stand still for 15
+  seconds, and one whose terrain drew under 200,000 primitives chooses nothing (below).
+- **The calibration was then refitted** over 128 runs at the three radii, with item 4's trace
+  costs and item 6's costs of own temporal anti-aliasing and the scaler priced in. That commit
+  changes no code path: this tour's choices were made with bd0d324's table, and a unit test
+  feeds the new table this card's measured run (radius 16, the rainforest's high view) at four
+  outputs. It takes HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440, as bd0d324's table did,
+  and MEDIUM at 3840 by 2160 as bd0d324's did, a boundary case with LOW (below, the walk and the
+  scaler as they ship).
+
+**The final code on the GPU.** The branch at 6067440, its settle rule and its floor of
+primitives with ddd8c29's table (the scaler's and the rays' costs since changed under the test
+above, below), on a fresh instance: the dwell tour at radius 20, five waits a place, then the
+forest tour at radius 12.
+
+| Tour | Runs | Caught up, after the view came to rest | Meshes held then | Primitives drawn | Tier at 1280 by 720 |
+|---|---|---|---|---|---|
+| Dwell, radius 20 | 14 at 5 views | 6 to 19 s, every one with no cube of the box not loaded | 12,668 to 18,456 | 1.22 to 7.76 million | HIGH in all, memory MAX |
+| Forest, radius 12 | 50 at all 17 places | 0 to 13 s, every one with no cube of the box not loaded | 2,609 to 4,651 | 0.27 to 3.53 million | HIGH in all, memory MAX |
+
+- No run settled by the count standing still, so no run of a place partly arrived; no run drew
+  fewer than 200,000 primitives, and none was turned away. At radius 20 the rainforest's place
+  caught up only at its last view: its earlier views had cubes still to come when they ended.
+- The scores ran 0.91 to 1.05 at radius 20 and 0.88 to 1.13 at 12, the window's choices those
+  the test asserts. No driver error, no out-of-memory notice.
+- 8 of the 50 forest runs reached the settling load's 300 frames without its times agreeing
+  within 5%, at the top state's times all the same (the arithmetic pass 2.01 to 2.23 ms against
+  2.03 at the median of the rest); one late reading off by more kept the agreement from holding,
+  and the cap let them go on.
+
+**The walk and the scaler as they ship.** With item 4 merged at 1230d57, the table takes the
+rays' costs of the walk that reads no coarser bits (rays through the scene, above; that run
+sampled no clocks, and its figures are taken as the top state's): MEDIUM 0.53 ms a frame, HIGH
+0.87, MAX's cascades 2.13 and its far shadows 5.43. The scaler's are its plain kernel's, the one
+it ships, at 2560 by 1440 output: 0.92 ms of passes at 0.67 and 0.78 at 0.77, the 0.28 ms
+between them held fixed. The unit test of this card's measured run gives the tiers it gave
+before: HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440, with fits of 2.29, 1.82 and 1.37,
+and MEDIUM at 3840 by 2160 with 1.07 (the table before, 1.03); memory MAX at all four. On the
+reference card MEDIUM takes 6.62 ms of the 7 at 3840 by 2160, or 6.97 ms were the gaps to
+follow the pixels too, and this run MEDIUM either way. The trace probe walks the same way, so
+its reference rate, measured on the walk that read the coarser bits, is scaled by the probe's
+batch's own times on the two walks, 0.180 against 0.222 ms, to 305 million rays a second, and
+the run's trace in the test by the same factor (ARCHITECTURE 12.1.1); the benchmark's version is
+2. No run was made on the GPU for it.
+
+**The light scene's copy.** On the merged branch the benchmark ran 51 times on a fresh instance
+over the forest tour at radius 12, at version 2: every run chose HIGH at the window, and at 15
+of the 17 places the trace read 0.78 to 0.82 times the final code's run above (median 0.79,
+against 0.81 from the walk's own times), 290 million rays a second at the median against the
+305 of the reference. Place by place the two set apart one place of the final code's run (runs 7
+to 12, two views at -15873.5): its trace took 0.015 ms for 65,536 rays, 4,267 million a second,
+where the merged jar read 230 to 290 million. The scene's copy says why: after the view's jump
+there it held no brick, with about two million cubes queued to be taken from the scene, 512 a
+frame, and held none for about 35 s while near terrain stood caught up, so the rays left at
+once. The queue held each cube many times over, a box being 15,625 cubes. The same held for ten
+runs of the repeatability tours, at two places on two instances, the copy holding no brick with
+100,000 to 1.8 million cubes queued; nine of them are among the 128 calibration runs, whose
+median trace is the same without them.
+The queue now holds each of the box's entries at most once, and an entry is taken for the cube that
+lies there when it is taken (c960183). Under the same conditions, a dwell at radius 20 and then the
+forest tour at radius 12 on one fresh instance, the queue held at most 15,113 cubes for the box of
+15,625; the copy caught up within 0.026 s of near terrain all 33 times a place came to rest; the
+light scene's check found no difference in 17 checks; and the trace at the two views that had met the
+empty copy read 0.228 to 0.291 billion rays a second.
+
+- **Nothing is timed until the copy has caught up**: nothing left to take from the scene or to
+  copy, and some bricks held (`TerrainSettle`, through one read-only figure of the copy's,
+  `TerrainHook.sceneCopyWaiting`). A unit test holds a place whose meshes have all arrived and
+  whose copy works through two million queued cubes to running nothing until the copy is done.
+- **A trace far from the other probes chooses nothing.** Over the 128 runs, the 118 others
+  read the trace within 1.29 times of the geometric mean of the run's other ratios, a standard
+  deviation of 1.14 times in the logarithm; the runs that met the empty copy stood 10.6 to 12.7
+  times above, and the first run at one place at radius 16 3.5 times below (0.110 billion rays
+  a second, then 0.309 and 0.315 at the same view). A run whose trace stands past twice or half
+  the others now chooses nothing: 5.2 standard deviations past the sound runs and far inside
+  both kinds of fault. A unit test feeds two of those runs' measured figures to the table, and
+  neither chooses; this card's run of the tiers test agrees. With both changes the benchmark is
+  at version 3.
+- **The settling load does not wait on the copy for its own sake.** It begins only once the
+  place has caught up, the copy included, so it waits by construction. Its high times at the
+  first run of a place (5 of the 50 runs: 2.99 to 4.49 ms of arithmetic against 2.01 to 2.20)
+  are a lower clock state held steady, not the copy's work: in four of them the pass over the
+  large set read 1.15 ms against 0.77, 1.50 times, the ratio of the memory clocks of 7,501 and
+  5,001 MHz. Three
+  of them came with the copy at rest, one while it was still copying bricks and one with it
+  empty and doing nothing on the GPU; one run at the empty copy settled at 2.01 ms. Each of those
+  runs' probes read as its place's later runs (bandwidth 0.99 to 1.00): the warm-up repetitions
+  and the untimed load brought the clocks up before the timed ones.
+
+**A driver update, left to be run.** Every run so far is on driver 610.88. A driver is the
+user's to install, so the repeat across one is a step left:
+
+1. With the new driver installed, confirm its version (`nvidia-smi --query-gpu=driver_version
+   --format=csv`) and that the capability dump's driver fingerprint has changed.
+2. Play one tour on an instance that holds a stored result from 610.88, with
+   `-Dquadrature.tierBench.firstLaunch=true` and the light's and the scene's switches: the log
+   must say the first-launch path runs because the stored result is under another key, the
+   same GPU and another driver, and that the band holds to the stored tiers.
+3. Play the forest tour with `-Dquadrature.tierBench=calibrate` on that instance and on a
+   freshly prepared one, and set the scores beside 610.88's at the same places: the driver's
+   effect is the difference of the medians against the spread at one place, and a tier may move
+   only where a fit lies past the band.
+
+The same path was run without a driver change, on the calibrated build (bd0d324) on a fresh
+instance, by replacing the stored result's driver and key between two tours. The second tour's
+gate said: "the first-launch path runs the benchmark: the stored result is under another key,
+the same GPU, another driver; the band holds to speed HIGH and memory MAX". Its 33 runs chose
+HIGH, and the result was stored again under the true key.
+
+**Switches.** `-Dquadrature.tierBench=calibrate` (every still place, `.repeat` runs a place,
+3; `.stillFrames`, 240; `.heights`, 720,1080,1440,2160) or `once`;
+`-Dquadrature.tierBench.firstLaunch=true`, the player's path; `-Dquadrature.tier.memoryLimitMiB`
+takes the card to have that much memory; `-Dquadrature.tier.<group>=<tier>` overrides a group.
+
+### Own temporal anti-aliasing and scaler
+
+Measured 2026-11-19 at 2560 by 1440 on one fresh instance, with a jar built from commit
+e8e15dd, on the RTX 3060 with driver 610.88 and `quadrature.exitOnOutOfMemory=true` on every
+run. The scaler is Keys' separable cubic, the plain kernel, which that jar ran behind a switch
+since removed; the shader shipped computes the same, without the luma lane only the other
+kernel read. A kernel steered along edges by the structure tensor was measured beside it in
+the same jar and declined (D23); its figures are kept as the comparison, marked *steered*. The
+short tour has seven views: six of the forest tour, three places far and near, and one of a
+glowing iron golem on a red team. Quality is scored against own terrain at the output's size
+with both switches off, by `tools/frames.py quality`: PSNR, structural similarity, and edge
+detail, the frame's mean luma gradient over the native frame's.
+
+- **A first design failed**, on an instance before this one. It shrank every viewport of the
+  display's size inside the world pass. GTCEu Reloaded's bloom copies the game's picture into
+  framebuffers of its own and draws it back through viewports of the display's size every
+  frame, so the scene came out shrunk twice, 1151 by 649 in a corner. The framebuffer and
+  display size that stand in for the pass replaced it (ARCHITECTURE 4.8).
+- **Both switches off.** Own terrain against a game-drawn run of the same instance over the
+  full forest tour: 16 of 17 views pass `near.json`. View 07 differs in 0.2046% of its pixels,
+  within the 0.2131% by which the game-drawn run differs from its own settling run there (the
+  river in view 07).
+- **Motion from depth.** With `quadrature.taa.check=true`, every reading of the motion target
+  at the still views, 29 or 30 a run, had a mean of at most 0.00005 px and a greatest of
+  0.0001 px.
+- **Where the picture lands.** The global shift of each scaled view against the native one
+  (`tools/frames.py shift`) is 0.00 px in six of the seven views at 0.67 and at 0.77, the
+  golem's view among them, and in the last, a near view, 0.20 px down at 0.67 and 0.25 px down
+  at 0.77, 0.05 px left at both; the steered kernel gave the same. The measure finds a real
+  frame moved by a known fraction of a pixel to the twentieth of a pixel it resolves.
+- **Glowing entities.** The golem's outline is laid on at the output's size in place, after
+  the scaler: in frames captured at the end of the game's frame, after the outlines, the native
+  run and a run at 0.67 (steered) show the same 3,064 red pixels with the same bounds. Tour
+  captures are taken in the last world drawing, before the game lays outlines on, so they show
+  none at any scale.
+- **Framebuffers.** 29 are made at startup with the scaler on and none afterward, counted in
+  each timing report.
+
+The scaler's passes at the median of the short tour's views, GPU ms. The `scaler` stage holds
+the composite, passes from the depth copy on; the terrain depth is copied at the entities
+boundary. The rest of the stage, 0.1 to 0.4 ms, is the work between the timed passes.
+
+| Pass | 0.67 | 0.77 | 0.67, steered | 0.77, steered |
+|---|---|---|---|---|
+| Terrain depth copy | 0.035 | 0.040 | 0.033 | 0.040 |
+| Depth copy | 0.035 | 0.040 | 0.033 | 0.040 |
+| Motion | 0.059 | 0.061 | 0.056 | 0.061 |
+| Temporal | 0.313 | 0.294 | 0.287 | 0.293 |
+| Scale | 0.385 | 0.274 | 0.613 | 0.475 |
+| Depth stretch | 0.096 | 0.072 | 0.088 | 0.071 |
+| The `scaler` stage | 1.000 | 1.072 | 1.386 | 1.328 |
+
+- **What the frame saves.** Opaque and translucent terrain take 2.00 and 2.03 ms native on
+  the two native runs, and 1.24 ms at 0.67 and 1.44 ms at 0.77 scaled (1.08 and 1.26 ms in the
+  steered runs). Opaque terrain differs by 0.13 ms between the plain and the steered run at
+  each scale, though the kernel runs after it: these stage times vary between runs by about
+  that much. The frame's GPU sum rises from 2.11 ms native to 2.39 ms at 0.67 and 2.58 ms at
+  0.77 (2.45 and 2.64 ms steered): on this tour the world is too light for the composite to pay
+  for itself.
+- **Break-even.** The composite pays for itself once the world's stages that scale with the
+  drawn size take more at the output's size than the figures below. Scaling with the pixel
+  count is the best case; this tour's terrain saved less, since part of its cost is per vertex.
+
+| World time at the output's size to break even, ms | 0.67 | 0.77 | 0.67, steered | 0.77, steered |
+|---|---|---|---|---|
+| If the stages scale with the pixel count | 1.8 | 2.6 | 2.5 | 3.3 |
+| At the share this tour's terrain saved | 2.6 | 3.9 | 3.0 | 3.6 |
+
+| Against native, short tour | PSNR, dB | SSIM | Edge detail |
+|---|---|---|---|
+| 0.67 | 28.30 | 0.811 | 0.512 |
+| 0.77 | 28.89 | 0.837 | 0.559 |
+| 0.67, steered | 28.22 | 0.808 | 0.500 |
+| 0.77, steered | 28.83 | 0.835 | 0.548 |
+
+- **The steered kernel** scored no better than the plain one at either scale, nor over the six
+  views both 0.67 runs share with one native run (28.44 against 28.50 dB, 0.802 against 0.805,
+  0.497 against 0.508), and its scale pass cost 0.23 ms more at 0.67 and 0.20 ms more at 0.77.
+  Against the plain kernel at 0.77 it is 47.2 dB and SSIM 0.997. It is declined (D23).
+- **Under motion**, from frames captured at the end of the game's frame along one scripted
+  path, native against 0.67 with the temporal pass, from the same pose. That run's scaler was
+  the steered kernel; the kernel works on the temporal pass's result and never feeds the
+  history, so the recovery and the trailing below are the plain kernel's too. While the camera
+  holds still the structural similarity is 0.677, and a frame changes from the last by 0.37
+  levels of 255 against 0.16 native: the offset leaves 0.2 levels of flicker. After a cut the
+  similarity recovers in four frames, 0.624, 0.654, 0.668, 0.673, then 0.675 to 0.678; a resize
+  drops the history and recovers the same way. Panning 0.23 degrees a tick, about 4 px at the
+  center for the default field of view, the scaled frame lies 0.41 px behind the native frame
+  of the same tick on average; the two runs captured at different points within the tick, and
+  the poses' difference accounts for 0.54 px, which leaves -0.12 px, from -0.34 to +0.15: no
+  trailing beyond a third of a pixel. The similarity while panning, 0.610, carries the same
+  difference in pose and does not measure ghosting by itself.
+- **Not measured:** the picture with a mod's post-processing that keeps the game's framebuffer
+  from before the pass. Variance clipping is not used and its gain is not measured (D23).
+
+### The four together
+
+Measured 2026-11-19 at 1280 by 720 on one fresh instance, with a jar built from commit de5bd03, which
+merges the rays through the bricks, the tier benchmark, own temporal anti-aliasing and scaler, and the
+handoff to Vulkan onto the build pool.
+
+- **Every switch off.** Own terrain against the game-drawn run of the same instance: 17 of 17 forest
+  views within `near.json`, 15 of them under 0.02% changed; view 07 reads 0.0779%, where two
+  game-drawn runs of the instance differ by 0.0698%.
+- **The scaler at 0.67, plain kernel.** The picture's shift against own native is within 0.05 px on
+  all six views of the short tour; history is kept in 17,676 of 17,694 composites; motion reads
+  0.0001 px at most in still views. Quality at this output is not that of 2560 by 1440 and is not
+  compared with it.
+- **The tier benchmark** (`calibrate`, radius 12): 51 runs, each choosing HIGH at the window. The
+  trace probe's rate per place is 0.78 to 0.82 times that of the walk with coarser bits at 15 of 17
+  places (median 0.79), against 0.81 for the probe's batch in the ray benchmark.
+- No out-of-memory notice, failed check, OpenGL error or exception from Quadrature in any run.
+
+Since that jar, the tier benchmark waits for the light scene's copy and turns away a trace far from
+the run's other ratios (5f0cd3a); those paths are unit tested, and no run above traced outside the
+bound. Not run: the handoff's refusal beside the scaler, which turns the handoff off at its first
+frame.
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
@@ -702,10 +1365,30 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
 | `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
 | `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
+| `quadrature.exitOnOutOfMemory=true` | After the `CLIENT OUT OF MEMORY` notice, the client quits, so a launcher waiting on it fails at once instead of waiting on a world the game has dropped. Every lab run sets it |
+| `quadrature.testOutOfMemory=<seconds>` | That many seconds after the first world is entered, the game loop asks for an array no heap holds, to show the notice and the quit in a real run |
 | `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |
 | `quadrature.gbuffer.image=true` | Writes the targets as images into the client's `quadrature-gbuffer/` where the player stands still |
 | `quadrature.materials.audit=true` | Logs each block where the list of kinds and the rule differ, each the rule gives a kind that the list does not name, and the states of blocks that hold a material in each state |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
+| `quadrature.rays.bench=true` | With the scene's buffers: at a settled view, traces probe and shadow rays at three lengths in each tier's batch, from the scene's buffers and from a copy on the GPU, and logs GPU times, how the rays ended and the driver's moves of each buffer per set. `quadrature.rays.bench.settle`, `.every` and `.warm` set its seconds (3, 20, 2) |
+| `quadrature.rays.check=true` | With the benchmark: traces a sample of each batch's rays again on the CPU over the buffers read back through staging copies, and logs `RAYS CHECK FAILED` where any word differs |
+| `quadrature.rays.fetch=texture` | The trace reads the lookup and bricks through their buffer textures instead of storage blocks |
+
+An out-of-memory error from the game loop is one the game catches itself: it frees what it can,
+drops the world, shows its memory screen and logs nothing, so a run then waits on views that never
+come. Quadrature logs it always, switch or none: `CLIENT OUT OF MEMORY in the game loop`, with the
+error's stack trace, which names the allocation that failed, and the heap and direct buffers in use
+once the game has freed what it could. An out-of-memory error on one of Cubature's build threads,
+which fails that build, is logged the same way, as `in a build thread`.
+
+In a real run, one forest tour with `quadrature.testOutOfMemory=45` and
+`quadrature.exitOnOutOfMemory=true`, two views were captured with the hooks applied. The notice
+then came once, 45 s after the world was entered, naming the forced allocation, with 574 of
+8,192 MiB of heap and 70.7 MiB in 400 direct buffers in use. The client stopped within 3 s, and the
+launcher failed at once, 2 min 21 s into the run. In that last second the game's warnings about
+packets for the dropped world and four NullPointerExceptions appear: its own handling, ended by
+the quit.
 
 A settled frame is one with no cube waiting to be meshed.
 ## Limits

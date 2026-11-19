@@ -1,6 +1,5 @@
 package cc.orthrus.quadrature.core.view;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,6 +24,18 @@ class ShadowLayersTest {
     /** Lights from overhead, from low in the east, and a low sun leaned toward the south. */
     private static final double[][] LIGHTS = {{0, 1, 0}, {0.9389919, 0.3117149, 0.14535503}, {-0.6, 0.3, 0.74}};
 
+    /** The wide box's side at a reach of twelve chunks: the near box is as deep along the light. */
+    private static final double WIDE = 544;
+
+    private static LightBox nearBox(View player, double[] light) {
+        return LightBox.around(light[0], light[1], light[2], player.originX(), player.originY(), player.originZ(),
+            ShadowLayers.NEAR_SIDE, WIDE, ShadowLayers.TEXELS);
+    }
+
+    private static View through(View player, LightBox box) {
+        return View.throughLight(new View(), player, box);
+    }
+
     /** Where a position relative to the view's origin lands in the box's clip space. */
     private static double[] clip(View box, double x, double y, double z) {
         float[] p = box.projection();
@@ -44,14 +55,10 @@ class ShadowLayersTest {
         return Math.abs(clip[0]) <= 1 && Math.abs(clip[1]) <= 1 && Math.abs(clip[2]) <= 1;
     }
 
-    /** The wide box's side at a reach of twelve chunks: the near box is as deep along the light. */
-    private static final double WIDE = 544;
-
     @Test
     void theNearBoxIs192BlocksAcrossAsDeepAsTheWideBoxAndATexelIsUnderAFiftiethOfABlock() {
-        View box = new View();
         for (double[] light : LIGHTS) {
-            assertEquals(192.0, ShadowLayers.nearBox(box, player(2563.4, 146, 7624.7), light[0], light[1], light[2], WIDE));
+            View box = through(player(2563.4, 146, 7624.7), nearBox(player(2563.4, 146, 7624.7), light));
             float[] p = box.projection();
             assertEquals(1 / 96f, p[0], 0f);
             assertEquals(1 / 96f, p[5], 0f);
@@ -73,21 +80,28 @@ class ShadowLayersTest {
         assertEquals(-1, off.nearLayer());
         assertEquals(0, off.wideLayer());
         assertEquals(128L << 20, on.bytes());
+        assertEquals(256L << 20, on.bytesWithScratch());
         assertEquals(64L << 20, off.bytes());
         assertEquals(64L << 20, ShadowLayers.layerBytes());
+    }
+
+    @Test
+    void theWideBoxIsTheDiagonalOfTheSquareOfCubesHeld() {
+        assertEquals(544, ShadowLayers.wideSide(12, 12));
+        assertEquals(544, ShadowLayers.wideSide(12, 8));
+        assertEquals(725, ShadowLayers.wideSide(16, 4));
     }
 
     @Test
     void theNearBoxIsCenteredOnAWholeTexelOfTheLightsAxes() {
         Random random = new Random(7);
         double texel = ShadowLayers.texel(ShadowLayers.NEAR_SIDE);
-        View box = new View();
         for (double[] light : LIGHTS) {
             for (int i = 0; i < 200; i++) {
                 double x = 2000 + random.nextDouble() * 1000;
                 double y = 60 + random.nextDouble() * 100;
                 double z = 7000 + random.nextDouble() * 1000;
-                ShadowLayers.nearBox(box, player(x, y, z), light[0], light[1], light[2], WIDE);
+                View box = through(player(x, y, z), nearBox(player(x, y, z), light));
                 float[] m = box.modelView();
                 float[] p = box.projection();
                 for (int axis = 0; axis < 3; axis++) {
@@ -106,9 +120,9 @@ class ShadowLayersTest {
     @Test
     void theNearBoxHoldsWhatLiesWithin95BlocksOfThePlayerAndAcrossTheLightNothingBeyond96() {
         Random random = new Random(11);
-        View box = new View();
         for (double[] light : LIGHTS) {
-            ShadowLayers.nearBox(box, player(2550.3, 143, 7642.9), light[0], light[1], light[2], WIDE);
+            View player = player(2550.3, 143, 7642.9);
+            View box = through(player, nearBox(player, light));
             assertTrue(inside(clip(box, 0, 0, 0)));
             assertTrue(box.boxVisible(2550, 143, 7642, 2551, 144, 7643));
             for (int i = 0; i < 2000; i++) {
@@ -138,56 +152,37 @@ class ShadowLayersTest {
     }
 
     @Test
-    void aStepWithinATexelKeepsTheLayerAndOneAcrossItDrawsItAgain() {
-        View box = new View();
-        double texel = ShadowLayers.texel(ShadowLayers.NEAR_SIDE);
-        ShadowLayers.nearBox(box, player(2563.0, 146, 7624.0), 0, 1, 0, WIDE);
-        float[] m = box.modelView();
-        // Overhead light: the first axis runs along x. A place a tenth of a texel on stays in the texel.
-        double x = Math.rint(2563.0 / texel) * texel;
-        assertFalse(ShadowLayers.newTexel(m, texel, x, 146, 7624, x + texel * 0.1, 146, 7624));
-        assertTrue(ShadowLayers.newTexel(m, texel, x, 146, 7624, x + texel, 146, 7624));
-        assertTrue(ShadowLayers.newTexel(m, texel, x, 146, 7624, x, 146 + texel, 7624));
-        // The wide box's texel is nearly three times as large: the same step keeps it.
-        double wide = ShadowLayers.texel(544);
-        double w = Math.rint(2563.0 / wide) * wide;
-        assertFalse(ShadowLayers.newTexel(m, wide, w, 146, 7624, w + texel, 146, 7624));
-    }
-
-    @Test
-    void aKeptLayerIsCarriedToTheNewOriginAndPutsEveryPlaceWhereItWas() {
-        ShadowLayers layers = new ShadowLayers(true);
-        ShadowMaps maps = new ShadowMaps(layers.count(), ShadowLayers.TEXELS, layers.bytes());
+    void aBoxKeptWhileThePlayerMovesPutsEveryPlaceWhereItWas() {
+        // The box is made once; each frame's view through it is made for that frame's origin.
         double[] light = LIGHTS[1];
         View first = player(2563.4, 146.0, 7624.7);
-        View near = new View();
-        View wide = new View();
+        LightBox wide = LightBox.around(light[0], light[1], light[2], first.originX(), first.originY(), first.originZ(),
+            WIDE, WIDE, ShadowLayers.TEXELS);
+        ShadowMaps maps = new ShadowMaps(1, ShadowLayers.TEXELS, ShadowLayers.layerBytes());
         maps.beginFrame(first.originX(), first.originY(), first.originZ(), light[0], light[1], light[2]);
-        ShadowLayers.nearBox(near, first, light[0], light[1], light[2], WIDE);
-        View.alongLight(wide, first, light[0], light[1], light[2], 544, ShadowLayers.TEXELS);
-        maps.layer(0, near, 192, WIDE, true);
-        maps.layer(1, wide, 544, true);
-        float[] wideBefore = maps.viewProjection(1).clone();
-
-        // The player moves: the near layer is drawn again, the wide one kept.
-        View second = player(2563.9, 146.0, 7625.1);
-        maps.beginFrame(second.originX(), second.originY(), second.originZ(), light[0], light[1], light[2]);
-        ShadowLayers.nearBox(near, second, light[0], light[1], light[2], WIDE);
-        maps.layer(0, near, 192, WIDE, true);
-        maps.keep(1);
-        assertArrayEquals(wideBefore, maps.previousViewProjection(1));
-        assertEquals(544, maps.boxSide(1));
-        double[][] places = {{2570, 150, 7630}, {2500, 120, 7700}, {2563.4, 146, 7624.7}};
+        maps.layer(0, through(first, wide), wide, true, true);
+        float[] before = maps.viewProjection(0).clone();
+        double[][] places = {{2570, 150, 7630}, {2500, 120, 7700}, {2563.4, 146, 7624.7}, {2810, 60, 7400}};
+        View last = first;
+        for (int frame = 1; frame <= 500; frame++) {
+            // Five hundred frames of walking: a matrix carried from frame to frame would gather error.
+            View now = player(2563.4 + frame * 0.037, 146.0 + frame * 0.003, 7624.7 - frame * 0.021);
+            maps.beginFrame(now.originX(), now.originY(), now.originZ(), light[0], light[1], light[2]);
+            maps.layer(0, through(now, wide), wide, false, false);
+            last = now;
+        }
         for (double[] place : places) {
-            double[] before = apply(wideBefore, place[0] - first.originX(), place[1] - first.originY(), place[2] - first.originZ());
-            double[] after = apply(maps.viewProjection(1), place[0] - second.originX(), place[1] - second.originY(),
-                place[2] - second.originZ());
+            double[] was = apply(before, place[0] - first.originX(), place[1] - first.originY(), place[2] - first.originZ());
+            double[] is = apply(maps.viewProjection(0), place[0] - last.originX(), place[1] - last.originY(),
+                place[2] - last.originZ());
             for (int i = 0; i < 3; i++) {
-                // A sixteenth of a texel of the wide box, in clip units.
-                assertEquals(before[i], after[i], 2.0 / 4096 / 16);
+                // A sixty-fourth of a texel of the wide box, in clip units.
+                assertEquals(was[i], is[i], 2.0 / 4096 / 64);
             }
         }
-        assertEquals(2563.9, maps.origin()[0], 0);
+        assertEquals(last.originX(), maps.origin()[0], 0);
+        assertEquals(1, maps.generation());
+        assertEquals(1, maps.contentGeneration());
     }
 
     @Test
@@ -195,12 +190,11 @@ class ShadowLayersTest {
         // A sun 18 degrees up in the east, as on the tour's low-sun views.
         double elevation = Math.toRadians(18);
         double[] light = {Math.cos(elevation), Math.sin(elevation), 0};
-        View box = new View();
-        ShadowLayers.nearBox(box, player(2563.5, 146, 7624.5), light[0], light[1], light[2], WIDE);
+        View player = player(2563.5, 146, 7624.5);
+        View box = through(player, nearBox(player, light));
         // The tree stands 90 blocks east on the player's ground, 30 blocks tall, a trunk and a crown.
         for (double height = 0; height <= 30; height += 1) {
-            double[] at = clip(box, 90, height, 0);
-            assertTrue(inside(at), "tree at " + height + " blocks up");
+            assertTrue(inside(clip(box, 90, height, 0)), "tree at " + height + " blocks up");
         }
         // Its crown's shadow falls 30 / tan(18 deg) = 92 blocks back toward the player: on near ground.
         double reach = 30 / Math.tan(elevation);
@@ -209,11 +203,10 @@ class ShadowLayersTest {
         // In the wide box's depth, the crown stands nearer the light than the ground it shadows.
         assertTrue(clip(box, 90, 30, 0)[2] < clip(box, 90 - reach, 0, 0)[2]);
         assertTrue(box.boxVisible(2563 + 90, 146, 7624, 2564 + 90, 176, 7625));
-        // That crown lies 94.9 blocks along the light, just within a box only 192 deep. A 40-block tree
-        // 120 blocks out shadows the player's own ground too, from 126.5 blocks along the light: a box
-        // 192 deep leaves its crown out, the near box holds it and the ground it shadows.
-        View shallow = new View();
-        View.alongLight(shallow, player(2563.5, 146, 7624.5), light[0], light[1], light[2], 192, 192, ShadowLayers.TEXELS);
+        // A 40-block tree 120 blocks out shadows the player's own ground too, from 126.5 blocks along the
+        // light: a box 192 deep leaves its crown out, the near box holds it and the ground it shadows.
+        View shallow = through(player, LightBox.around(light[0], light[1], light[2], 2563.5, 146, 7624.5, 192, 192,
+            ShadowLayers.TEXELS));
         assertTrue(inside(clip(shallow, 90, 30, 0)));
         assertFalse(inside(clip(shallow, 120, 40, 0)));
         assertTrue(inside(clip(box, 120, 40, 0)));
@@ -230,13 +223,12 @@ class ShadowLayersTest {
         ShadowMaps maps = new ShadowMaps(layers.count(), ShadowLayers.TEXELS, layers.bytes());
         double[] light = LIGHTS[1];
         View first = player(2563.4, 146.0, 7624.7);
-        View near = new View();
-        View wide = new View();
+        LightBox near = nearBox(first, light);
+        LightBox wide = LightBox.around(light[0], light[1], light[2], first.originX(), first.originY(), first.originZ(),
+            WIDE, WIDE, ShadowLayers.TEXELS);
         maps.beginFrame(first.originX(), first.originY(), first.originZ(), light[0], light[1], light[2]);
-        ShadowLayers.nearBox(near, first, light[0], light[1], light[2], WIDE);
-        View.alongLight(wide, first, light[0], light[1], light[2], WIDE, ShadowLayers.TEXELS);
-        maps.layer(layers.nearLayer(), near, ShadowLayers.NEAR_SIDE, WIDE, true);
-        maps.layer(layers.wideLayer(), wide, WIDE, true);
+        maps.layer(layers.nearLayer(), through(first, near), near, true, true);
+        maps.layer(layers.wideLayer(), through(first, wide), wide, true, true);
         assertEquals(192, maps.boxSide(0));
         assertEquals(544, maps.boxDepth(0));
         assertEquals(544, maps.boxSide(1));
@@ -244,15 +236,16 @@ class ShadowLayersTest {
         // What the frame block is given: blocks a texel in x, the depth's span in y.
         assertEquals(0.046875, maps.boxSide(0) / maps.side(), 0);
         // Clip depth from -1 to 1 spans the depth: a step of one block along the light is 2 / 544 of it.
-        double[] a = clip(near, 0, 0, 0);
-        double[] b = clip(near, light[0], light[1], light[2]);
+        View view = through(first, near);
+        double[] a = clip(view, 0, 0, 0);
+        double[] b = clip(view, light[0], light[1], light[2]);
         double length = Math.sqrt(light[0] * light[0] + light[1] * light[1] + light[2] * light[2]);
         assertEquals(-2.0 / 544, (b[2] - a[2]) / length, 1e-6);
-        // A kept near layer keeps its depth.
-        maps.beginFrame(first.originX() + 1, first.originY(), first.originZ(), light[0], light[1], light[2]);
-        maps.keep(0);
-        assertEquals(544, maps.boxDepth(0));
+        // Each layer says the light it was drawn along.
+        assertEquals(light[0] / length, maps.drawnTowardLight(0)[0], 1e-6);
+        assertEquals(light[1] / length, maps.drawnTowardLight(1)[1], 1e-6);
     }
+
     private static double[] apply(float[] m, double x, double y, double z) {
         double[] out = new double[3];
         for (int row = 0; row < 3; row++) {

@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.platform;
 
+import cc.orthrus.quadrature.core.platform.GpuMemorySource;
 import cc.orthrus.quadrature.core.platform.PlatformProfile;
 import cc.orthrus.quadrature.core.platform.PlatformProfile.Profile;
 
@@ -16,9 +17,6 @@ import java.util.regex.Pattern;
 final class PlatformReader {
 
     private static final Pattern VERSION = Pattern.compile("^(\\d+)\\.(\\d+)");
-    /** GL_NVX_gpu_memory_info: total dedicated video memory, in KiB. */
-    private static final int GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX = 0x9047;
-    private static final String MEMORY_EXTENSION = "GL_NVX_gpu_memory_info";
 
     private PlatformReader() {
     }
@@ -61,13 +59,15 @@ final class PlatformReader {
             }
         }
 
-        long memory = PlatformProfile.MEMORY_UNKNOWN;
-        if (extensions.contains(MEMORY_EXTENSION)) {
-            memory = GL11.glGetInteger(GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX) & 0xFFFFFFFFL;
-        }
+        long memory = memorySource(extensions).read().dedicatedKiB();
 
         return new PlatformProfile(major, minor, profile, string(GL11.GL_VENDOR), string(GL11.GL_RENDERER),
             versionString, extensions, memory);
+    }
+
+    /** The source of GPU memory figures for the driver that offers these extensions (D8). */
+    static GpuMemorySource memorySource(Set<String> extensions) {
+        return extensions.contains(NvxMemorySource.EXTENSION) ? new NvxMemorySource() : GpuMemorySource.NONE;
     }
 
     private static String string(int name) {

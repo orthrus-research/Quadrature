@@ -1,8 +1,9 @@
 # Provenance
 
-Where each technique in Quadrature came from, and on what terms. Quadrature is offered
-under NRR 1.0, a public-domain dedication, so everything in it must be something its
-authors can dedicate: their own expression of ideas, never copied code.
+Where each technique in Quadrature came from, and on what terms. Quadrature's code is
+its authors' own expression of ideas, never copied code (D2), licensed under the Apache
+License 2.0 (D15). Material under another party's terms is kept apart and listed in
+`NOTICE.md`; NVIDIA's runtimes are linked, never taken, and stay in their own module (D19).
 
 ## Rules
 
@@ -43,12 +44,71 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Taken: the extension names and query tokens as published.
 - Added: 2026-11-13
 
+### The light's depth drawn by tiles and spread over frames
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/view/LightBox.java`, `LightTiles.java`,
+  `LightLayerPlan.java`, `ShadowMaps.java`, `View.throughLight`;
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/CubeList.java`;
+  `src/main/java/cc/orthrus/quadrature/terrain/LightLayer.java`, `ShadowTarget.java`, and
+  `Terrain.lightFrame`, `drawLight`, `drawTiles`, `checkLayer`
+- Source: original in its rules. Ideas used: keeping a shadow map between frames and drawing
+  again only what has changed, from Insomniac's "CSM Scrolling: An acceleration technique for
+  the rendering of cascaded shadow maps" (Mike Acton, SIGGRAPH 2012, Advances in Real-Time
+  Rendering); refreshing the costliest part of a shadow map over several frames, from
+  "Shadows Optimizations in Cyberpunk 2077" (Kamil Dybisz and Paweł Witanowski, SIGGRAPH 2021
+  talks). OpenGL 4.6 specification: scissored framebuffer clears, `glCopyImageSubData` between
+  textures of one depth format.
+- Taken: that a kept map need be drawn again only where it changed, and that a full redraw
+  can be spread over frames.
+- Not taken: Insomniac's scrolling of a map by copying it across itself as the camera moves;
+  here a box stays put while the player is near its center and is replaced, drawn into a
+  scratch over several frames, only once they are not. The tiles, the rule that a cube
+  covering a tile is drawn whole, the budget counted in cubes, the boxes fixed in the world
+  and made into a view for each frame's origin, and the check against a box drawn whole are
+  this project's own.
+- Added: 2026-11-18
+
+### State put back from a mirror of the game's cache, and targets prepared at world attach
+- Code: `src/main/java/cc/orthrus/quadrature/frame/GlStateMirror.java`,
+  `src/main/java/cc/orthrus/quadrature/mixin/MixinGlStateManager.java`, `ShadowTarget.begin`,
+  `end` and `prepare` in `src/main/java/cc/orthrus/quadrature/terrain/ShadowTarget.java`
+- Source: original. Facts used: the game's `GlStateManager` (Minecraft 1.12.2 as Cleanroom
+  ships it), whose setters for depth function and mask, face culling and polygon offset keep
+  the values the mirror copies; the OpenGL 4.6 specification for `glFinish` and framebuffer
+  clears. Measured here: a driver put off making a texture's memory its own until its first
+  use in a frame, and a clear of the texture alone did not count as one.
+- Taken: the setters' names and meanings.
+- Added: 2026-11-18
+
+### GPU memory sources and the capability dump
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/platform/GpuMemory.java`,
+  `GpuMemorySource.java`, `CapabilityReport.java`;
+  `src/main/java/cc/orthrus/quadrature/platform/NvxMemorySource.java`, `CapabilityDump.java`
+- Source: original. Facts used: OpenGL 4.6 compatibility specification (the state tables
+  `glGet` reads, indexed queries, `glGetInternalformativ`, context flags and the list of
+  shading language versions); Khronos registry, the specifications of `NVX_gpu_memory_info`,
+  `NV_mesh_shader`, `KHR_shader_subgroup`, `NV_shading_rate_image`,
+  `NV_primitive_shading_rate`, `NV_shader_thread_group`, `ARB_sparse_buffer`,
+  `ARB_sparse_texture`, `EXT_external_objects` and `EXT_external_objects_win32` (their query
+  tokens and what each returns); LWJGL 3.4.3, the token values as its bindings define them.
+- Taken: the query tokens and their meanings as published. Asking only for limits whose
+  extension is reported, and writing device identifiers as truncated digests, are this
+  project's own.
+- Added: 2026-11-18
+
 ### Frame comparison
 - Code: `tools/frames.py`
 - Source: original.
 - Taken: nothing. Changed-pixel fraction and mean absolute difference are elementary
   measures, chosen from Quadrature's own repeatability measurements.
 - Added: 2026-11-13
+
+### Stage times by view
+- Code: `tools/stage_views.py`
+- Source: original. Facts used: the client log's own stage report and the tour launcher's
+  capture line.
+- Taken: nothing. Taking the last report before each capture as that view, and counting a
+  view settled when no mesh waits, are this project's own.
+- Added: 2026-11-18
 
 ### Pass graph
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/frame/PassGraph.java`,
@@ -102,8 +162,36 @@ authors can dedicate: their own expression of ideas, never copied code.
   its block vertex format, and Cubature's cube source interfaces and render distance bound.
 - Added: 2026-11-14
 
+### Notice of an out-of-memory error the game catches
+- Code: `src/main/java/cc/orthrus/quadrature/platform/OutOfMemoryWatch.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/platform/OutOfMemoryNotice.java`, and the wrap of
+  `runGameLoop` in `src/main/java/cc/orthrus/quadrature/mixin/MixinMinecraft.java`
+- Source: original. Facts used: the game's `Minecraft.run` (Minecraft 1.12.2 as Cleanroom ships it),
+  read from its class files, catches `OutOfMemoryError` around `runGameLoop`, then frees memory,
+  shows `GuiMemoryErrorScreen` and runs a collection, logging nothing; MixinExtras' `WrapOperation`;
+  the platform's `BufferPoolMXBean` for direct buffers.
+- Taken: the names and the order of the game's handling. Noting the error where it is caught and
+  logging it on the loop's next pass, once memory is freed, is this project's own.
+- Added: 2026-11-18
+### Meshes built on the cube source's build pool
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`submit`, `sort`, `build`,
+  `priority`, `reprioritize`, `collect`, `take`, `place`), `CubeMesher.java`, `BuiltCube.java`,
+  `FaceBuilder.java`, `Materials.java`;
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/AtlasRectangles.java`
+- Source: original. Facts used: Cubature's cube source contract (its `docs/CUBE-SOURCE.md`,
+  sections 2, 3 and 5): the build pool's tasks, priorities, stale masks and polling, a
+  snapshot's versions per cube, and `cubeContent`; the game's block renderer and Forge's
+  render layer, which keep their per-thread state per thread, as the game's own chunk build
+  threads use them.
+- Taken: the pool's interface as published, and the order its contract suggests: the
+  squared distance from the camera, doubled outside the view, given anew as the camera
+  moves or turns. The result's order number, dropping a result older than what a cube
+  shows, the per-thread caches in front of shared numbering, and keeping the light's tiles
+  for a mesh of the same shape are this project's own.
+- Added: 2026-11-18
+
 ### Meshing a cube only among loaded neighbors
-- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`surrounded`, `rebuild`)
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`surrounded`, `sort`)
 - Source: original. Facts used: the running game's behavior in a cubic world, observed in
   what it draws: beyond 24 blocks from the player it meshes a cube only once the six cubes
   sharing a face with it are loaded, and a cube that cannot be meshed keeps the mesh it
@@ -185,8 +273,8 @@ authors can dedicate: their own expression of ideas, never copied code.
 
 ### The light's depth
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/ShadowTarget.java`, the depth program
-  in `TerrainProgram.java`, `core/src/main/java/cc/orthrus/quadrature/core/view/View.java`
-  (`alongLight` with a side and texels) and `ShadowMaps.java`
+  in `TerrainProgram.java`, `core/src/main/java/cc/orthrus/quadrature/core/view/LightBox.java`
+  and `ShadowMaps.java`
 - Source: Williams, "Casting Curved Shadows on Curved Surfaces", SIGGRAPH 1978, for depth
   drawn from the light; Valient, "Stable Rendering of Cascaded Shadow Maps", ShaderX6,
   2008, for a box of fixed size moved by whole texels; the OpenGL 4.6 compatibility
@@ -232,11 +320,17 @@ authors can dedicate: their own expression of ideas, never copied code.
   `TerrainProgram.java`
 - Source: original. Facts used: the public interfaces of the game and Forge for a baked
   model's quads, the order the game's block model renderer takes them in, and Forge's
-  vertex lighters and buffer consumer, which are called and not reproduced; the OpenGL 4.6
-  and GLSL 4.60 specifications (shader storage blocks, `gl_VertexID`, `gl_BaseInstance`).
+  vertex lighters and buffer consumer, which are called and not reproduced; the game's
+  default face test as Forge patches it (a side the block's bounds stop short of is drawn,
+  otherwise one the neighbor's `doesSideBlockRendering` does not block), read from the
+  game's class files, and the way its buffer adds a consumer's offset and its own
+  translation before a vertex's coordinate; the OpenGL 4.6 and GLSL 4.60 specifications
+  (shader storage blocks, `gl_VertexID`, `gl_BaseInstance`).
 - Taken: the idea of building a face's vertices in the vertex stage from a record indexed
-  by vertex number, as described in research R2. No code from another renderer.
-- Added: 2026-11-16
+  by vertex number, as described in research R2; the default face test's rule, made with
+  one kept position for blocks whose classes keep the game's own test. No code from
+  another renderer.
+- Added: 2026-11-16; the face test and the offset 2026-11-18
 
 ### The material table and the list of kinds
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/material/`,
@@ -530,6 +624,214 @@ authors can dedicate: their own expression of ideas, never copied code.
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification's state query
   names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
 - Added: 2026-11-17
+
+### The handoff seam and its module
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/handoff/Handoff.java`,
+  `src/main/java/cc/orthrus/quadrature/frame/HandoffHost.java`, the hook in `FrameHost.endPass`,
+  `quadrature-nvidia/build.gradle`, `quadrature-nvidia/NOTICE.md`
+- Source: original. Facts used: Java's `ServiceLoader`; the class loader the game's mods load
+  in (Foundation 0.22.2, read from its public classes: it defines `org.lwjgl` classes itself and
+  lets a URL be added); Forge 1.12.2's `WorldEvent.Unload`; the game's `Framebuffer` fields.
+  The module's Vulkan binding is LWJGL's own (`org.lwjgl:lwjgl-vulkan`, BSD 3-Clause), embedded
+  in the module's JAR at the release platform.json names.
+- Taken: nothing beyond the interfaces named.
+- Added: 2026-11-18
+
+### Choosing the Vulkan device by the OpenGL context's identity
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/handoff/DeviceIdentity.java`,
+  `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/VulkanDevice.java`
+- Source: Khronos, `EXT_external_objects` 4.2.1 and issue 20, and `EXT_external_objects_win32`
+  (device and driver UUIDs, LUID, node mask); Vulkan specification, `VkPhysicalDeviceIDProperties`
+  and the compatibility tables of `VkExternalMemoryHandleTypeFlagBits` and
+  `VkExternalSemaphoreHandleTypeFlagBits`.
+- Taken: that opaque Win32 handles import only where both UUIDs match, and that a valid LUID
+  names the same adapter to both APIs on Windows.
+- Added: 2026-11-18
+
+### Images and semaphores shared between OpenGL and Vulkan
+- Code: `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/SharedImage.java`,
+  `SharedSemaphores.java`, `StandIn.java`, `Win32.java`, `Gl.java`, `Enumerations.java`, and the
+  round trip in `VulkanHandoff.java`; `core/src/main/java/cc/orthrus/quadrature/core/handoff/SharedImageSizes.java`
+- Source: Khronos, `EXT_external_objects` (memory objects, textures from memory, tiling, the
+  dedicated parameter, semaphore signal and wait with layouts, issues 9, 13, 17 to 19),
+  `EXT_external_objects_win32` (handle import, ownership), `NV_timeline_semaphore` (type,
+  values, wait before signal); Vulkan specification (external memory and semaphore export,
+  dedicated allocations, `VK_QUEUE_FAMILY_EXTERNAL` release and acquire, timeline semaphores);
+  NVIDIA, DLSS Super Resolution Programming Guide 310.6.0, sections 3.3 and 3.4 (the inputs'
+  and output's formats and usages).
+- Taken: the import and synchronization rules as specified: every supported usage and the
+  mutable-format bit on a shared image, dedicated memory flagged on both sides, NT handles
+  closed after import, acquire and release through the external queue family in the layouts
+  each side names, one timeline semaphore with rising values for both directions; DLSS's image
+  usages for the stand-in's images.
+- Not taken: any code from NVIDIA's or anyone's samples; none were opened.
+- Added: 2026-11-18
+
+### Measuring the handoff
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/handoff/HandoffSchedule.java`,
+  `Samples.java`, `RenderSize.java`, `quadrature-nvidia/src/main/glsl/standin.comp`, and the
+  timing, check and report in `VulkanHandoff.java`
+- Source: original. Facts used: OpenGL 4.6 timestamp queries and `GL_TIMESTAMP`; Vulkan
+  timestamp queries, `timestampPeriod` and `vkGetCalibratedTimestampsKHR` with the performance
+  counter's time domain; Windows `QueryPerformanceCounter`, which Java's `nanoTime` counts on
+  Windows. The stand-in is a bilinear upscale reading the three inputs DLSS reads.
+- Taken: nothing beyond the interfaces named.
+- Added: 2026-11-18
+
+### Rays walked through the occupancy bricks, cell by cell and node by node
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
+  `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,
+  `ComputeState.java`
+- Source: the walk through a uniform grid that crosses, each step, the nearest of the next cell
+  boundaries along the three axes, from Amanatides and Woo, "A Fast Voxel Traversal Algorithm for Ray
+  Tracing", Eurographics 1987 (https://www.eecs.yorku.ca/~amana/research/grid.pdf). Passing empty
+  space a whole node at a time in a hierarchy of grids, from Museth, "Hierarchical Digital
+  Differential Analyzer for Efficient Ray-Marching in OpenVDB", SIGGRAPH 2014 talks, and from the
+  two-level grids of Kalojanov, Billeter and Slusallek, Eurographics 2011. OpenGL 4.6 specification:
+  compute shaders, shader storage blocks, buffer textures, `precise`, timestamp queries.
+- Taken: the step to the nearest boundary, and skipping a node known to be empty. The nodes are the
+  scene's own: a cube of one state, named so by its lookup entry, and a cell.
+- Not taken: skipping a block of two cells a side by the bricks' coarser bits. It was built first and
+  set aside on 2026-11-19 by the user's decision, after a patent search found a family in force that
+  claims rays looked up in occupancy bits at several levels of detail (research R4, 7.8a); the walk
+  now reads only the lookup's entries and the cell bits.
+- Not taken: the incremental form of the walk, which adds each axis's step to a running distance.
+  Here each distance is worked out afresh from the origin and a whole-numbered boundary, and the cell
+  on the other axes after a node is passed is found by the same crossing test a walk of single cells
+  makes, x before y before z on equal distances, so that the walk by nodes ends exactly where the walk
+  by cells does and the GPU's results can be compared with the CPU's to the bit. That form, the
+  ordering rule and the comparison are original. No code from OpenVDB, NanoVDB or any renderer was read.
+- Added: 2026-11-18
+
+### The ray benchmark and its check
+- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`;
+  `src/main/java/cc/orthrus/quadrature/platform/Staging.java`, which the light scene's check in
+  `SceneBuffers` reads through too; `DriverMessages.moves`, `TerrainHook.driverMoves`
+- Source: original in its classes and schedule. Ideas used: probes about the camera casting rays
+  in directions spread over the sphere, as in Majercik, Guertin, Nowrouzezahrai, McGuire, "Dynamic
+  Diffuse Global Illumination with Ray-Traced Irradiance Fields", JCGT 8(2), 2019; that coherent and
+  incoherent rays differ in throughput on NVIDIA hardware through divergence within a warp and
+  scattered memory access, from Aila and Laine, "Understanding the Efficiency of Ray Traversal on
+  GPUs", HPG 2009, and its Kepler and Fermi addendum, NVIDIA NVR-2012-02. Directions are spread by
+  the single-round permuted congruential hash evaluated in Jarzynski and Olano, "Hash Functions for
+  GPU Rendering", JCGT 9(3), 2020, after O'Neill's PCG (2014); its published constants are used.
+- Taken: the shape of the work measured: probe grids, rays a probe, and rays toward the sun from
+  surfaces.
+- Original: timing in interleaved rounds after an untimed warm-up; timing each batch from the
+  scene's buffers and from a copy made on the GPU; reading back only staging buffers filled by GPU
+  copies; counting the driver's reported buffer moves per set. Facts used: the OpenGL 4.6
+  specification (`glCopyNamedBufferSubData`, `GL_CLIENT_STORAGE_BIT`, timestamp queries, sync
+  objects) and the driver's own debug messages.
+- Not taken: any probe update, irradiance storage or shading; only the trace is measured.
+
+### Tier benchmark: bandwidth kernel and timed probes
+- Code: `src/main/java/cc/orthrus/quadrature/platform/TierBench.java`, `BandwidthKernel.java`,
+  `TraceProbe.java`; `TerrainHook.java` (`Probes`, `afterOpaque`, `sceneCopyWaiting`), `Terrain.java`
+  (`probes`) and `SceneBuffers.java` (`waiting`);
+  `core/src/main/java/cc/orthrus/quadrature/core/tier/BenchmarkRun.java`, `BenchmarkResult.java`,
+  `TerrainFit.java`, `ClockSettle.java`, `TerrainSettle.java`, `Samples.java`, `TierBenchmark.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification (timestamp, primitives
+  generated and samples passed queries, their availability, the one time-elapsed query a target
+  may have open, compute dispatch, storage buffers, framebuffer clears, the fixed-function alpha
+  test after a program); `GL_EXT_memory_object` (the device and driver identifiers); the game's
+  public classes (the block texture's mipmap switch and the alpha state around its opaque layers).
+- Taken: nothing. The probes issue the frame's own commands again; the kernel reads a buffer once
+  a dispatch, threads a dispatch's width apart; a register-bound load runs until its own times
+  agree, so the clocks have settled without any clock being asked for; a probe waits for the view's
+  search to meet no cube that is not loaded, or for that count to stand still, and for the light
+  scene's copy on the GPU to have nothing left to take or copy; a probe's time is
+  set against a model of the reference card fitted over many places, by primitives and pixels.
+- Added: 2026-11-18
+
+### Tier selection: predicted cost, a band at each boundary, memory and overrides
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/tier/TierSelection.java`,
+  `TierCalibration.java`, `TierCalibrationTable.java`, `TierChoice.java`, `StoredTiers.java`,
+  `Tier.java`, `TierGroup.java`
+- Source: original, from D22. A band around each boundary is ordinary hysteresis, as in a
+  Schmitt trigger.
+- Taken: nothing. A tier's cost on a machine is the reference card's, group by group, over the
+  ratio of the probe standing for the group; the band is a share of the budget, and the last tier
+  on the same GPU, kept by digest, is the one the band holds to; a run whose trace stands past a
+  factor of two from its other probes chooses nothing.
+- Added: 2026-11-18
+
+### Memory tier lowered at run time by evictions and 1% lows
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/tier/EvictionWatch.java`, `TierBench.java`
+  (`watchFrame`)
+- Source: original, from D22. Facts used: NVIDIA, `GL_NVX_gpu_memory_info` (the eviction count
+  since the system started).
+- Taken: nothing.
+- Added: 2026-11-18
+
+### Rendering below output resolution: the drawn framebuffer, the offset and motion from depth
+- Code: `src/main/java/cc/orthrus/quadrature/frame/TemporalScaler.java` (the drawn framebuffer
+  standing in for the game's, the view, the composite's order and state), `ScalerShaders.java`
+  (`MOTION_COMPUTE`), `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererScale.java`,
+  `MinecraftScaleAccess.java`, `MixinFramebufferScale.java`, `MixinRenderGlobalScale.java`,
+  `RenderGlobalScaleAccess.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/scale/`
+  (`RenderScale`, `Jitter`, `Reprojection`); hooks in `FrameHost` and `BaselineGraph`
+- Source: original in its placement. Ideas used: a sub-pixel offset of the projection each frame
+  from a low-discrepancy sequence, and motion for what stands still from depth and the previous
+  camera, as published for temporal anti-aliasing (Karis, "High Quality Temporal Supersampling",
+  SIGGRAPH 2014; Pedersen, "Temporal Reprojection Anti-Aliasing in INSIDE", GDC 2016); the
+  Halton sequence (Halton, 1960). Facts used: the game's world pass read from its public classes
+  (where the viewport is set, which calls build each world projection, where Forge's last world
+  drawing runs, where the game's framebuffer and display size are read) and the lab's capture in
+  that event; what GTCEu Reloaded's bloom does inside the pass, from its classes' calls; the
+  OpenGL 4.6 specification (clip-space
+  translation, `glCopyImageSubData` between a renderbuffer and a texture of one depth format,
+  nearest depth blits, `glMatrixLoadfEXT` from `EXT_direct_state_access`).
+- Taken: that the offset belongs on the left of the perspective, and that a point's depth and
+  two cameras give its motion.
+- Not taken: any engine's code or constants; motion for moving hosted draws, which D21 still
+  needs.
+- Added: 2026-11-18
+
+### Temporal pass
+- Code: `src/main/java/cc/orthrus/quadrature/frame/ScalerShaders.java` (`TEMPORAL_COMPUTE`),
+  `TemporalScaler.composite`
+- Source: Salvi, "An Excursion in Temporal Supersampling", GDC 2016 (an exponential moving
+  average of resolved color with about a tenth of the current frame; clipping the history
+  toward the current neighborhood's box; bicubic reads of the history);
+  Karis, SIGGRAPH 2014 as above (YCoCg, the motion of the nearest depth in the neighborhood,
+  filtering the current frame by each sample's distance after its offset, luma weighting
+  against flicker, a raised current weight where motion is unreliable); Malan, 2012, as Salvi
+  credits him for neighborhood clipping; Catmull and Rom, "A class of local interpolating
+  splines", 1974, for the history spline.
+- Taken: the structure of accumulation and rectification and the ideas above, written anew. The
+  nine-read spline is derived here from the cubic's weights; the Gaussian of half a pixel, the
+  motion term, the depth-change test for a raised weight and every constant are Quadrature's.
+- Not taken: variance clipping, the box from the neighborhood's mean and deviation, which
+  NVIDIA patents describe (D23; research R4, 7b.1).
+- Added: 2026-11-18
+
+### Spatial scaler
+- Code: `src/main/java/cc/orthrus/quadrature/frame/ScalerShaders.java` (`SCALE_COMPUTE` and
+  `COPY_COMPUTE`)
+- Source: Keys, "Cubic convolution interpolation for digital image processing", IEEE
+  Transactions on Acoustics, Speech and Signal Processing 29(6), 1981 (the kernel, a = -1/2).
+- Taken: Keys' kernel as published. The hold to the central texels' range and the sharpening
+  boost are Quadrature's.
+- Not taken: a kernel steered along the edge the structure tensor shows. It was built and
+  measured against this one at 67% and 77%, where it scored no better and its pass cost more,
+  and the user declined it on 2026-11-19 with US 7,889,950 in view (D23; research R4, 7b.2).
+  Nor steering kernel regression or any part of its procedure; any code or constant of NVIDIA
+  Image Scaling or AMD FidelityFX Super Resolution, neither of which was opened. NVIDIA Image
+  Scaling is a comparison reference only (D23).
+- Added: 2026-11-18
+
+### Picture quality measures
+- Code: `tools/frames.py` (`ssim`, `psnr`, `edge_detail`, `quality`, `shift`)
+- Source: Wang, Bovik, Sheikh and Simoncelli, "Image quality assessment: from error visibility to
+  structural similarity", IEEE Transactions on Image Processing 13(4), 2004 (the index, its
+  Gaussian window of deviation 1.5 and its constants for 8-bit values); Guizar-Sicairos, Thurman
+  and Fienup, "Efficient subpixel image registration algorithms", Optics Letters 33(2), 2008 (a
+  correlation evaluated near its peak on a finer grid by a matrix DFT).
+- Taken: the index's formula and constants; the refinement as published. The edge-detail ratio,
+  the cross-correlation of luma gradients under a Hann window and the grid's extent are
+  Quadrature's.
+- Added: 2026-11-18
 
 ## Design sources
 

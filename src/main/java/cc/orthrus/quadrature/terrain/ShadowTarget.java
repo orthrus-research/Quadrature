@@ -3,6 +3,7 @@ package cc.orthrus.quadrature.terrain;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.view.ShadowLayers;
 import cc.orthrus.quadrature.depth.DepthCalls;
+import cc.orthrus.quadrature.frame.GlStateMirror;
 
 import net.minecraft.client.Minecraft;
 
@@ -13,6 +14,7 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.opengl.GL33;
+import org.lwjgl.opengl.GL43;
 import org.lwjgl.opengl.GL45;
 
 import java.awt.image.BufferedImage;
@@ -24,16 +26,21 @@ import java.nio.FloatBuffer;
 import javax.imageio.ImageIO;
 
 /**
- * The depth a light's view is drawn into: one square texture of depth alone, owned by Quadrature, with a
- * framebuffer that has no color.
+ * The depth a light's view is drawn into: an array texture of depth alone that is published, a scratch
+ * texture of as many layers where a new box is drawn before it is copied over the published one, and a
+ * framebuffer with no color that either is attached to a layer at a time.
  *
- * <p>Each layer is 4,096 texels a side. The wide view along the light is a cube centered on the player
- * that holds every cube the client has: 544 blocks a side at a reach of twelve chunks, so a texel is
- * 0.13 of a block. With {@code -Dquadrature.shadow.near=true} a near box 192 blocks across, 0.047 of a
- * block a texel, is layer 0 and the wide box layer 1; otherwise the wide box is the only layer. Depth
- * is kept in 24 bits: the boxes are orthographic, so depth is linear, and 24 bits divide a box 544
- * blocks deep into steps of a thirty-thousandth of a block. The texture takes 4 bytes a texel, 64 MiB a
- * layer. See {@link ShadowLayers}.
+ * <p>Each layer is 4,096 texels a side. The wide view along the light is a cube that holds every cube the
+ * client has: 544 blocks a side at a reach of twelve chunks, so a texel is 0.13 of a block. With
+ * {@code -Dquadrature.shadow.near=true} a near box 192 blocks across, 0.047 of a block a texel, is layer
+ * 0 and the wide box layer 1; otherwise the wide box is the only layer. Depth is kept in 24 bits: the
+ * boxes are orthographic, so depth is linear, and 24 bits divide a box 544 blocks deep into steps of a
+ * thirty-thousandth of a block. Each texture takes 4 bytes a texel, 64 MiB a layer. See
+ * {@link ShadowLayers}.
+ *
+ * <p>Layers are drawn a few tiles at a time: the tiles are cleared through the scissor and every cube
+ * that may cover them is drawn whole. What such a cube draws beyond the tiles is what is there already,
+ * the same geometry at the same depth, so only the tiles named change.
  */
 final class ShadowTarget {
 
@@ -41,7 +48,7 @@ final class ShadowTarget {
     static final ShadowLayers LAYOUT = new ShadowLayers(Boolean.getBoolean("quadrature.shadow.near"));
     static final int SIDE = ShadowLayers.TEXELS;
     static final int LAYERS = LAYOUT.count();
-    /** The bytes the depth texture takes: 24 bits of depth stored in 4 bytes a texel, for every layer. */
+    /** The bytes the published texture takes: 24 bits of depth stored in 4 bytes a texel, for every layer. */
     static final long BYTES = LAYOUT.bytes();
     /**
      * The polygon offset the depth is drawn with, as {@code factor,units}; none unless
@@ -64,16 +71,16 @@ final class ShadowTarget {
 
     private int framebuffer;
     private int texture;
+    private int scratch;
     private int compareSampler;
     private int depthSampler;
-    private boolean offset;
-    private float offsetFactor;
-    private float offsetUnits;
-    private int depthFunction;
-    private boolean cull;
+    private boolean clearPublished = true;
+
     private final float[] far = {1f};
 
     private final int[][] stamps = new int[RING][2];
+    /** The frame each pair of stamps in the ring was issued in, so a time read late is put to its frame. */
+    private final long[] stampFrames = new long[RING];
     private final boolean[] stamped = new boolean[RING];
     private int ring = -1;
     private long gpuNanos;
@@ -83,14 +90,11 @@ final class ShadowTarget {
 
     private FloatBuffer readback;
     private int images;
+    private boolean offsetFound;
 
     private void create() {
-        texture = GL45.glCreateTextures(GL30.GL_TEXTURE_2D_ARRAY);
-        GL45.glTextureStorage3D(texture, 1, GL14.GL_DEPTH_COMPONENT24, SIDE, SIDE, LAYERS);
-        GL45.glTextureParameteri(texture, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-        GL45.glTextureParameteri(texture, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-        GL45.glTextureParameteri(texture, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
-        GL45.glTextureParameteri(texture, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        texture = depthArray();
+        scratch = depthArray();
         // Two ways to sample it: compared with a reference and filtered, or the depth itself.
         compareSampler = GL45.glCreateSamplers();
         GL33.glSamplerParameteri(compareSampler, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
@@ -117,17 +121,64 @@ final class ShadowTarget {
             pair[0] = GL15.glGenQueries();
             pair[1] = GL15.glGenQueries();
         }
-        Quadrature.LOGGER.info("Shadow target: {} by {} texels of depth, {} layer{}, {} MiB{}.", SIDE, SIDE, LAYERS,
-            LAYERS == 1 ? "" : "s", BYTES >> 20, LAYOUT.near() ? String.format(" (%d MiB for the near layer, %.0f blocks "
-                + "across)", ShadowLayers.layerBytes() >> 20, ShadowLayers.NEAR_SIDE) : "");
+        Quadrature.LOGGER.info("Shadow target: {} by {} texels of depth, {} layer{}, {} MiB published and {} MiB of scratch{}.",
+            SIDE, SIDE, LAYERS, LAYERS == 1 ? "" : "s", BYTES >> 20, BYTES >> 20, LAYOUT.near()
+                ? String.format(" (%d MiB a layer for the near one, %.0f blocks across)", ShadowLayers.layerBytes() >> 20,
+                    ShadowLayers.NEAR_SIDE) : "");
+    }
+
+    private static int depthArray() {
+        int made = GL45.glCreateTextures(GL30.GL_TEXTURE_2D_ARRAY);
+        GL45.glTextureStorage3D(made, 1, GL14.GL_DEPTH_COMPONENT24, SIDE, SIDE, LAYERS);
+        GL45.glTextureParameteri(made, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+        GL45.glTextureParameteri(made, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        GL45.glTextureParameteri(made, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL45.glTextureParameteri(made, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        return made;
+    }
+
+    /** The published layers are cleared to the farthest depth at the next {@link #begin}: another world. */
+    void clearPublished() {
+        clearPublished = true;
+    }
+
+    /**
+     * Makes the textures and puts them through what the first frame that draws does to them, then waits
+     * for the driver to finish: every layer of both attached and cleared through the framebuffer, and
+     * each scratch layer copied over its published one. A driver puts off taking a texture's memory, and
+     * work of its own, until a texture is first used; clearing it as a texture alone is not such a use.
+     * Called when a world is attached, behind the screen that waits for it, where the time is not a
+     * frame's. The scissor test is left off, the world pass's neutral value; the depth mask is put back
+     * to what the game's cache believes.
+     *
+     * @return the milliseconds it took on this thread, the wait included
+     */
+    double prepare() {
+        long start = System.nanoTime();
+        if (framebuffer == 0) {
+            create();
+        }
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL11.glDepthMask(true);
+        for (int layer = 0; layer < LAYERS; layer++) {
+            attach(true, layer);
+            GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+            attach(false, layer);
+            GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+            publish(layer);
+        }
+        GL11.glDepthMask(GlStateMirror.depthMask);
+        GL11.glFinish();
+        clearPublished = false;
+        return (System.nanoTime() - start) / 1e6;
     }
 
     /**
      * Sets the state a depth-only draw of Quadrature's own depends on, before the first layer drawn in
      * a frame. What it changes that the game's draws depend on is read first and put back by
-     * {@link #end}. Draws go nowhere until {@link #layer} names a layer.
+     * {@link #end}. Draws go nowhere until {@link #attach} names a layer.
      */
-    void begin() {
+    void begin(long frame) {
         if (framebuffer == 0) {
             create();
         }
@@ -141,14 +192,27 @@ final class ShadowTarget {
                 gpuNanos += lastGpuNanos;
                 gpuSamples++;
                 mostGpuNanos = Math.max(mostGpuNanos, lastGpuNanos);
+                if (lastGpuNanos > mostGpuNanosSince) {
+                    mostGpuNanosSince = lastGpuNanos;
+                    mostGpuFrameSince = stampFrames[ring];
+                }
+                if (lastGpuNanos > 1_000_000) {
+                    gpuOverOne++;
+                }
+                if (lastGpuNanos > 2_000_000) {
+                    gpuOverTwo++;
+                }
             }
         }
         GL33.glQueryCounter(stamps[ring][0], GL33.GL_TIMESTAMP);
+        stampFrames[ring] = frame;
 
-        depthFunction = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        cull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+        // Every piece of state the draws depend on is set, and none is read: what is put back comes from
+        // the game's cache by way of the mirror, or is the world pass's neutral value.
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, framebuffer);
         GL11.glViewport(0, 0, SIDE, SIDE);
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL11.glDepthMask(true);
         GL11.glDepthFunc(GL11.GL_LEQUAL);
         if (DepthCalls.active()) {
             // The light's box is written for clip depth from -1 to 1, whatever the frame uses.
@@ -159,15 +223,14 @@ final class ShadowTarget {
         // What stands nearer the light than the view's box still casts into it.
         GL11.glEnable(GL32.GL_DEPTH_CLAMP);
         // The depth is drawn with the offset set for it and no other: what the game holds at this point
-        // is read and put back, never drawn with. An offset left on by the game would move every stored
-        // depth by the slope of its surface, which at a low light is most of a block on flat ground.
-        offset = GL11.glIsEnabled(GL11.GL_POLYGON_OFFSET_FILL);
-        offsetFactor = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_FACTOR);
-        offsetUnits = GL11.glGetFloat(GL11.GL_POLYGON_OFFSET_UNITS);
-        if (offset && (offsetFactor != 0 || offsetUnits != 0) && !offsetFound) {
+        // is put back, never drawn with. An offset left on by the game would move every stored depth by
+        // the slope of its surface, which at a low light is most of a block on flat ground.
+        if (GlStateMirror.polygonOffsetFill && (GlStateMirror.polygonOffsetFactor != 0 || GlStateMirror.polygonOffsetUnits != 0)
+            && !offsetFound) {
             offsetFound = true;
             Quadrature.LOGGER.warn("Shadow target: the game holds a polygon offset of {}, {} switched on where the light's depth is "
-                + "drawn; the depth is drawn without it. It is said once.", offsetFactor, offsetUnits);
+                + "drawn; the depth is drawn without it. It is said once.", GlStateMirror.polygonOffsetFactor,
+                GlStateMirror.polygonOffsetUnits);
         }
         if (POLYGON_OFFSET[0] != 0 || POLYGON_OFFSET[1] != 0) {
             GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
@@ -175,20 +238,92 @@ final class ShadowTarget {
         } else {
             GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
         }
+        if (clearPublished) {
+            clearPublished = false;
+            for (int layer = 0; layer < LAYERS; layer++) {
+                attach(false, layer);
+                GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+            }
+        }
     }
 
-    private boolean offsetFound;
-
-    /** Makes one layer the place draws go, cleared to the farthest depth; the others keep what they hold. */
-    void layer(int layer) {
-        GL45.glNamedFramebufferTextureLayer(framebuffer, GL30.GL_DEPTH_ATTACHMENT, texture, 0, layer);
-        GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+    /** Makes a layer of the published texture or of the scratch the place draws and clears go. */
+    void attach(boolean toScratch, int layer) {
+        GL45.glNamedFramebufferTextureLayer(framebuffer, GL30.GL_DEPTH_ATTACHMENT, toScratch ? scratch : texture, 0, layer);
     }
 
-    /** Puts back what {@link #begin} changed. The framebuffer and viewport are the envelope's to restore. */
+    /**
+     * Clears rectangles of the layer attached to the farthest depth.
+     *
+     * @param rectangles x, y, width and height of each, in texels
+     */
+    void clear(int[] rectangles, int count) {
+        if (count == 0) {
+            return;
+        }
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        for (int i = 0; i < count; i++) {
+            GL11.glScissor(rectangles[i * 4], rectangles[i * 4 + 1], rectangles[i * 4 + 2], rectangles[i * 4 + 3]);
+            GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+        }
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+    }
+
+    /** Copies a layer of the scratch, drawn whole, over the published layer. */
+    void publish(int layer) {
+        GL43.glCopyImageSubData(scratch, GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, texture, GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0,
+            layer, SIDE, SIDE, 1);
+    }
+
+    /**
+     * A diagnostic: sets a layer of the scratch beside the published layer, texel by texel. Waits for the
+     * driver to finish both, so it is for checks alone.
+     *
+     * @return how many texels differ by more than a step of 24-bit depth, how many by more than a
+     *         thousandth of the depth's span, which rounding cannot account for, and the largest difference
+     *         in millionths of the span
+     */
+    long[] compareWithScratch(int layer) {
+        if (readback == null) {
+            readback = ByteBuffer.allocateDirect(SIDE * SIDE * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        }
+        if (scratchReadback == null) {
+            scratchReadback = ByteBuffer.allocateDirect(SIDE * SIDE * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        }
+        readback.clear();
+        scratchReadback.clear();
+        GL45.glGetTextureSubImage(texture, 0, 0, 0, layer, SIDE, SIDE, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, readback);
+        GL45.glGetTextureSubImage(scratch, 0, 0, 0, layer, SIDE, SIDE, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT,
+            scratchReadback);
+        long differ = 0;
+        long far = 0;
+        float largest = 0;
+        // One step of 24-bit depth, with room for rounding in the conversion to float.
+        float step = 1.5f / (1 << 24);
+        for (int i = 0; i < SIDE * SIDE; i++) {
+            float difference = Math.abs(readback.get(i) - scratchReadback.get(i));
+            if (difference > step) {
+                differ++;
+                largest = Math.max(largest, difference);
+                if (difference > 1e-3f) {
+                    far++;
+                }
+            }
+        }
+        return new long[] {differ, far, Math.round(largest * 1e6)};
+    }
+
+    private FloatBuffer scratchReadback;
+
+    /**
+     * Puts back what {@link #begin} changed: state the game's cache knows goes back to what the cache
+     * believes ({@link GlStateMirror}), through {@link DepthCalls} so that reversed depth translates it
+     * as it does the game's own calls; state it does not know goes back to its neutral value, which is
+     * what the world pass holds. Nothing is read. The framebuffer and viewport are the envelope's.
+     */
     void end() {
-        GL11.glPolygonOffset(offsetFactor, offsetUnits);
-        if (offset) {
+        DepthCalls.glPolygonOffset(GlStateMirror.polygonOffsetFactor, GlStateMirror.polygonOffsetUnits);
+        if (GlStateMirror.polygonOffsetFill) {
             GL11.glEnable(GL11.GL_POLYGON_OFFSET_FILL);
         } else {
             GL11.glDisable(GL11.GL_POLYGON_OFFSET_FILL);
@@ -197,14 +332,18 @@ final class ShadowTarget {
         if (DepthCalls.active()) {
             GL45.glClipControl(GL45.GL_LOWER_LEFT, GL45.GL_ZERO_TO_ONE);
         }
-        if (cull) {
+        if (GlStateMirror.cull) {
             GL11.glEnable(GL11.GL_CULL_FACE);
         }
-        GL11.glDepthFunc(depthFunction);
+        Minecraft minecraft = Minecraft.getMinecraft();
+        GL11.glScissor(0, 0, minecraft.displayWidth, minecraft.displayHeight);
+        GL11.glDepthMask(GlStateMirror.depthMask);
+        DepthCalls.glDepthFunc(GlStateMirror.depthFunction);
         GL33.glQueryCounter(stamps[ring][1], GL33.GL_TIMESTAMP);
         stamped[ring] = true;
     }
 
+    /** The published texture's name, or 0 before the first frame anything is drawn. */
     int texture() {
         return texture;
     }
@@ -217,10 +356,12 @@ final class ShadowTarget {
         return depthSampler;
     }
 
+    /** GPU time of the last frame that drew, as far as the driver has answered. */
     double gpuMillisLast() {
         return lastGpuNanos / 1e6;
     }
 
+    /** The mean over the frames that drew and whose time the driver has answered. */
     double gpuMillisMean() {
         return gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples;
     }
@@ -234,9 +375,35 @@ final class ShadowTarget {
         return mostGpuNanos / 1e6;
     }
 
+    /** The most GPU time a frame took since this was last asked; asking starts the count again. */
+    double takeGpuMillisMostSince() {
+        double most = mostGpuNanosSince / 1e6;
+        mostGpuNanosSince = 0;
+        return most;
+    }
+
+    /** The frame that took the time {@link #takeGpuMillisMostSince} gave; read it first. */
+    long gpuMostFrameSince() {
+        return mostGpuFrameSince;
+    }
+
+    /** Frames whose GPU time was measured above 1 ms, and above 2 ms. */
+    long gpuFramesOverOne() {
+        return gpuOverOne;
+    }
+
+    long gpuFramesOverTwo() {
+        return gpuOverTwo;
+    }
+
+    private long mostGpuNanosSince;
+    private long mostGpuFrameSince;
+    private long gpuOverOne;
+    private long gpuOverTwo;
+
     /**
-     * A diagnostic: writes the depth as a gray image, nearer the light brighter and nothing drawn black,
-     * each pixel the nearest of the texels it covers.
+     * A diagnostic: writes a published layer as a gray image, nearer the light brighter and nothing drawn
+     * black, each pixel the nearest of the texels it covers.
      *
      * @return the file written, or null when it could not be
      */

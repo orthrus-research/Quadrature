@@ -1,0 +1,36 @@
+#version 450
+// The stand-in evaluated where DLSS would be: it reads the three render-resolution inputs DLSS reads and
+// writes the output-resolution image DLSS writes, with the same image usages (sampled inputs, a storage
+// output), so the handoff around it is the one DLSS would need. The work itself is a bilinear upscale.
+// Compiled to SPIR-V offline: glslangValidator -V --target-env vulkan1.3 standin.comp -o standin.spv
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D color;   // render resolution, linear filter
+layout(set = 0, binding = 1) uniform sampler2D depth;   // render resolution, the depth aspect, nearest
+layout(set = 0, binding = 2) uniform sampler2D motion;  // render resolution, pixels moved since the last frame
+layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D outputImage;  // output resolution
+
+layout(push_constant) uniform Sizes {
+    ivec2 outputSize;
+} sizes;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, sizes.outputSize))) {
+        return;
+    }
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(sizes.outputSize);
+    vec2 moved = texture(motion, uv).rg / vec2(textureSize(motion, 0));
+    float z = texture(depth, uv).r;
+    vec4 result = texture(color, uv + moved);
+    // Depth always lies in [0, 1]; the test keeps its read in the program without changing the picture.
+    result.rgb *= step(-1.0, z);
+    result.a = 1.0;
+    if (pixel == ivec2(0)) {
+        // The stamp OpenGL wrote into this frame's motion image, carried back so OpenGL can check that the
+        // output it receives was evaluated from this frame's inputs.
+        result = vec4(texelFetch(motion, ivec2(0), 0).rg, z, 1.0);
+    }
+    imageStore(outputImage, pixel, result);
+}

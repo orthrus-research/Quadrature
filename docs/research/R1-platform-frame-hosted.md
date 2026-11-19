@@ -23,8 +23,9 @@ Observed in the development client, 2026-11-13, RTX 3060, driver 610.88 [V]:
 
 **1.2 Identifying Turing and later. [V, partly]**
 Mesh shaders arrived with Turing and are exposed in OpenGL as `GL_NV_mesh_shader`. Pascal
-predates it. A cross-vendor `GL_EXT_mesh_shader` entered the Khronos registry in October
-2025 and is implemented in Mesa; no source confirmed it in NVIDIA's driver.
+predates it. A cross-vendor `GL_EXT_mesh_shader` entered the Khronos registry in 2025 and
+is implemented in Mesa; no NVIDIA driver through 621.14 reports it, on any architecture
+(public reports, 2026-11-18), and the development machine's does not (1.8).
 *Implication:* the capability set is "OpenGL 4.6 compatibility, mesh shaders, 8 GB". The
 mesh shader capability is satisfied by either extension name, so the EXT form costs
 nothing to admit later.
@@ -33,9 +34,10 @@ nothing to admit later.
 `GL_NVX_gpu_memory_info` reports total dedicated memory through `glGetIntegerv` with token
 `0x9047`, in kilobytes. LWJGL 3 binds it as `NVXGPUMemoryInfo`.
 
-**1.4 Minimum driver. [M]**
-No minimum branch was established. The development machine runs an RTX 3060 on driver
-610.88. The minimum is set by the oldest driver a test run passes on.
+**1.4 Minimum driver. [V]**
+Every feature Quadrature uses is in NVIDIA's drivers from 440.97 (October 2019), so the
+floor is a support policy; D20 sets it at the R580 branch, with a warning below the
+current production branch.
 
 **1.5 Shader compilation on NVIDIA. [V, dated]**
 A 2018 NVIDIA developer forum thread reports that the parallel shader compile extension
@@ -54,6 +56,333 @@ backend is the one in use. The LWJGL 2 shim is described in 9.2.
 A GL context is current on one thread at a time. NVIDIA's driver can move work to its own
 thread ("threaded optimization"), which changes the cost of synchronous queries.
 *Implication:* avoid readbacks and `glGet` calls in the frame; verify by measurement.
+
+**1.8 The context's limits, read in the game. [V]**
+Read by the capability dump (`-Dquadrature.capabilities=true`) in the development client,
+2026-11-18, RTX 3060 12 GB (28 SMs), driver 610.88, in the game's compatibility context.
+No query raised a GL error, and the world ran after it.
+- The context is not a debug context (`GL_CONTEXT_FLAGS` 0). `GL_KHR_debug` is present, but
+  a non-debug context may report few or no messages, so a test that must fail on driver
+  messages needs a debug context requested.
+- Mesh shaders: 256 output vertices and 512 output primitives a work group, work groups of
+  at most 32 invocations (32, 1, 1) for mesh and task stages, 16 KiB of output memory each,
+  4 views, output granularity 32.
+- Subgroups: size 32 in every stage, mesh and task included, with every feature bit:
+  basic, vote, arithmetic, ballot, shuffle, relative shuffle, clustered, quad and
+  partitioned.
+- Shading rate: 16 by 16 pixels a texel, palettes of 16 entries, 16 palettes (the
+  per-primitive rate is present, Ampere and later), 16 coarse fragment samples at most.
+- Sparse resources: 64 KiB buffer pages. Texture pages are 64 KiB: 128 by 128 for RGBA8,
+  R11F_G11F_B10F, R32F and both depth formats, 128 by 64 for RGBA16F, 256 by 256 for R8,
+  the same in arrays, and 32 by 32 by 16 in 3D textures (64 by 32 by 32 for R8).
+- Limits as recorded publicly for every supported architecture: 8 draw buffers and color
+  attachments, 2,048 array layers, 32,768 texels a side, 16x anisotropy, 48 KiB of compute
+  shared memory, 1,024 invocations a work group, 2 GiB less one byte a storage block with 96
+  bindings, a texture buffer of 2^28 texels, 16 viewports, one program binary format.
+- Compatibility profile: 8 lights, 8 clip planes, 4 fixed-function texture units, stacks
+  of 32 (model-view), 4 (projection), 10 (texture) and 16 (attributes).
+- Present: `GL_ARB_shading_language_include`, `GL_EXT_texture_shadow_lod`, the interop set
+  (`GL_EXT_memory_object`, `GL_EXT_semaphore` and their Win32 forms,
+  `GL_NV_timeline_semaphore`, `GL_NV_draw_vulkan_image`, one device), and
+  `GL_EXT_shader_realtime_clock`. Absent: `GL_EXT_mesh_shader`, `GL_ATI_meminfo` and the
+  POSIX descriptor forms of the interop set.
+*Implication:* a meshlet is at most 256 vertices and 512 triangles, built by 32 threads;
+cascade lookups can use `textureLod` on array shadow textures through
+`GL_EXT_texture_shadow_lod` where the capability is present; shader sources can share
+include files through the driver; and a sparse light layer or texture array commits in
+64 KiB pages.
+
+**1.9 The handoff from OpenGL to Vulkan, and DLSS's cost. [V; measured costs in VERIFICATION]**
+Read 2026-11-18 for PLAN item 7, before the bridge of D21 is built. The rules come from the
+Khronos specifications of `EXT_external_objects` (revision 15, 2022-07-15),
+`EXT_external_objects_win32` (revision 10, 2023-08-29) and `NV_timeline_semaphore`
+(revision 1, 2020-07-10), and from the Vulkan specification's reference pages; DLSS's
+requirements and costs from NVIDIA's DLSS Super Resolution Programming Guide (revision
+310.6.0, March 2026) and DLSS-RR Integration Guide (August 2026), read as published
+documents. No SDK was downloaded and no license accepted.
+
+- *Matching the device.* Memory and semaphores exported as opaque Win32 handles may be
+  imported only where the device UUID and the driver UUID both match (Vulkan's compatibility
+  tables for `OPAQUE_WIN32` and `OPAQUE_WIN32_KMT`; `EXT_external_objects` 4.2.1 and issue
+  20). OpenGL reports one device UUID per device of its device group, one driver UUID, and,
+  through the Win32 extension, the adapter's LUID and a node mask. Vulkan reports the same in
+  `VkPhysicalDeviceIDProperties`; where `deviceLUIDValid` is set on Windows, the LUID equals
+  the DXGI adapter's. The LUID is not in Vulkan's tables. Neither specification says what an
+  import from a mismatched device does: the OpenGL extension's error list is empty.
+  *Implication:* the Vulkan device is chosen by comparing both UUIDs, and the LUID where both
+  sides report one, against the context's, never by name or vendor; a machine with an
+  integrated GPU beside the card has two candidates.
+- *Handles.* An `OPAQUE_WIN32` handle is an NT handle that holds a reference to its payload
+  and belongs to the application, which closes it; a KMT handle holds none and dies with the
+  last Vulkan object using it. Neither OpenGL nor Vulkan takes ownership of a Win32 handle it
+  imports (`EXT_external_objects_win32` 6.1; `vkGetMemoryWin32HandleKHR`). *Implication:*
+  each handle is exported, imported and closed at once; one left open per image leaks a
+  kernel object at every resize.
+- *Memory and images.* OpenGL imports a memory object with its size and handle type; its
+  `DEDICATED_MEMORY_OBJECT_EXT` parameter must be true exactly when the exporter allocated
+  the memory as a dedicated allocation (6.2, issue 19), and Vulkan requires a dedicated
+  allocation for the same image when it imports memory it exported as dedicated. A texture
+  is made over the memory with `glTextureStorageMem2DEXT` at an offset, with the levels,
+  format and size the exporter's image has, after its `TEXTURE_TILING_EXT` parameter is set
+  to the exporter's tiling (issue 18, with a query for supported tilings). The Vulkan image
+  is created for external memory (`VkExternalMemoryImageCreateInfo`), with every usage its
+  format supports (issue 13), and with the mutable-format bit wherever OpenGL can make
+  texture views, which 4.6 can (issue 17). No issue restricts which formats may be imported,
+  and none mentions depth or stencil. *Implication:* every shared image is created with all
+  supported usages, mutable format and a dedicated, exported allocation; which formats this
+  driver imports, depth among them, is measured.
+- *Layouts and ownership.* `glSignalSemaphoreEXT` transitions the listed textures to the
+  given layouts before it signals; `glWaitSemaphoreEXT` takes the layouts the other API left
+  them in. Nine layout tokens map one to one to Vulkan image layouts (table 4.4). Issue 9
+  settles that ownership transfer and barriers are needed, with the application naming only
+  the source side when moving from the other API to OpenGL and only the destination side the
+  other way, and leaves open how much of Vulkan's barrier is exposed.
+  `VK_QUEUE_FAMILY_EXTERNAL` names queues outside the instance on the same device and driver;
+  a barrier with it as destination releases an image, with it as source acquires one.
+  *Implication:* Vulkan acquires each image from the external family in the layout OpenGL's
+  signal named, and releases it to the external family in the layout OpenGL's wait names.
+- *Semaphores.* A signal flushes as if `glFlush` followed it. A wait blocks the GL server,
+  never the client. A binary semaphore's wait needs a signal already flushed or submitted.
+  With `NV_timeline_semaphore`, a semaphore's type is set before the import, the value to
+  signal or wait for is set with `glSemaphoreParameterui64vEXT` before each operation, and a
+  wait may be issued before its signal. Vulkan 1.2 has timeline semaphores in core; one
+  exported as `OPAQUE_WIN32` transfers by reference and may be imported only permanently.
+  *Implication:* one timeline semaphore carries both directions of a frame's round trip with
+  rising values, and the client thread never blocks on it.
+- *Clocks.* `vkGetCalibratedTimestampsKHR` reads the device's timestamp counter and the
+  Windows performance counter together, and Java's `System.nanoTime` counts the performance
+  counter on Windows; OpenGL's `GL_TIMESTAMP` query reads the GPU's time without waiting for
+  work. *Implication:* OpenGL's and Vulkan's timestamps of a round trip can be put on one
+  clock, so the time from OpenGL's signal to Vulkan's start and from Vulkan's end to OpenGL's
+  resumption can be measured apart from Vulkan's own work.
+- *What DLSS requires.* An NVIDIA RTX GPU and a driver issued after 2022-03-03; D3D11, D3D12 or
+  Vulkan 1.1 or later; OpenGL is not mentioned anywhere in the guide, which states that
+  interoperation between APIs is the application's to handle (5.2). Each evaluation takes the
+  color at render resolution (HDR or LDR), screen-space motion vectors at 16 or 32 bits a
+  pixel (`RG16F` or `RG32F`), depth in any one-channel or depth-stencil format, an exposure
+  value in HDR, and sub-pixel jitter of at least 16 phases; it writes the output at output
+  resolution (3.3, 2.2). Inputs are sampled images and the output a storage image, created
+  with `VK_IMAGE_USAGE_SAMPLED_BIT` and `VK_IMAGE_USAGE_STORAGE_BIT` (3.4). It runs early in
+  post-processing, before tone mapping (3.1). Its Vulkan instance and device extensions come
+  from a query against the SDK, not from a list in the guide (2.3.1). Render size per mode
+  comes from a query, not a fixed table (5.2.8).
+- *What DLSS costs.* NVIDIA ran the library from a command-line utility without a renderer,
+  in Performance mode, where the input has a quarter of the output's pixels. On an RTX 3060,
+  at 1920x1080 / 2560x1440 output: presets E and F 0.60 / 0.98 ms, J and K 1.45 / 2.39 ms,
+  L 3.96 / 6.53 ms, M 2.81 / 5.05 ms. As of 310.6.0, presets E and F are deprecated, K is the
+  default for Quality, Balanced and DLAA, M for Performance and L for Ultra Performance. The
+  memory DLSS allocates on RTX 20 and 30 cards is 85.8 / 143.5 MB for J and K and 119.3 /
+  207.4 MB for M (pages 5 to 7). D21 cites the span from presets J and K to preset M,
+  which first read "about 1.45 to 2.8 ms at 1080p": right as published, but a Performance-mode
+  figure taken without a renderer, not a Quality-mode one taken inside a frame. Ray
+  Reconstruction on the RTX 3060 in Performance mode takes 5.83 / 10.27 ms and 159.6 / 273.9
+  MB with its default preset.
+- *What an evaluation needs.* The NGX API is linked from static libraries,
+  `nvsdk_ngx_s.lib` for the static C runtime or `nvsdk_ngx_d.lib` for the dynamic one, with
+  the `nvsdk_ngx*.h` headers and their Vulkan variants (5.1); the runtime library
+  `nvngx_dlss.dll` (Super Resolution) or `nvngx_dlssd.dll` (Ray Reconstruction) ships beside
+  the program from the release folder, signed by NVIDIA, never the development build (4.2).
+  A program initializes NGX with a GUID-like project ID, an engine type and version, or with
+  an application ID NVIDIA assigns (5.2.1). The latest release in NVIDIA's repository is
+  310.9.16, of October 2026. NVIDIA's RTX SDK license (v. 2024-03-14) is accepted by using the
+  SDK. NVIDIA's Streamline (2.14.16) wraps DLSS behind dynamically loaded libraries under a
+  permissive license of its own, but its interface is C++ headers and its binaries come only in
+  release archives. *Implication:* a Java module reaches NGX through a small native library of its own,
+  compiled against the SDK the builder supplies, since static libraries cannot be loaded from
+  Java; what the evaluation needs is listed for the user in PLAN item 7's report.
+- *Patents searched* (2026-11-19, Google Patents; a record of the search, not a legal
+  conclusion). For each technique the handoff uses:
+  - *Sharing memory and semaphores between two APIs through exported handles.* US 8,539,516 B1
+    (NVIDIA, "System and method for enabling interoperability between application programming
+    interfaces"; priority 2008-02-14; granted 2013-09-17; shown active, adjusted expiration
+    2032-06-01). Its independent claims 1, 6 and 11, read from the claims text, require (a) a
+    semaphore buffer at a location a first and a second driver can access; (b) a memory buffer
+    made accessible to the first driver; (c) on a request to make it accessible to the second,
+    determining it is not accessible to both, moving it to a location both can access and marking
+    it registered there; (d) suspending the second driver's commands until the semaphore shows the
+    first has finished with the buffer; (e) updating the semaphore. It cites US 5,842,015 (HP),
+    Apple's WO 2008/127610, 127622 and 127623 and US 2008/0276220, and NVIDIA's CUDA Programming
+    Guide 0.8. Steps (a), (d) and (e) correspond in kind to the handoff's semaphore and waits.
+    Steps (b) and (c) are not performed by Quadrature: its memory is allocated exportable in
+    Vulkan at creation and imported once in OpenGL, and nothing asks a driver to move an existing
+    buffer. US 2023/0185635
+    A1 (family CN 116257354 A, DE 102022132017 A1) and US 2023/0185636 A1 (CN 116257371 A,
+    DE 102022132176 A1), NVIDIA, "Application programming interfaces for interoperability",
+    priority 2021-12-10, shown pending: their descriptions have one API import or update a
+    timeline semaphore exported by another, with Vulkan and CUDA as the example; their claims
+    could not be read from the published pages (USPTO applications 17/548,412 and 17/548,433).
+    They are to be checked again before any release and when either is granted. EP 3159849 B1 and US 10,497,083 B2 (Channel One
+    Holdings, priority 2015-10-21, active to 2036-10-21) claim translating OpenGL objects, state
+    and render calls into Vulkan objects and command buffers, which the handoff does not do.
+  - *Choosing the Vulkan device by the context's UUIDs and LUID.* Three searches (device UUID
+    and LUID matching across graphics APIs; OpenGL context and Vulkan physical device identity)
+    found no patent on point; the hits concern switching between GPUs by load or policy.
+  - *Handing a frame's color, depth and motion to another API's pass and taking the output back
+    within the frame.* Three searches (upscaling a frame from one API with another; interop
+    with super-resolution; shared textures and semaphores with post-processing) found none on
+    point. The nearest render at low resolution on one GPU and scale on another (US 9,171,350
+    B2) or super-resolve streamed frames on a client (US 11,683,358 and family), without a
+    second API or synchronization between APIs; their status was not checked, as their claims
+    concern neither.
+  - *The stamp check.* US 9,424,619 B2 (Google, priority 2014-02-20, active to 2034-12-07)
+    claims sensor data embedded in camera images with a frame identifier in two corner pixels
+    whose values are compared; US 8,347,344 B2 (VMware, priority 2008-12-18, expired for
+    unpaid fees) and US 8,910,228 B2 (Omnissa, priority 2010-11-09, active to 2033-07-11) claim
+    markers and frame numbers in frames sent to a remote client to measure display performance.
+    The handoff writes a frame number into one texel of an input, the pass carries it to the
+    output, and the client compares a copy of it locally.
+
+**1.10 Timing a card at first launch. [V]**
+Observed 2026-11-18 and 19 with the tier benchmark (ARCHITECTURE 12.1.1) on an RTX 3060 12
+GB, driver 610.88, in the game, with the card's clocks sampled beside each tour by
+`nvidia-smi` (evidence only; the benchmark asks no clock of the driver).
+- **The card's clock follows its load.** Under the game alone, own terrain at radius 12 and
+  120 frames a second, the card moves among P5, P3 and P0: graphics 510 to 1,440 MHz, memory
+  810, 5,001 or 7,501 MHz. It reaches its top state, about 1,950 MHz and 7,501 MHz, only
+  under added load, over one to two seconds. The first run at a place read opaque terrain
+  24% slow while the clock climbed (1.04 against 0.84 ms at 1280 by 720); whole runs left
+  in P3 read the bandwidth kernel 33% slow (232 against 348 GB/s, the ratio of the memory
+  clocks). A benchmark that times whatever state it finds measures the state, not the card.
+- **One time-elapsed query a target.** A context has at most one `GL_TIME_ELAPSED` query open,
+  and the frame's own stage timer holds one around opaque terrain, where the probes run: a
+  probe's begin fails and its end closes the stage's query. Pairs of `GL_TIMESTAMP` counters
+  nest anywhere.
+- **At one place and one clock, a run repeats to within a tenth of a percent:** the median
+  spread of a probe's figure over the repetitions at one still view was 0.03 to 0.07%.
+- **Opaque terrain's time rises faster than its pixels.** From 2560 by 1440 to 3840 by 2160,
+  2.25 times the pixels, far views take 2.0 to 2.25 times as long and near views full of
+  foliage up to 4.6 times. Fitted per view against its fragments, the split into geometry and
+  fragments swings from all geometry to all fragments between places. At one resolution the
+  time follows the primitives drawn closely, so the reference card is held as a line a
+  resolution, a fixed part and a part a million primitives, mixed by pixels between them: it
+  leaves a standard deviation of 8.6% between places. The light view's box drawn whole, by its
+  primitives and fragments, leaves 7.1%.
+- **The trace's rate follows its rays' scene.** MEDIUM's probes, 65,536 rays of 64 blocks, ran
+  at 290 to 460 million rays a second at 16 of 17 places and 4,267 at one. That one was not the
+  scene: its rays met the light scene's copy on the GPU before it had caught up, holding no brick,
+  and the benchmark now waits for the copy and turns away a trace past a factor of two from its
+  other probes (VERIFICATION.md, the tier benchmark). Between sound places the trace still spreads
+  more than the other probes; without a count of the nodes each ray visited, the rate is a figure
+  of the place as much as of the card.
+- **The settling load.** An arithmetic pass and a pass over 256 MiB, with two more arithmetic
+  passes untimed, about 6 ms a frame, agreed within 5% after 13 to 15 frames in most runs and
+  within 40 in nearly all. The loaded top clock still steps between about 1,950 and 2,100 MHz,
+  moving the arithmetic pass by up to 7%. With it, a place's first run reads as its later ones,
+  and the same place on another fresh instance agrees to 0.5%.
+- The RTX 3060 stands within about 9% of an RTX 2060 Super at 1440p in published game
+  comparisons, on either side of it by the source, so it sits in the first of ARCHITECTURE
+  12.1's clusters.
+*Implication:* a first-launch benchmark brings the clocks up with a load of its own and waits
+until that load's own times stop changing before it times anything, keeps the GPU loaded
+between its probes, times with timestamps, takes its settings in a new order each round, and
+scores a view against a model of the reference card fitted over many places, with a band at
+each tier's boundary wider than what remains between places. A count of the work each ray
+does would make the trace's rate a figure of the card.
+
+**1.11 Patents searched for the tier benchmark. [V for what the pages show]**
+Searched 2026-11-19 on Google Patents, with full-text and claims-field queries, for the five
+techniques of ARCHITECTURE 12.1.1. Statuses and dates are as the Google Patents pages show
+them, which the pages call assumptions; claims were read on the pages, verbatim where quoted
+here. Not a legal reading.
+- **Searches.** Full text: settings chosen from a benchmark of the graphics processor; "graphics
+  settings" with benchmark, game and "frame rate"; benchmark with first launch, first execution
+  or first run and a quality level, preset or setting. Claims field: benchmark with graphics or
+  rendering and a quality level, quality setting, graphics settings or rendering quality (46
+  results); a frame, render or rendering time, predicted or estimated, with a quality level or
+  setting and a budget or target (11); hysteresis with a quality level, graphics or rendering
+  quality, level of detail or quality setting and a frame rate or time (6); evictions with a
+  frame rate or time, quality or level of detail, and memory (3); video, graphics or GPU memory
+  with a frame rate, time or percentile and a quality or graphics setting (none); a benchmark or
+  performance test of a GPU with its clock frequency and stable, steady state, converge or
+  warm-up (10). General web searches for each of the five pointed to the patents below.
+- **(1) Settings from a benchmark at first launch; (2) a predicted cost per group and the highest
+  tier that fits a budget.** The patents found choose settings from the hardware's description,
+  not from a measurement of it:
+  - US9286247B2, "System, method, and computer program product for determining settings for a
+    device by utilizing a directed acyclic graph containing a plurality of directed nodes each
+    with an associated speed and image quality", NVIDIA, priority 2012-07-06, shown active to
+    2033-08-15. Claim 1: identify parameters of a device, "including descriptions of hardware and
+    software installed within the device"; create a directed acyclic graph whose nodes each
+    represent "a unique variation of the plurality of parameters"; give each node a speed
+    "determined based on the parameters represented by the node"; identify the device's node;
+    take the nodes "known to be slower than or equal in speed to the identified node" that have
+    a monotonic set of presets, and use the presets with "the highest output image quality".
+    Claims 6 and 7 are the same as a program and a system. It cites US6059842A and
+    US20030023841A1 (IBM, optimum configurations of a system), US8296781B1, US8276133B1,
+    US8280864B1 and US7659897B1 (NVIDIA), and Hellerstein, "Optimizing Software Packages for
+    Application Management" (IEEE 2008). Quadrature builds no graph of device configurations and
+    names no device node: it times probes on the machine and compares each tier's predicted cost
+    with a budget.
+  - US8276133B1, "... determining a plurality of application settings utilizing a mathematical
+    function", NVIDIA, priority 2007-12-11, shown active to 2031-06-09. Claim 1: identify
+    "hardware specifications associated with a system" and an application; identify application
+    parameters from the specifications; define them as a "mathematical build function"; choose
+    the settings for which "a composition of the application build function and an execution
+    function [is] less than a predetermined threshold value", the parameters coming from "a
+    database storing the application parameters ... including the hardware specification ...
+    [with] an optimized application setting corresponding to the hardware specification".
+    Its citations were not read. Quadrature has no database of settings by hardware
+    specification; its comparison with a budget is of costs scaled by measured ratios.
+  - US8296781B1, "... determining application parameters based on hardware specifications",
+    NVIDIA, priority 2007-12-11, shown active to 2030-06-14. Claims 1, 19 and 21: identify
+    hardware specifications of at least two of the graphics processor, central processor and
+    memory, query a database whose table correlates them, the application and an optimized set
+    of parameters, and configure the application with the result. Performance data appear only
+    in dependent claim 16. It cites 37 patents, among them US6646653B2 (programmable graphics
+    processor for a video game system).
+  - US11413542B2, "Systems and methods for measuring and optimizing the visual quality of a video
+    game application", Dell, priority 2020-04-29, shown active to 2041-02-04. Claims 1 and 13: a
+    target frame rate; each setting's range divided into subsets numbered from lowest to
+    highest; the optimal settings for the target. Claim 10: during play, adjust the applied
+    settings "one setting at a time, until the generated FPS equals the target FPS". Dependent
+    claims score a combination by the frame rate times the sum of its subsets' numbers and take
+    the highest. It cites NVIDIA's US20140011581A1, US20150154934A1, US10878770B2,
+    US20160291989A1 and US20160323336A1, and AMD's and NVIDIA's settings tools as non-patent
+    art. Quadrature numbers no subsets, scores no combination and does not step settings toward
+    a frame rate.
+  - US20160291989A1, "Method and system for applying optimal settings from first invocation of
+    a gaming application", NVIDIA, priority 2015-03-30: shown abandoned (claims: pre-defined
+    optimal settings by hardware configuration written into a game's settings file).
+  - US20250061640A1, "Realtime 3D Performance Management System", Ascendant Studios, priority
+    2023-08-17: shown pending. Claim 1: a hardware scan when the user launches a game, a total
+    GPU and CPU performance budget, and the user adjusting settings against it.
+  - Expired, as prior art: EP1055199B1, "Estimating graphics system performance for polygons",
+    Sun Microsystems, priority 1998-02-17, shown expired 2019-02-16. Claim 1: calculate a
+    rendering time for graphics data and, where it exceeds that of a minimum frame rate, decide
+    whether the data are "polygon overhead limited or pixel fill limited" and select object
+    variants with fewer polygons or fewer pixel calculations. US7659897B1, "... video
+    benchmarking", NVIDIA, priority 2006-06-30: shown expired, fee related (claims: a video
+    output's performance from its frames a second at one of four pre-defined quality levels).
+- **(3) A band at each tier's boundary.** US9940904B2, "Techniques for determining an adjustment
+  for a visual output", Intel, priority 2013-10-23, shown active to 2034-12-21, with its
+  continuation US10573275B2: up and down frame-time hysteresis counters, each incremented where
+  a change in perceived quality passes a threshold, the frame time changed once a counter passes
+  its own threshold (claim text read through a page summary). It cites Qualcomm's
+  US20140002730A1, "Adaptive frame rate control", and LG's US6611653B1. Quadrature counts
+  nothing: a tier is left or taken once a run's fit lies past a fixed band. CN122089573B,
+  Moore Threads, shown active in China to 2046: its claim 1 sets a driver's super-resolution
+  parameter, device and algorithm from frame commit intervals, rendering time and memory use;
+  a first and a smaller second time threshold appear in its later claims, not read in full.
+- **(4) The memory tier lowered at run time on evictions and falling 1% lows.** Nothing found in
+  any search that claims evictions or a frame-time percentile as the trigger. The nearest:
+  US8547378B2, "Time-based degradation of images using a GPU", Adobe, priority 2008-08-28, shown
+  active to 2031-08-30: claim 1 renders a frame, finds its elapsed rendering time above a
+  threshold, and renders the next at its resolution divided by a downsampling factor (claim text
+  through a page summary); it cites US6075513A (Cirrus Logic, maintaining an image quality) and
+  US6975319B1 (NVIDIA, level of detail).
+- **(5) The warm-up by agreement of the benchmark's own times.** Nothing found claiming it. The
+  one claims-field result about a performance test, US10534696B1 (Facebook, priority
+  2017-08-29), is shown expired, fee related, and claims comparing two builds' frame times on a
+  RAM drive. Published practice for warm-up before timing a GPU: NVIDIA's CUTLASS measurement
+  guidelines (warm-up iterations; clocks oscillating for about three seconds before settling).
+- Also met and not related to the claims: US10909653B2 (Intel, a video encoder's quantization
+  range by its target), US10379611B2 (Intel, light-field streaming for virtual reality),
+  US11798514B2 and US20210074237A1 (NVIDIA, settings ranked by users' preferences between
+  clips).
+*Implication:* no patent found claims the benchmark as built. The nearest in force, NVIDIA's
+three, choose settings from a device's hardware description through a database or a graph of
+configurations; the benchmark measures the machine and keeps no table of devices. The record
+is for the user's decision, not a conclusion.
 
 ## 2. Pass graph and frame
 
@@ -449,6 +778,12 @@ its place in the frame expects, through the cache.
 1. Prototype the distant terrain composite and its transition band, in Phase 4 (2.2).
 2. Run the state audit on more views and with a larger pack installed (9.3).
 3. Test parallel compile and program binary caching on a current driver (1.5).
+4. Evaluate DLSS itself on the measured handoff once an SDK is supplied and its license
+   accepted (1.9), and ask NVIDIA whether an OpenGL frame handing images to a Vulkan
+   evaluation is supported (D19).
+5. Repeat the tier benchmark after a driver update, on this card, and on an RTX 3050 8 GB and a Turing
+   8 GB card (1.10; D22).
+6. Count the nodes each traced ray visits, so the trace probe's rate is a figure of the card (1.10).
 
 ## Sources
 
@@ -484,3 +819,29 @@ its place in the frame expects, through the cache.
   sections 13.7, 13.8, 17.3.2 and 21.4: https://registry.khronos.org/OpenGL/specs/gl/glspec46.compatibility.pdf
 - OpenGL Shading Language 4.60 specification, sections 7.2 and 7.4:
   https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.4.60.pdf
+- Khronos, `EXT_external_objects` (revision 15, 2022-07-15), sections 4.2, 6 and issues 9 to 23:
+  https://registry.khronos.org/OpenGL/extensions/EXT/EXT_external_objects.txt, read 2026-11-18
+- Khronos, `EXT_external_objects_win32` (revision 10, 2023-08-29):
+  https://registry.khronos.org/OpenGL/extensions/EXT/EXT_external_objects_win32.txt, read 2026-11-18
+- Khronos, `NV_timeline_semaphore` (revision 1, 2020-07-10):
+  https://registry.khronos.org/OpenGL/extensions/NV/NV_timeline_semaphore.txt, read 2026-11-18
+- Vulkan reference pages, read 2026-11-18: `VkPhysicalDeviceIDProperties`,
+  `VkExternalMemoryHandleTypeFlagBits`, `VkExternalSemaphoreHandleTypeFlagBits`,
+  `vkGetMemoryWin32HandleKHR`, `VkMemoryDedicatedAllocateInfo`, `VkExternalMemoryFeatureFlagBits`,
+  `VK_QUEUE_FAMILY_EXTERNAL`, `VkImageMemoryBarrier`, `VkSemaphoreTypeCreateInfo`,
+  `vkGetSemaphoreWin32HandleKHR`, `vkGetCalibratedTimestampsKHR`, `VkTimeDomainKHR`,
+  `VkPhysicalDeviceMemoryBudgetPropertiesEXT`: https://docs.vulkan.org/refpages/latest/refpages/source/ ;
+  synchronization chapter (semaphore waits, timelines, payload import):
+  https://docs.vulkan.org/spec/latest/chapters/synchronization.html
+- NVIDIA, DLSS Super Resolution Programming Guide, revision 310.6.0 (March 2026), sections 2 to 5:
+  https://github.com/NVIDIA/DLSS/blob/main/doc/DLSS_Programming_Guide_Release.pdf, read 2026-11-18
+- NVIDIA, DLSS-RR Integration Guide, SWE-DLSS-001-PGRF (August 2026), section 2.2:
+  https://github.com/NVIDIA/DLSS/blob/main/doc/DLSS-RR%20Integration%20Guide.pdf, read 2026-11-18
+- NVIDIA, DLSS SDK repository and releases (310.9.16, October 2026) and its license file,
+  "NVIDIA RTX SDKs LICENSE" (v. March 14, 2024): https://github.com/NVIDIA/DLSS, read 2026-11-18
+- NVIDIA, Streamline 2.14.16, README and license: https://github.com/NVIDIA-RTX/Streamline, read 2026-11-18
+- RTX 3060 against the RTX 2060 Super (1.10), read 2026-11-18: dropreference.com game comparison
+  (https://dropreference.com/en/compare/gpu/nvidia-geforce-rtx-2060-super-vs-nvidia-geforce-rtx-3060-12gb),
+  CheckFPS (https://checkfps.io/en/compare/rtx-3060-vs-rtx-2060-super), PassMark G3D
+  (https://www.videocardbenchmark.net/compare/4345vs4117/GeForce-RTX-3060-vs-GeForce-RTX-2060-SUPER) and Windows
+  Central (https://www.windowscentral.com/nvidia-geforce-rtx-3060-vs-rtx-2060-super)

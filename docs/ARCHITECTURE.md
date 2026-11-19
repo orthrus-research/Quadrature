@@ -17,7 +17,10 @@ status:
 | Constraint | Consequence |
 |---|---|
 | OpenGL 4.6 compatibility profile (D7) | Direct state access, compute, indirect multi-draw with a GPU-side count and persistent mapping are all core. Fixed-function drawing still works. |
-| NVIDIA Turing or later, 8 GB (D11) | Mesh shaders are present on every supported card. Budgets are set against 8 GB. |
+| NVIDIA Turing or later, 8 GB (D11) | Mesh shaders are present on every supported card. Budgets are set against 8 GB and the slowest qualifying card, the RTX 3050 8 GB. |
+| NVIDIA driver R580 or later (D20) | Every capability Quadrature uses is present. Only the gate reads the driver number. |
+| One capability set for every supported card (D22) | Cards differ in speed, cache and memory, not in what they can do; quality tiers are measured on the player's machine. |
+| NVIDIA-supported, vendor-neutral by design (D8) | Every stage has a core OpenGL 4.6 technique; a vendor technique is an optional one beside it, and no tier needs one. GPU memory and the driver's version are read through interfaces with a source per vendor. |
 | The game's and mods' renderers are hosted, not rewritten | The frame must contain stages Quadrature does not author, and survive the GL state they leave. |
 | Cubic worlds only (D3) | Terrain is addressed by cube, in three dimensions, with no column assumptions. |
 | Java 25 on Cleanroom | One thread owns the context. Native memory and GL calls go through LWJGL 3.4's foreign-function backend. |
@@ -34,6 +37,7 @@ the GPU, and keep the client thread's share of a frame small and constant.
 | root (host) | `core`, Cleanroom, Cubature's cube source | Mod entry, reading the context, scene sources, hosted stages, settings screens, state mirroring |
 | `shaders` (to be added) | `core` | The shader format's loader and the shipped shaders |
 | `testkit` (to be added) | `core` | Fixtures for running the graph and techniques without the game |
+| `quadrature-nvidia` (separately licensed, D19) | `core`, LWJGL, its own Vulkan binding | The bridge to NVIDIA's RTX runtimes: today the GL to Vulkan handoff's measurement form (4.9) |
 | OrthLib (separate repository) | Neither | The interface other mods compile against |
 
 Rules:
@@ -52,7 +56,23 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
 - A technique declares the capabilities it needs. Technique selection happens once, when
   the graph is compiled, never per draw. **Decided.**
 - Mesh shaders are one capability, satisfied by the NVIDIA extension or the cross-vendor
-  one added to the registry in October 2025. **Decided.**
+  one registered in 2025. No NVIDIA driver through 621.14 exposes the cross-vendor one, so
+  mesh programs are written for `GL_NV_mesh_shader`. **Decided.**
+- The gate keeps a driver floor per admitted vendor and applies it after the capability
+  check. For NVIDIA it stops below the R580 branch and warns below the current production
+  branch (D20). **Decided; not built.**
+- GPU memory is read through `GpuMemorySource`, with a source per vendor (D8); NVIDIA's,
+  `NvxMemorySource`, reads `GL_NVX_gpu_memory_info`, and a driver that reports nothing gets
+  `GpuMemorySource.NONE`. **Built.**
+- Behind `-Dquadrature.capabilities=true`, `CapabilityDump` reads at startup, before the
+  gate, the limits and extensions the quality tiers and the gap matrix depend on: context
+  flags and shading language versions, memory, core and compatibility limits, program
+  binary formats, and the mesh, subgroup, shading-rate, sparse-resource and interop limits
+  where their extensions are reported. It logs them and writes them with the full extension
+  list to the client's `quadrature-capabilities.txt`. It only queries; device and driver
+  identifiers are written as the first 8 hexadecimal digits of their SHA-256. **Built.**
+- `GL_NV_primitive_shading_rate` (Ampere and later) and `GL_EXT_shader_realtime_clock`
+  are optional capabilities with fallbacks; neither marks a quality tier (D22). **Decided.**
 - What terrain memory and submission use is named: persistently mapped buffers, sync
   objects, indirect multi-draw, shader storage buffers, and draw parameters in shaders.
   All are present on the supported platform.
@@ -132,6 +152,14 @@ run; the alpha test still does, on output zero.
   query, and the game's expected values at each boundary are known. The attribute stack is
   not used: it saves none of the state a modern renderer adds, and other mods already use
   its limited depth. **Decided**, by the specification.
+- **What the cache believes, kept as it changes.** Where a stage changes state the cache
+  knows and its place in the frame expects back whatever the game last set, the value comes
+  from `GlStateMirror`, which `MixinGlStateManager` keeps level with the cache's depth
+  function and mask, face culling and polygon offset as each setter is called. It holds the
+  game's values as passed, before reversed depth translates them, so they are put back
+  through `DepthCalls`. The light's depth works so (section 4.7); with it, its frames'
+  CPU time is all in the work they measure, where reading state back left up to 5 ms in a
+  frame unaccounted for. **Decided; built.**
 - **Own objects.** Quadrature creates and modifies its buffers, textures and framebuffers
   through direct state access, which changes no binding, and uses texture units and
   binding points fixed-function drawing does not. **Decided.**
@@ -185,8 +213,9 @@ drawing take a view; nothing in them reads the player's camera. **Decided.** Bui
   the world, at the point where the game is about to draw its first terrain layer. Its
   projection, fog, alpha test and textures are still the game's state at draw time; a
   view of Quadrature's own has to set them itself.
-- A view along the light is derived from the player's view each frame, toward the sun or,
-  while the sun is down, the moon. What it sees is found every frame.
+- A view along the light, toward the sun or, while the sun is down, the moon, is made each
+  frame from a box fixed in the world (`LightBox` in `core`) for the frame's origin. It exists
+  only while the light's depth is drawn, and what it holds is found only in frames that draw.
 - Hosted drawing is not yet drawn for any view but the player's.
 
 **The light's depth.** Built behind `-Dquadrature.shadow=true`, off otherwise. The view
@@ -194,11 +223,15 @@ along the light is drawn for depth alone into a target of Quadrature's own, befo
 player's first terrain layer. Nothing samples it yet, so the player's image is the same
 with it on.
 
-- **The box** is a plain orthographic cube of a fixed side centered on the player, never
-  warped: at a reach of twelve chunks 544 blocks, the diagonal of the square the client
-  holds cubes in, so every cube held is inside it at any hour and whichever way the player
-  faces. It is moved to a whole texel along the light's own axes, measured from the
-  world's origin, so that the map does not shift by part of a texel as the player moves.
+- **The box** is a plain orthographic cube of a fixed side, never warped: at a reach of
+  twelve chunks 544 blocks, the diagonal of the square the client holds cubes in, so every
+  cube held is inside it at any hour and whichever way the player faces. It is fixed in the
+  world, centered at a whole texel along the light's own axes measured from the world's
+  origin, and a view through it is made each frame for that frame's origin, so a map drawn in
+  one frame lines up with any later frame to the precision of one frame's matrices. A box is
+  not moved with the player: it stands until the player has come a sixty-fourth of its side
+  from its center, 8.5 blocks for the wide box and 3 for the near one, which the outermost
+  row of cubes held, never meshed, leaves room for.
 - **The light's direction** is the sun's while it is above the horizon and the moon's
   otherwise. `-Dquadrature.sun.tilt=<degrees>`, 0 unless set, leans their path toward the
   south: with east +x, up +y, south +z, `a` the game's celestial angle as an angle (0 at
@@ -207,9 +240,14 @@ with it on.
   published and the box the map is drawn in; the game draws its own sky without it.
   `SunPath` in `core`.
 - **The target** is an array texture of 24-bit depth, 4,096 texels a side, 64 MiB a layer,
-  counted in the shading pool. A texel of the wide box is 0.13 of a block. It can be
-  sampled through either of two sampler objects: compared with a reference and filtered,
-  or as the depth itself.
+  and a scratch texture of as many layers, both counted in the shading pool. Both are made
+  when a world is attached, behind the screen that waits for it, and put through the work a
+  first frame does to them, every layer cleared through the framebuffer and copied, with a
+  wait for the driver: a driver puts off taking a texture's memory until its first use, which
+  otherwise fell in the first frame of play (42 ms of CPU; 8 ms now, at about 80 ms behind
+  the loading screen). A texel of the
+  wide box is 0.13 of a block. The published texture can be sampled through either of two
+  sampler objects: compared with a reference and filtered, or as the depth itself.
 - **The near layer**, behind `-Dquadrature.shadow.near=true` (off unless set), adds a box
   192 blocks across, centered on the player and moved to a whole texel of its own, 0.047
   of a block a texel. Along the light it is as deep as the wide box, 544 blocks, so its
@@ -218,12 +256,30 @@ with it on.
   blocks are steps of a thirty-thousandth of a block. It is layer 0 and the wide box
   layer 1, 128 MiB in all; with it off the wide box is the only layer, layer 0. Each
   layer's side across and its depth are published (`boxSide`, `boxDepth`), and the frame
-  block's `qShadowScale[i]` holds blocks a texel in x and the depth's span in y. The near
-  layer is searched and commanded as a view of its own through that whole depth, its cube
-  count logged in the terrain summary, and drawn again by the same rules as the wide one,
-  measured from its own last drawing, so each layer is redrawn only when its own rules
-  are met. A layer that is kept holds what it held, and its matrix is carried to the
-  frame's origin, which every layer's matrix is relative to. `ShadowLayers` in `core`.
+  block's `qShadowScale[i]` holds blocks a texel in x and the depth's span in y. Each layer
+  has a box and a plan of its own (`ShadowLayers` and `LightLayerPlan` in `core`) and is
+  drawn by the same rules, measured from its own box.
+- **Drawn by tiles.** A layer is 16 by 16 tiles of 256 texels. No frame draws a whole layer:
+  - A mesh placed, replaced or released makes the tiles its cube may cover dirty, the cube
+    taken a block wider each way since models can reach past their cell (the game moves
+    flowers and grass a quarter of a block aside). They are cleared through the scissor and
+    every cube that may cover them is drawn whole, in place. A new alpha threshold for cutout
+    faces, read where the game sets it, makes every tile dirty.
+    What such a cube draws beyond the tiles is what is there already, the same geometry at
+    the same depth.
+  - When the light has turned more than 0.1 degree since a layer's box was made
+    (`quadrature.shadow.turn`, in degrees), the player has come too far from its center, or
+    the reach changes, a new box is made where the player stands and drawn tile by tile into
+    the scratch, nearest its center first. Once every tile is drawn the scratch layer is
+    copied over the published one, which stays whole and published until then. A mesh that
+    changes meanwhile makes its tiles due in the new box too, and the published layer's own
+    dirty tiles wait, since the box that replaces it holds the change; after a teleport they
+    would cover the whole of a box about to be replaced. A box being drawn is begun again
+    where the player has gone once they are an eighth of its side from it.
+  - A frame spends on a layer's tiles at most a share of what covers the whole layer,
+    counted in cubes: a new box is drawn over about 8 frames (`quadrature.shadow.spread`),
+    and dirty tiles are drawn nearest the center first within the same share a frame.
+  - A frame with nothing due draws nothing and searches nothing.
 - **What is drawn:** the three opaque layers of every meshed cube in the box, from the
   same pages and by the same indirect draws as the player's view, each cube under the
   same composition of matrices. A fragment of a cutout layer is dropped where the block
@@ -231,32 +287,188 @@ with it on.
   not culled by facing. Translucent terrain is left out.
 - **Which meshes are resident** does not follow the player's frustum: a mesh is held for
   every loaded cube that has its six neighbors, so what the light sees and the player
-  does not is there to draw. Terrain beyond what the client holds, and the outermost row
+  does not is there to draw. A view through a light's box has no reach of its own: every
+  mesh held inside the box is drawn, whichever cube the player stands in, so what a layer
+  holds depends on the meshes held alone and a mesh placed, replaced or released is the
+  only change that can make its tiles wrong. Terrain beyond what the client holds, and the outermost row
   of cubes it holds, which is never meshed, cast nothing.
 - **No bias** is applied but a polygon offset, none unless
   `quadrature.shadow.polygonOffset=factor,units` is set. A sampler biases as it sees fit.
 - **Published each frame** (`ShadowMaps` in `core`, from `TerrainHook.shadowMaps()`): the
   texture and the two samplers, each layer's matrix from a position relative to the
-  frame's origin to the layer's clip space, the frame before's matrix and origin, the
-  box's side, the direction toward the light, and two generations. One changes whenever
-  the texture is drawn. The other changes only when its content can differ apart from the
-  light's own motion: a mesh was placed, replaced or released, or the box moved to another
-  texel.
-- **The map is kept between frames.** It is drawn again only when a mesh was placed,
-  replaced or released, when the player has moved into another texel of it, or when the
-  light has turned more than 0.1 degree since it was drawn
-  (`quadrature.shadow.turn`, in degrees). A frame that keeps it costs nothing: the light's
-  view is not searched and no commands are written for it. The matrices and origin
-  published are always the ones the map was drawn with, a kept layer's carried to the
-  origin of the frame the latest layer was drawn in; the direction toward the light of the
-  moment is published beside them, since shading uses that.
+  frame's origin to the layer's clip space, made that frame from the layer's box, the frame
+  before's matrix and origin, each box's side and depth, the direction toward the light of
+  the moment and, for each layer, the direction its box was made along, which trails it by
+  up to the turning angle; and two generations. One changes whenever the texture's texels
+  or a layer's box change. The other changes only when the content can differ apart from
+  the light's own motion: tiles were drawn again for changed meshes, or a box for another
+  place was published. Until a layer's first box is drawn whole the layer is clear, so
+  nothing is in shadow.
 - **Entities move every frame**, which a kept map does not allow for. The plan, of which
   nothing is built: the terrain's depth stays one layer, drawn on the conditions above,
   and entities go either on top of a copy of it made each frame or into a second layer
   holding them alone, which a sampler compares against as well, taking the nearer.
 
 Not covered yet: entities and block entities in a light's view, which reaches into hosted
-drawing; jitter in the frame's contract.
+drawing.
+
+### 4.8 Rendering below output resolution
+
+Built behind two switches, both off unless set: `-Dquadrature.scale=<0.5 to 1>` draws the world
+at that fraction of the output's resolution, and `-Dquadrature.taa=true` turns on the temporal
+pass and the sub-pixel offset. LOW is `scale=0.67` with the temporal pass, MEDIUM `0.77` with it,
+HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D23; research R4,
+7b). `TemporalScaler`, `ScalerShaders`, and `RenderScale`, `Jitter` and `Reprojection` in
+`core`.
+
+- **Where the world is drawn.** In a framebuffer of the game's own kind and formats,
+  `round(side * scale)` pixels each way, that stands in for the game's from the start of the
+  world pass to the composite: `Minecraft.getFramebuffer()` returns it (`MinecraftScaleAccess`)
+  and `displayWidth` and `displayHeight` report its size. The game and every hosted draw then
+  work on one consistent smaller picture, a mod's own post-processing through framebuffers of
+  the game's size included, and so do Quadrature's own stages and targets; no viewport is
+  rewritten. The world's projections keep the output's shape (`MixinEntityRendererScale`), so
+  rounding the drawn size to whole pixels stretches nothing once scaled back. Rewriting the
+  viewports of display size inside the pass was built first and failed on the lab's own pack:
+  GTCEu Reloaded's bloom copies the game's picture into framebuffers of its own and draws it
+  back every frame, and each of those display-sized draws was shrunk again (VERIFICATION, own
+  temporal anti-aliasing and scaler). Each is put back only where it still holds the stand-in: a
+  resize during the pass sets the display's new size, which stands, the game's own framebuffer
+  takes it, and that frame makes no picture. Framebuffers of the game's kind made while the
+  scaler is on are counted in the timing line, and the first thirty named with the class that
+  asked for them (`MixinFramebufferScale`), so a mod remaking its framebuffers each frame shows.
+- **The offset.** Each frame the projection of every world view the game builds is moved by a
+  sub-pixel offset of the drawn picture, from the Halton sequence in bases 2 and 3, 8 offsets a cycle
+  (`quadrature.taa.phases`). The clip-space translation is multiplied in just before each
+  `gluPerspective` call of the world, the sky and the clouds (`MixinEntityRendererScale`), so it
+  stands on the left of the perspective, inside reversed depth's reversal, with which it
+  commutes. Entities, particles, block entities, weather and own terrain draw under it. The
+  hand's projection is never offset.
+- **Glowing entities' outlines.** The game draws them into a framebuffer of its own, binding it
+  without setting the viewport, runs its outline shader group over it and binds the game's
+  framebuffer back, again without a viewport; after the world pass it lays the result over the
+  picture. The shader group's passes draw in pixels of their own targets through a projection
+  made from the framebuffer the group was created with, the game's own, so its targets stay at
+  the output's size. While the drawn picture stands in, the viewport is that framebuffer's whole
+  size and the projection loses the frame's offset once it is bound (`MixinRenderGlobalScale`),
+  so the outlines are drawn at the output's size and in place without shimmering; the drawn
+  viewport and the offset return when the game's framebuffer is bound back, so block entities,
+  drawn after the outlines in the same stage, stay in the drawn picture.
+- **The view.** Where the frame enters opaque terrain, the driver's projection and model-view
+  are read, the offset is taken out of the projection, and the viewer's interpolated position
+  is kept in double precision as the frame's origin. Before entities draw, the depth of what
+  opaque terrain left is copied (`glCopyImageSubData`, renderbuffer to a texture of its format).
+- **The composite** runs as a stage of its own, `scaler`, at the boundary in front of the mods'
+  last world drawing (`render last`): the game's framebuffer and display size are put back, and
+  the picture is made whole at the output's size before anything there reads it, the lab's
+  capture included. Every pass is a compute program writing images, so blending, the alpha test,
+  culling and the masks hosted code leaves set do not touch it:
+  1. the drawn depth is copied to a texture;
+  2. *motion*, at the drawn size, into a target of two 16-bit floats a pixel: one matrix,
+     composed in double precision from the two frames' views and the origin's movement, takes
+     this frame's clip space to the previous frame's, and each pixel's depth gives where its
+     point stood, minus where it stands now, in pixels without the offset. Whether that is the
+     convention DLSS reads, so the Vulkan bridge (D21) can take the target as it is, is for PLAN
+     item 7 to confirm against NVIDIA's programming guide. A point behind the previous eye gets a
+     motion past any picture;
+  3. *temporal*, at the drawn size, into one of two 16-bit float histories: this frame's
+     color filtered at the pixel's center from its 3 by 3 neighborhood by each sample's distance
+     after its offset (a Gaussian of half a pixel's deviation); the history read where the
+     nearest point of the neighborhood stood, by a Catmull-Rom spline in nine bilinear reads;
+     moved toward the center of the box of the neighborhood's minimum and maximum in YCoCg until
+     it lies inside it (variance clipping is not used, D23; research R4, 7b.1); and blended
+     with at least `quadrature.taa.blend` (0.1) of this frame, rising
+     toward a third with motion (`quadrature.taa.moving`, a sixteenth a pixel of motion) and to
+     `quadrature.taa.reactive` (0.5) where the depth changed after opaque terrain, both weighted
+     by the inverse of their luma. History is dropped after a teleport (8 blocks in a frame),
+     another dimension, new targets, or a frame without a composite;
+  4. *scale*, at the output's size, into the game's picture: the 4 by 4 texels around each
+     output pixel's source point under the separable Keys cubic kernel; a boost of
+     `quadrature.scale.sharpness` (0.2) of the difference from a bilinear read; held inside the
+     four central texels' range. No kernel is steered along edges (D23; research R4, 7b.2). A
+     work group of 8 by 8 output pixels reads the 12 by 12 source texels it reaches once into
+     shared memory. At scale 1 a copy takes its place;
+  5. the drawn depth stretched over the game's whole depth buffer by a nearest blit, for what
+     mods draw last against the world;
+  6. the offset taken out of the projection on the stack, so what is drawn after it, the hand
+     and the interface are drawn at the output's size without it.
+- **State.** Read on units 4 to 8 through sampler objects and written through image unit 0;
+  uniforms at fixed locations set with `glProgramUniform`. On the way out the units, the image
+  unit and the program are emptied and the game's framebuffer and viewport put back; nothing is
+  read back from the driver to find what to restore. `-Dquadrature.taa.check=true` reads the
+  motion target back every 600 composites and logs its mean and greatest length.
+- **Memory**, at 2560 by 1440 and scale 0.67: the drawn framebuffer, two histories, motion and
+  two depth copies at the drawn size, 1715 by 965, 36 bytes a pixel, 56.8 MiB, in the reserve's
+  pool (12).
+- **What has no motion** is held by the box: entities, particles, falling weather, the clouds'
+  drift, animated textures and translucent surfaces, whose pixels keep the depth behind them.
+  Motion vectors for hosted draws from each draw's previous transform are not built; D21 needs
+  them before DLSS.
+- **Not covered:** a mod that keeps the game's framebuffer from before the pass and draws into
+  it there; anaglyph, which is drawn at the output's size.
+
+### 4.9 Handing the frame to another API
+
+The frame stays OpenGL; where DLSS is chosen, it is evaluated by Vulkan on images the two
+APIs share (D21), in a separately licensed module (D19). The handoff is built in measurement
+form behind `-Dquadrature.handoff=measure` (PLAN, capability and tier work, item 7), with a
+stand-in where DLSS would evaluate; the bridge itself is not. Research R1, 1.9 has the rules
+it follows. **Built, behind a switch.**
+
+- **The seam.** `Handoff` in `core`: it opens beside the current context, runs one round trip
+  a frame at the end of the world pass, after the hand and before the interface, where DLSS's
+  guide places it (early in post-processing, before tone mapping), hears when the client's
+  world changes, and closes. `HandoffHost` finds an implementation through `ServiceLoader`;
+  Quadrature holds none, and without the module the switch logs that it is missing and the
+  frame is unchanged. The host's hook runs after the frame's stages are timed. **Decided.**
+- **The module.** `quadrature-nvidia` compiles against `core` and Cleanroom's LWJGL core and
+  OpenGL binding, and embeds LWJGL's Vulkan binding at the LWJGL release `platform.json`
+  names (`cleanroom.lwjgl`), which it compares at startup with the release the game loaded.
+  Its JAR lies beside Quadrature's among the mods; Foundation, the game's class loader,
+  defines `org.lwjgl` classes itself, so the embedded binding links against Cleanroom's core.
+  Where Forge has not put the JAR on the class path, the host adds it. No NVIDIA SDK material
+  is in it.
+- **The device.** A Vulkan 1.3 instance and the physical device whose device and driver UUIDs,
+  and LUID where both sides report one, match the context's (`DeviceIdentity`); every device
+  is logged with why it matches or not. One queue, from a family with graphics and compute by
+  default. Win32 external memory and semaphores are required, timeline semaphores enabled,
+  calibrated timestamps and the memory budget used where present.
+- **The images.** Color (`RGBA16F`), depth (the game's depth format) and motion (`RG16F`) at
+  render resolution, and the output (`RGBA16F`) at output resolution: each a Vulkan image with
+  every usage its format supports, the mutable-format bit and optimal tiling, in a dedicated
+  allocation exported as an NT handle, imported by OpenGL as a memory object flagged
+  dedicated and a texture over it, with a framebuffer of its own; the handle is closed at
+  once. When the output size changes, both APIs are waited for and the images are made again.
+- **The round trip.** OpenGL signals a timeline semaphore, naming the layouts the images are
+  left in; Vulkan's batch waits for it with all its commands, acquires the images from the
+  external queue family, evaluates, releases them to the external family and signals the next
+  value; OpenGL waits for that value on the GPU. One semaphore and rising values serve both
+  directions; two binary semaphores are an option. Batches are recorded once per set of images
+  and slot of a six-deep ring, and a slot is reused after its fence.
+- **What the measurement adds.** The game still renders at output resolution, so OpenGL fills
+  the render-resolution inputs with scaled copies from the game's framebuffer, clears the
+  motion image (the motion vectors of 4.8 exist only beside the scaler, which the handoff does
+  not run with) and copies the output back.
+  In the bridge, OpenGL draws into the shared images directly and the post effects read the
+  output, so these copies are timed apart from the handoff. The parts take turns in segments
+  of 120 frames (nothing, the round trip alone, with the stand-in, the copies alone, all of
+  it); OpenGL and Vulkan timestamps are put on the client's clock; a stamp written into the
+  motion image and carried back by the stand-in checks every 600 frames, and after each world
+  change and resize, that the output came from that frame.
+- **Not beside the scaler.** The handoff reads the game's framebuffer as the world pass leaves
+  it and takes its size as the output's, and with the scaler's switches on (4.8) the world is
+  drawn into a smaller framebuffer standing in for the game's. Until one design takes the
+  scaler's color, depth and motion at render resolution as the handoff's inputs and the
+  window's framebuffer as its output, the handoff turns itself off at its first frame, with a
+  message, whenever the scaler is on, and the scaler runs.
+
+Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
+alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the
+client 0.06 ms a frame; the four images take 32 and 57 MiB, the Vulkan device 5 to 6 MiB more.
+
+Not built: DLSS's evaluation, jitter, exposure, the bridge as a stage with declared resources
+in the pass graph, and the motion vectors it needs from every draw (D21).
+
 ## 5. Scene sources
 
 | Source | Owner | Gives Quadrature |
@@ -339,6 +551,76 @@ the driver and never mapped, each also the store of a buffer texture read with
 Not built: the color of light a state emits or passes, shapes smaller than a cell,
 entities.
 
+### 5.2 Rays through the scene
+
+Built behind the scene's buffers: a compute program that walks rays through the lookup and
+the occupancy bricks of 5.1, the operation indirect light and far shadows both reduce to
+(research R4, 7.8). `RayTrace` is its entry point, `RayTracer.get()` the one instance,
+`BrickTrace` in `core` the reference it is checked against.
+
+- **Rays in, results out, time later.** A ray is 32 bytes: its origin relative to the
+  lowest corner of the box's origin cube, its length, and the inverse of its direction.
+  A result is 16 bytes: the distance at which the ray entered the cell that ended it, that
+  cell, how it ended and how many nodes it visited. A trace takes the rays in one buffer
+  and writes the results into another between two GPU timestamps, read in a later frame
+  without waiting, and puts back every binding it changes. It also keeps a bit for each
+  state that blocks light, 8 KiB, sent again when a state is first met.
+- **Two sizes of node, from the scene's own layout.** A cube whose lookup entry names one
+  state that does not block is passed whole; in a cube with a brick each cell is tested
+  with one 32-bit load. The bricks' coarser bits are not read: a walk that also passed
+  blocks of two cells a side by them was built first, and set aside on 2026-11-19 by the
+  user's decision after the patent search of research R4, 7.8a. Leaving a node, the nearest
+  of its far faces is crossed, x before y before z on equal distances.
+- **To the bit.** Every distance is worked out afresh as `(face - origin) * inverse` from a
+  whole-numbered face, marked `precise`, and never accumulated; after a node is passed the
+  ray's cell on the other two axes is found by the same crossing test a walk of single
+  cells makes. The walk by nodes therefore ends in the cell, at the distance to the bit,
+  where a walk of single cells ends, and since the program reads the inverse direction the
+  CPU reads back, the GPU's results can be compared with `BrickTrace`'s word for word.
+- **How a ray ends:** in the first cell that blocks light (at distance 0 if it began in
+  one); at the first cube nothing is known of, which never reads as empty; on leaving the
+  box; where the next face lies past its length; or after 4,096 nodes.
+- **Beyond radius 12.** The lookup is sized by the box, `(2r + 1)²` by `(2v + 1)` cubes,
+  and made anew when the reach changes, so radii 16 and 20 need no other scheme: a cell is
+  packed in ten bits an axis and a slot in 24, enough for a reach of 31 cubes. What grows
+  is the room taken for a brick for every cube of the box: at a vertical radius of 12 the
+  lookup and bricks take 8.6, 15.0 and 23.1 MiB at radii 12, 16 and 20, with at most 5,863,
+  10,969 and 17,401 bricks in use over the dwell tour. The trace's rate barely depends on the
+  radius (VERIFICATION, rays through the scene).
+- **Each cell's state is what outgrows the budget**, not the bricks. With room for every
+  cube, the states of 5.1 add 69, 120 and 185 MiB at radii 12, 16 and 20 (126 MiB at radius
+  20 with a vertical radius of 8), against the 128 MiB the shading pool allows for materials
+  and visibility. Sized to one and a half times the most bricks seen at radius 20 they still
+  take about 115 MiB, the lookup and bricks besides. MAX keeps the states within radius 12
+  and the bricks alone out to 20: 69 MiB, or 39 MiB sized to the bricks seen, and 23 MiB of
+  bricks. The trace needs no state at all. **Default;** only forest has been measured.
+- **What a batch costs** on an RTX 3060: two million probe rays, whose directions spread
+  over the sphere, take 1.1, 4.9 and 12.2 ms at lengths of 16, 64 and 256 blocks; two
+  million rays toward a low sun, side by side and parallel, 1.4, 3.6 and 5.4 ms. Incoherent
+  rays pass well under half as many nodes a second as coherent ones. Batches of 65,536 rays
+  leave the card partly idle. The earlier walk, which also passed blocks of two cells a side
+  by the coarser bits, visited 57 to 75% of the nodes; probe rays took 0.77 to 0.93 times as
+  long with it, rays toward the sun 0.82 to 1.27 times (VERIFICATION, rays through the scene).
+- **The CPU never reads a buffer a trace reads.** A buffer read back is kept by the driver
+  in host memory for a while, and probe rays traced from it took three to twelve times as
+  long, coherent rays barely longer. The benchmark reads back only staging buffers filled by
+  copies on the GPU; the scene's buffers so used trace as fast as a copy the CPU never sees.
+  The light scene check reads them back directly and slows a trace that follows it.
+
+**For the tiers** (12.1), measured on the RTX 3060, a card of the lowest speed cluster:
+
+| Tier | Indirect light | Its cost, whole update | Far shadows |
+|---|---|---|---|
+| LOW | An ambient term | | None |
+| MEDIUM | 16x8x16 probes, 32 rays of 64 blocks, all every frame | 0.22 ms | None |
+| HIGH | 32x8x32 probes, 64 rays of 64 blocks, a quarter of the probes a frame | 1.45 ms, 0.36 ms a frame | None |
+| MAX | Two cascades of 32x8x32 probes, 128 rays: 64 blocks for the one 4 blocks apart, 256 for the one 16 apart, a quarter a frame | about 8.5 ms, 2.1 ms a frame | A march toward the light from pixels the near layer of the light's depth does not cover, inside the box: 2.6 ms a million rays at a low sun |
+
+MEDIUM's cost was measured at radius 16. Rays of 256 blocks cost 2.4 to 2.5 times those of
+64 for probes. The bricks reach only the
+near box, 320 blocks at radius 20, so far shadows past it need distant terrain's own data
+(section 8). **Default;** the tier benchmark (D22) places each card and scales these.
+
 ## 6. Near terrain
 
 ### 6.1 Geometry
@@ -361,14 +643,27 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
 
 ### 6.2 Building
 
-- Builds run on Cubature's executor (Quadrature starts no threads), ordered by distance
-  and by whether the cube is in view, and cancelled when their snapshot is superseded.
-  **Decided.** Until that executor exists, builds run on the client thread within a time
-  budget, nearest first.
-- A build writes into native memory it owns and hands the result to the context thread.
-  It allocates nothing on the Java heap per face. **Decided.**
-- The context thread spends a bounded time per frame placing finished builds into GPU
-  memory. **Decided.**
+- Builds run on Cubature's build pool (Quadrature starts no threads). A build's priority
+  is the squared distance from the camera to the cube, doubled for a cube outside the
+  view, and every waiting build is given its priority anew when the camera enters another
+  cube or turns 30 degrees. A waiting build holds no snapshot and reads the cube as it is
+  when it starts; one whose cube's blocks or light change after its snapshot is dropped by
+  the pool, and the change hands in another. A result older than what its cube already
+  shows is dropped. **Built.**
+- A mesher belongs to one build thread at a time. What meshers share is numbered under a
+  lock that each thread's own cache keeps it from taking for what it has met: the atlas's
+  rectangles and the material table's rows. States for the light scene are handed back
+  with each result and defined on the context thread. **Built.**
+- A cube the source says holds only air is settled without a snapshot or a build.
+  **Built.**
+- A build copies what it made into arrays of its own, so a result the pool drops leaves
+  nothing to free; it allocates nothing on the heap per face. The context thread copies a
+  result's vertices into one native staging buffer as it places them. **Built.**
+- The context thread spends at most 1 ms a frame placing finished builds into GPU memory
+  and 0.5 ms sorting the cubes that changed. **Built.**
+- A mesh put in place with the shape of the one it replaces keeps the light's depth as
+  drawn: the shape follows the block versions of the cube and of the six cubes that share
+  a face with it, so a change of light alone redraws no tile. **Built.**
 
 ### 6.3 GPU memory
 
@@ -823,7 +1118,7 @@ measurement; each line is revised when the phase that fills it measures its real
 | Reserve: framebuffers, geometry buffer, depth pyramid, texture arrays, the game's own textures | 1.5 GiB | Phase 1 |
 | Near terrain arenas | 1.5 GiB | Phase 2 |
 | Distant terrain arenas | 512 MiB | Phase 4 |
-| Shading: shadow maps, light volumes. The light's depth takes 64 MiB of it, 128 MiB with the near layer | 1.0 GiB | Phase 5 |
+| Shading: shadow maps, light volumes. The light's depth takes 128 MiB of it with its scratch, 256 MiB with the near layer | 1.0 GiB | Phase 5 |
 | Not assigned | 1.5 GiB | |
 
 The first line is not arbitrary: the test machine had 2.2 GiB in use before the game
@@ -846,6 +1141,195 @@ loading at nine tenths.
 For orientation, the current stack uses about 0.55 GiB of GPU memory in flight and
 0.82 GiB with a shader pack.
 
+### 12.1 Quality tiers
+
+LOW, MEDIUM, HIGH and MAX are presets of per-group settings, chosen on two axes (D22). A
+versioned startup benchmark sets the speed tier and the GPU memory the driver reports,
+scaled by output pixels, sets the memory tier; groups that hold memory take the
+lower of the two, and the player can override any group. **Decided; built behind a switch and
+calibrated on one card** (12.1.1); no group's settings follow the tiers yet.
+
+On game benchmarks the supported cards fall into four clusters against an RTX 2060 Super at
+1440p: about 0.8 to 1.3 times (37% of qualifying Steam players in October 2026), 1.3 to 2.0
+(29%), 2.0 to 2.8 (21%) and 3.1 to 4.5 (12%). Most cards in the lower two have 8 GB. The
+benchmark, not this table, places a machine, since terrain's vertex and draw load may scale
+differently from games.
+
+The values below are starting points for the groups that dominate cost, at 1440p output.
+**Default**, each revised by the measurement that fills it.
+
+| Group | LOW | MEDIUM | HIGH | MAX |
+|---|---|---|---|---|
+| Render scale and scaler | 67%, own TAA and scaler (D23) | 77%, own TAA and scaler | 100%, own TAA | 100%; own temporal upscaling at 4K; DLSS where offered (D21) |
+| Near terrain, horizontal and vertical radius in cubes | 8, 4 | 12, 6 | 16, 8 | 20, 8 |
+| Distant reach in blocks a ring, and the view it gives | 256, 16.4 km | 384, 24.6 km | 512, 32.8 km | 768, 49.2 km |
+| The light's depth | One 2,048² layer | One 4,096² layer | 4,096² near and wide layers | Both, and far shadows by a march through the bricks |
+| Shadow filter | Hardware 2x2 | 3x3 | 5x5 | Soft shadows on the near layer |
+| Ambient occlusion | Vertex | Vertex and half-resolution screen-space | Full resolution | Full resolution with bent normals |
+| Indirect light | An ambient term | Probes, 16x8x16, 32 rays | 32x8x32, 64 rays | Two probe cascades, 128 rays |
+| Fog and clouds | Height fog; a cloud layer | 160x90x64 fog cells; volumetric clouds at quarter resolution, 32 to 64 steps | 160x90x128; 64 to 128 steps | 8-pixel cells by 128; half resolution, 96 to 160 steps |
+
+The rays indirect light and far shadows share were measured through the occupancy bricks
+(5.2): on an RTX 3060 MEDIUM's probe update takes 0.22 ms whole, HIGH's 1.45 ms, MAX's two
+cascades about 8.5 ms, and MAX's far shadows 2.6 ms a million rays toward a low sun; HIGH and
+MAX spread their updates over frames.
+
+Some work is a precondition of a tier rather than a setting in it. Every tier needs the
+light's depth redrawn spread over frames: one layer already peaks at 6.5 ms on the frames
+that draw it. HIGH also needs the near layer scrolled and spread over frames, which took the
+worst frame to 16 ms when it was redrawn whole.
+
+Opaque terrain was measured against the horizontal radius at settled views, 1280 by 720 on
+an RTX 3060 ([VERIFICATION.md](VERIFICATION.md), opaque terrain against the near radius).
+Drawn forward it takes 0.96, 1.81, 2.23 and 2.32 ms on the GPU at radii 8, 12, 16 and 20,
+2.73 ms at the worst view. With the targets for shading drawn beside the forward picture it
+takes 2.15 to 3.74 ms, 6.73 ms at the worst view at radius 20. Memory in use is 626 MiB at
+radius 20, inside the arenas' 1.5 GiB. Neither sets the horizontal radii above. What limits
+HIGH and MAX now is filling a new place: until builds run on Cubature's executor, a place
+settles in 10 to 18 seconds at radius 12, 30 to 43 at 16 and 70 to 88 at 20. The vertical
+radii are not measured; the runs held 12, or 8 at radius 8.
+
+#### 12.1.1 The tier benchmark
+
+Built (`core.tier`, `platform/TierBench`); the first-launch path is behind a switch, off by
+default, until a second card has been measured against this calibration.
+
+**When it runs.** Where nothing is stored under the key, a digest of the GPU (the context's
+vendor and renderer strings and interop's device identifier), the driver (the context's
+version string and interop's driver identifier) and the benchmark's version, it runs once at
+the first settled moment: the view still for 240 frames with nothing waiting to be meshed, no
+mesh coming or going, and the view's search meeting no cube that is not loaded, since a place
+still arriving can hold its meshes for seconds between batches; and, where the light scene is
+copied to the GPU for the trace, that copy caught up, with nothing left to take from the scene
+or copy and some bricks held, since it trails the meshes. A run takes about 75 frames, one
+probe repetition a frame after near terrain's last opaque layer, so no frame is held for long;
+it is abandoned and begun again later if the view moves or terrain changes, and a run whose
+terrain drew fewer than 200,000 primitives, too few to measure the card, chooses nothing. Times are taken by pairs of timestamps, never by a time-elapsed query, since
+the frame's own stage timer holds one open around opaque terrain. Every result is read only
+once the driver reports it ready.
+
+**What it measures.** First a settling load, every frame, until its own times agree within 5%
+(an arithmetic pass and a pass over 256 MiB, with two arithmetic passes untimed; 13 to 40 frames
+on the RTX 3060), since the card's clock follows its load. Then two warm-up repetitions and seven
+kept ones of each, medians kept, the GPU kept loaded between them:
+
+- a bandwidth kernel: a compute program reading a buffer of 8 MiB and one of 256 MiB through,
+  512 MiB between each pair of timestamps. It runs first, which also brings the clocks up;
+- opaque terrain at each tier's render scale of the window: the frame's own commands issued
+  again into a target of the probe's own, each layer under the game's state for it, with the
+  primitives drawn and the samples passed counted by queries, the sizes taken in a new order
+  each round;
+- the light view's wide box, drawn whole into its scratch as its check draws it (4,096
+  texels a side), with its primitives and samples counted;
+- the indirect trace at each render resolution, through `TraceProbe`, which the indirect
+  light's trace supplies; without one the run goes on, and the groups it stands for are
+  scaled by the other probes.
+
+**How a tier is chosen.** Each probe gives a ratio against the reference card: bandwidth as
+the geometric mean of the two sets; terrain as what the reference card's model, a line a
+resolution by primitives drawn, says it would have taken at the run's sizes, summed, over what
+this card took, which leaves a view's own make-up out; the light's box the same by primitives
+and fragments; the trace as measured. A run whose trace stands more than twice or less than half
+the geometric mean of the others chooses nothing: it timed something other than the card, as the
+runs that met the light scene's copy before it caught up did (VERIFICATION.md, the tier
+benchmark). A tier's cost on the
+card is the reference card's cost of each of its groups at the window's output, over the
+ratio of the probe standing for that group; its fit is the budget over that cost. The speed
+tier is the highest tier that fits, with a band at each boundary: from the tier chosen last
+on the same GPU, a higher one is taken only once it fits by the band, and the last one is
+left only once it misses by it (`TierSelection`). The memory tier is chosen the same way from
+the memory each tier holds at the output against the memory free at the first screen, less
+512 MiB for the world's own textures and buffers, under an enforced budget where
+`quadrature.tier.memoryLimitMiB` is set. A group that holds memory (near terrain, distant
+reach, the light's depth) takes the lower of the two; every other group the speed tier
+(`TierChoice`). A player's tier for a group, an `override` line of the stored file or
+`-Dquadrature.tier.<group>`, stands over both. At run time two-second windows of frames are
+watched: where the driver's eviction count rose in two windows running and the 1% low fell
+a fifth below the best quiet window's, the memory tier goes down a step (`EvictionWatch`).
+
+The result, the tiers and the figures they came from are stored in the client's
+`quadrature-tiers.txt`, the GPU and the driver as digests only.
+
+**The calibration** (`TierCalibrationTable`), measured on the RTX 3060 12 GB, driver 610.88, at
+settled clocks ([VERIFICATION.md](VERIFICATION.md), the tier benchmark). The reference card's
+figures are fitted over 128 runs on three fresh instances, at the forest tour's 17 places at
+radius 12 and at seven of them at 16 and 20: bandwidth 348 and 350 GB/s; opaque terrain 0.062 +
+0.263 ms a million primitives at 1280 by 720, 0.097 + 0.289 at 1920 by 1080, 0.135 + 0.330 at
+2560 by 1440 and 0.187 + 0.867 at 3840 by 2160; the light's box -0.249 ms + 0.126 ms a million
+primitives + 0.053 ms a million fragments; the trace 305 million rays a second for MEDIUM's
+probes. The trace's figure is 376 million over the 128 runs, the same with or without the nine
+that met the light scene's copy before it caught up, measured on the walk that read the
+bricks' coarser bits, scaled to the walk as shipped by the trace's own times of the probe's
+batch, MEDIUM's at 64 blocks: 0.180 ms with those bits against 0.222 without, 0.81. The
+benchmark went to version 2 for it, and to 3 when it began to wait for the light scene's copy
+and to turn away a trace far from the other probes, so a result stored before is measured
+again. A tier's cost on the reference card, in ms at 2560 by 1440 output, against a budget of
+7 ms (85% of a frame at 120 frames a second), and the speed against this card a machine needs:
+
+| Group, and where its figure comes from | LOW | MEDIUM | HIGH | MAX |
+|---|---|---|---|---|
+| Opaque terrain drawn forward at the tier's radius and render scale, the median place (radii 12, 16, 20 measured; 8 scaled) | 0.27 | 0.54 | 0.94 | 1.18 |
+| The targets for shading, half the forward draw (the near radius's table) | 0.14 | 0.27 | 0.47 | 0.59 |
+| The light's depth a frame that draws it: one layer, both layers (PLAN, capability work, item 2) | 0.17 | 0.17 | 0.49 | 0.49 |
+| Indirect light's rays as item 4 schedules them, on the walk as shipped: MEDIUM every probe a frame, HIGH and MAX a quarter; MAX's far shadows, an upper bound | | 0.53 | 0.87 | 2.13 + 5.43 |
+| Shading, 0.19 ms a render megapixel (the stage handed over in a folder) | 0.31 | 0.42 | 0.70 | 0.70 |
+| The game's other drawing, 0.33 ms a render megapixel (the stage reports) | 0.55 | 0.72 | 1.22 | 1.22 |
+| Own temporal anti-aliasing, with the scaler below the output's resolution, at 0.67 and 0.77 (item 6, its plain kernel): 0.28 ms between its passes held fixed, the passes by output megapixel | 1.20 | 1.06 | 0.41 | 0.41 |
+| **In all, 2560 by 1440** | **2.63** | **3.71** | **5.09** | **12.15** |
+| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.26 / 0.38 / 0.71 | 0.40 / 0.53 / 0.95 | 0.54 / 0.73 / 1.41 | 1.55 / 1.74 / 2.45 |
+
+The rays' figures are item 4's last measurement, of the walk that reads no coarser bits
+([VERIFICATION.md](VERIFICATION.md), rays through the scene). That run sampled no clocks; its
+figures are taken as the top state's, as the other items' settled runs are.
+
+- Opaque terrain at radius 12, the median place, takes 0.476, 0.571, 0.670 and 1.778 ms from
+  1280 by 720 to 3840 by 2160. At the same views radius 16 takes 1.46, 1.39, 1.37 and 1.24 times
+  as long and radius 20 about 1.95, 1.83, 1.72 and 1.44 times (two views); radius 8 is taken as
+  0.53 of 12 from the near radius's table. Each radius is held as a + b MP + c MP². The vertical
+  radii are those of the runs, 12.
+- Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
+  shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
+  when measured, which can only raise the speeds needed.
+- **Rendering below the output costs time at today's frame.** The scaler stage, its plain
+  kernel, takes 1.20 ms at 2560 by 1440 output from 0.67 and 1.06 from 0.77, and 0.67 of the
+  resolution saves 0.98 ms of the world's drawing (item 6): a render below the output pays only
+  once a tier's resolution-dependent work passes about 2.2 ms at 0.67 and 2.6 ms at 0.77. Render
+  scale stays a preset of each tier, never a lever the selection turns; whether LOW and MEDIUM
+  keep 67% and 77% is D23's to decide. At 3840 by 2160 output LOW and MEDIUM pay about 2.3 and
+  2.0 ms for a scaler that a render at 100% would not need. The stage's passes are carried in
+  proportion to the output's megapixels from 2560 by 1440, the one output measured, and the
+  0.28 ms between them, barriers and program changes, is held fixed: MEDIUM takes 6.62 ms of the
+  7 at 3840 by 2160, and this card MEDIUM there, with a fit of 1.07 on the run the unit test
+  holds. Were the gaps to follow the pixels too, MEDIUM would take 6.97 ms and this card MEDIUM
+  still, with a fit of 1.01. **This card at 3840 by 2160 is a boundary case**, open until
+  the scaler is measured at that output: its score runs 0.85 to 1.14 between places, and a place
+  low in that range takes LOW there. The band keeps whichever tier is stored first.
+- The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's
+  arenas 128 to 704 MiB, distant terrain's reach about 40 to 250 MiB by DISTANT's survey, the
+  light's layers with their scratch 32 to 256 MiB, the light scene's lookup and bricks 8.6, 15.0
+  and 23.1 MiB with MAX's states within radius 12, 39 MiB, and 30.5 MiB a render megapixel and
+  15.3 an output megapixel for targets and history).
+- DLSS is offered where the speed tier leaves room for it (D21): at NVIDIA's published 1.45 ms
+  at 1920 by 1080 for this card, preset K in Performance mode, 0.70 ms an output megapixel,
+  scaled by the probes' combined ratio; the handoff to Vulkan is added once measured.
+- The trace probe times MEDIUM's own batch, 65,536 rays: a small batch runs at about half to
+  seven tenths of a large one's rate, so the probe gives a card's ratio to the reference, and
+  HIGH's and MAX's costs are item 4's own timings of their batches.
+
+**What this card scores.** 0.96 at the median against its own calibration (0.85 to 1.14 over
+128 runs), so it takes HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440 and MEDIUM at 3840 by
+2160, on the boundary with LOW (above); DLSS has room above HIGH at 1920 by 1080 and not at 2560
+by 1440. Its memory admits MAX at every output.
+
+**Against the four clusters.** Published game comparisons put the RTX 3060 within about 9%
+of the RTX 2060 Super (research R1, 1.10), so the clusters' bounds stand at about the same
+values against this card. At 2560 by 1440 the first cluster (0.8 to 1.3) reaches HIGH, the
+second (1.3 to 2.0) HIGH up to 1.58 and MAX above, the upper two MAX. At 3840 by 2160 the first
+reaches LOW up to 0.99 and MEDIUM above, the second MEDIUM up to 1.38 and HIGH above, the third
+(2.0 to 2.8) HIGH up to 2.29 and MAX above, the fourth MAX. The table's tiers above were meant to
+put the first cluster at LOW: at 2560 by 1440 it is the groups not yet counted, not the ones
+measured, that will separate them.
+
 ## 13. What is decided, and what is not
 
 | Area | Status | Settled by |
@@ -858,7 +1342,7 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | A view as the input to visibility and drawing | Decided; built | |
 | Coverage of chunk columns, and whether a search came to the edge of the box | Built; coverage behind a switch | A surface height from the cube source |
 | The scene for lighting: a state number per cell, light properties per state, occupancy and state bricks under a wrapped lookup | Built, behind switches | Color; shapes smaller than a cell |
-| The light's depth: fixed, texel-snapped orthographic boxes, a near one 192 blocks across and 544 deep behind its own switch and a wide one, each drawn into a layer of an array texture and kept between frames | Built, behind switches | Entities in it; what samples it |
+| The light's depth: orthographic boxes fixed in the world at whole texels, a near one 192 blocks across and 544 deep behind its own switch and a wide one, each a layer of an array texture drawn by tiles: dirty tiles in place, a new box over about 8 frames into a scratch copied over it whole | Built, behind switches | Entities in it; what samples it; the frame cost against the whole-layer draws it replaced |
 | Visibility's coarse step: a search per view over shared per-cube face links, on the CPU | Built | |
 | Terrain memory: an arena of pages written through the driver, never mapped, free blocks split and joined; draws by indirect multi-draw per layer and page | Built | Compaction, and pages given back; a single write that stalls; commands written on the GPU |
 | GPU-driven visibility in two phases | Default | Phase 2 measurements |
@@ -867,8 +1351,11 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 | Ringed distant terrain with shared mesher | Default | Memory per square kilometer |
 | Far-field representation | Candidate | The same |
 | Deferred shading with clustered lights | Default | Phase 5 prototype |
-| Far shadows, indirect light | Candidate | Phase 5 prototypes |
+| Far shadows, indirect light | Candidate; the trace they share through the bricks built and measured (5.2) | Phase 5 prototypes |
 | Shader format | Candidate | Two concrete shaders |
+| Driver floor R580, a warning below the production branch | Decided (D20); not built | |
+| Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); built behind a switch, calibrated on the RTX 3060 (12.1.1) | The groups not yet counted; a second card; a driver update |
+| Own temporal anti-aliasing and spatial scaler; DLSS through a Vulkan bridge as an option | Decided (D21, D23); own temporal pass and plain scaler built behind switches (4.8); the handoff to Vulkan measured (4.9) | DLSS's own evaluation; motion vectors for hosted draws; ghosting under motion |
 
 ## Sources
 

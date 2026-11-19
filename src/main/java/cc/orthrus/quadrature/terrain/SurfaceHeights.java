@@ -29,9 +29,6 @@ final class SurfaceHeights {
     private final MethodHandle heights;
     private final MethodHandle version;
     private final MethodHandle bounded;
-    private final MethodHandle content;
-    /** What the cube source's content call answers for a cube that holds only air. */
-    private static final int CONTENT_EMPTY = 1;
     private final int[] ground = new int[256];
     private final int[] liquid = new int[256];
     private final boolean[] loaded = new boolean[256];
@@ -61,7 +58,6 @@ final class SurfaceHeights {
             found = null;
         }
         MethodHandle foundBounded = null;
-        MethodHandle foundContent = null;
         try {
             // A later form takes a sixth argument that forbids working a height out from the generator.
             foundBounded = MethodHandles.publicLookup().findVirtual(ICubeSource.class, "surfaceHeights",
@@ -70,24 +66,15 @@ final class SurfaceHeights {
         } catch (ReflectiveOperationException absent) {
             foundBounded = null;
         }
-        try {
-            foundContent = MethodHandles.publicLookup().findVirtual(ICubeSource.class, "cubeContent",
-                MethodType.methodType(int.class, int.class, int.class, int.class));
-        } catch (ReflectiveOperationException absent) {
-            foundContent = null;
-        }
         heights = found;
         version = found == null ? null : foundVersion;
         bounded = found == null ? null : foundBounded;
-        content = foundContent;
         bands.defaultReturnValue(SurfaceBand.NONE);
         versions.defaultReturnValue(Long.MIN_VALUE);
-        Quadrature.LOGGER.info("The cube source {}, and {}.", heights == null
+        Quadrature.LOGGER.info("The cube source {}.", heights == null
                 ? "gives no surface heights, so coverage is found by scanning" : bounded != null
                 ? "gives surface heights without working any out, so coverage uses them for every column held"
-                : "gives surface heights, so coverage uses them where ground is among the cubes held",
-            content == null ? "does not say whether a cube is empty, so a snapshot is asked"
-                : "says whether a cube is empty");
+                : "gives surface heights, so coverage uses them where ground is among the cubes held");
     }
 
     /** Whether the cube source gives heights at all. */
@@ -157,20 +144,6 @@ final class SurfaceHeights {
     /** Whether the cube source can be told never to work a height out from the generator. */
     boolean neverPreviews() {
         return bounded != null;
-    }
-
-    /** Whether the cube source says in one look-up whether a cube holds anything. */
-    boolean tellsContent() {
-        return content != null;
-    }
-
-    /** Whether a cube holds only air, by the cube source's own account. Only where {@link #tellsContent}. */
-    boolean empty(int cubeX, int cubeY, int cubeZ) {
-        try {
-            return (int) content.invokeExact(source, cubeX, cubeY, cubeZ) == CONTENT_EMPTY;
-        } catch (Throwable e) {
-            return false;
-        }
     }
 
     /** Whether a column has been asked about and the source's version of it has not moved since. */
