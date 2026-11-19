@@ -1168,6 +1168,12 @@ once. The queue held each cube many times over, a box being 15,625 cubes. The sa
 runs of the repeatability tours, at two places on two instances, the copy holding no brick with
 100,000 to 1.8 million cubes queued; nine of them are among the 128 calibration runs, whose
 median trace is the same without them.
+The queue now holds each of the box's entries at most once, and an entry is taken for the cube that
+lies there when it is taken (c960183). Under the same conditions, a dwell at radius 20 and then the
+forest tour at radius 12 on one fresh instance, the queue held at most 15,113 cubes for the box of
+15,625; the copy caught up within 0.026 s of near terrain all 33 times a place came to rest; the
+light scene's check found no difference in 17 checks; and the trace at the two views that had met the
+empty copy read 0.228 to 0.291 billion rays a second.
 
 - **Nothing is timed until the copy has caught up**: nothing left to take from the scene or to
   copy, and some bricks held (`TerrainSettle`, through one read-only figure of the copy's,
