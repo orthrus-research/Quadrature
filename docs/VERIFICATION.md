@@ -800,6 +800,129 @@ above, from builds on the client thread within 4 ms a frame.
   with no allocation stalls; places settle in the same 24 and 27 s, client CPU is the same,
   and the worst frame in the build pool's calls falls from 32.8 to 9.1 ms.
 
+### Rays through the scene
+
+Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
+5.2 (`-Dquadrature.rays.bench=true -Dquadrature.rays.check=true`) and the scene's buffers on, on three
+fresh instances, over the dwell tour of three places: radius 12 with jars from f8aa79e, radius 20 and
+12 again from b2c32e7, radius 16 and 20 again from 19df819. Each set traces three classes at three
+lengths in each tier's batch: probe rays from a grid about the player in directions spread over the
+sphere; shadow
+rays from just above the first thing met straight down at each point of a square 256 blocks across,
+toward the hour's light, which the tour holds overhead at noon; and the same toward a sun 20 degrees
+above the horizon ("low sun"). GPU clocks were sampled beside every tour.
+
+**The trace is the reference's, to the bit.** `BrickTrace`'s eight unit tests require it to end
+where a walk of single cells over the scene as defined ends, outcome, distance and cell, on terrain,
+scattered cells at three fills, a wrapped origin and a moved box, and to agree with points along the
+ray in double precision except where a cell is crossed in under two of their steps; with the tie rule
+broken, four of the eight fail. On the GPU, after each measurement two runs of 256 rays and their
+results were read back and traced again on the CPU over the buffers the trace read:
+
+| Run | Sets | Rays compared | The same word for word | Differing | Passed over |
+|---|---|---|---|---|---|
+| Radius 12, dwell tour | 21 | 580,608 | 580,608 | 0 | 0 |
+| Radius 12, underground | 41 | 1,133,568 | 1,133,568 | 0 | 0 |
+| Radius 20, dwell tour | 5 | 138,240 | 138,240 | 0 | 0 |
+| Radius 12, dwell tour, again | 20 | 552,960 | 552,960 | 0 | 0 |
+| Radius 16, dwell tour | 17 | 470,016 | 470,016 | 0 | 0 |
+| Radius 20, dwell tour, again | 12 | 317,952 | 317,952 | 0 | 13,824 |
+
+Every compared word was equal, 3,193,344 rays in all: the distance's bits, the cell, the outcome
+and the nodes visited, through storage blocks and through buffer textures in the first four runs,
+from the scene's buffers and from a copy of them on the GPU in the last two. The rays passed over
+were traced while a cube arrived, under another generation than the copy read back. The light scene
+checks of the first four runs found no difference between the scene and its buffers.
+
+**Memory.** The lookup and room for a brick for every cube of the box:
+
+| Box | Lookup | Brick room | Bricks in use, most seen | With each cell's state as well |
+|---|---|---|---|---|
+| Radius 12, vertical 12 | 61 KiB | 8.6 MiB | 5,863 (4,273 underground) | 77.8 MiB |
+| Radius 16, vertical 12 | 106 KiB | 15.0 MiB | 10,969 | 135 MiB |
+| Radius 20, vertical 12 | 164 KiB | 23.1 MiB | 17,401 | 208 MiB |
+| Radius 20, vertical 8 | 112 KiB | 15.7 MiB | | 142 MiB |
+
+The trace reads the lookup and bricks alone. The benchmark's own buffers take 96 MiB, room for the
+largest batch.
+
+**What disturbed the first timings.** Two things, each found from evidence the runs carried:
+
+- *The clock.* Under the game's light load the card idles in P5 or P3 (memory at 810 or 5,001 MHz)
+  and reaches P0 (1,935 MHz, memory 7,501 MHz) 0.7 to 2.0 seconds into a set's load, once 3.3. In the
+  first sets probe rays ran first and so met the lower clocks. Sets now trace in rounds, every
+  measurement once a round, untimed for two seconds; within a set the five repeats then agree to a few
+  percent.
+- *Where the driver keeps the brick buffer.* With the clock settled, the same probe work still ran 3 to
+  12 times slower in some sets than in others, with the same node counts and the same longest rays,
+  while coherent rays in the same sets held steady and GPU utilization was no higher. With
+  `-Dquadrature.glDebug=true` the driver reported moving buffers from video to host memory: the
+  benchmark's rays, results and census, which the check read back after every measurement, over a
+  thousand times a run; the scene's lookup and bricks, which the light scene check and the end of each
+  set read back, ten to twenty times. In both runs at radius 12 the scene's brick buffer was first moved
+  to "DMA cached" memory 11 and 12 seconds before the slow stretch began, and the sets before it were
+  fast. A trace whose rays miss the cache reads such memory across the bus; coherent rays mostly hit
+  the cache. The CPU now reads only staging buffers filled by copies on the GPU.
+
+**With neither disturbance** (radius 16 and 20, the light scene check off, every read through a
+staging copy, the driver's moves counted per set): no buffer was moved in any of 29 whole sets, and
+the same work took the same time wherever it was measured. Probe rays at 256 blocks in HIGH's batch
+took 2.36 to 3.08 ms at the far views of every place at radius 16 (1.48 to 1.94 ms at the near views,
+where more probes begin among trees) and 2.42 to 2.80 ms at radius 20, where a set at radius 20 had
+taken 30 ms before. Each measurement was also timed from a copy of the lookup and bricks made on the
+GPU at the set's start and never read back. Over 783 measurements the ratio of the copy's median to
+the scene's was 1.000 at its middle and within 2% in 88% of them at radius 16 and 95% at 20; the few
+further apart fell either way, the copy faster in 30 and slower in 40. The scene's buffers, made with
+`glNamedBufferStorage` and `GL_DYNAMIC_STORAGE_BIT` and written with `glNamedBufferSubData`, are as
+fast to trace as a copy the CPU never touches, so long as the CPU does not read them. The light scene check (`-Dquadrature.scene.check=true`) reads them back every 600
+frames, so a trace timed with it on may be slowed.
+
+**Speed.** GPU time of a batch at radius 20, P0 clocks, the median over 12 sets of each set's
+median of five, from the scene's own buffers; in brackets million rays a second.
+
+| Class, length in blocks | 65,536 rays (MEDIUM) | 524,288 (HIGH) | 2,097,152 (MAX) |
+|---|---|---|---|
+| Probes, 16 | 0.057 ms (1,160) | 0.308 ms (1,699) | 0.917 ms (2,286) |
+| Probes, 64 | 0.176 ms (372) | 1.183 ms (443) | 3.928 ms (534) |
+| Probes, 256 | 0.409 ms (160) | 2.676 ms (196) | 9.344 ms (224) |
+| Low sun, 16 | 0.072 ms (910) | 0.385 ms (1,362) | 1.328 ms (1,579) |
+| Low sun, 64 | 0.190 ms (345) | 0.948 ms (553) | 3.192 ms (657) |
+| Low sun, 256 | 0.285 ms (230) | 1.476 ms (355) | 4.784 ms (438) |
+| Noon, 16 | 0.055 ms (1,192) | 0.276 ms (1,900) | 1.054 ms (1,989) |
+| Noon, 64 | 0.081 ms (809) | 0.426 ms (1,231) | 1.604 ms (1,307) |
+| Noon, 256 | 0.114 ms (575) | 0.653 ms (802) | 2.502 ms (838) |
+
+- **Probe rays run at half the rate of coherent ones per node.** At 256 blocks a probe ray visits
+  23.6 nodes and a ray toward the low sun 25.6, but the MAX batch takes 9.3 against 4.8 ms: 5.3
+  against 11.2 billion nodes a second.
+- **The radius barely matters.** Probe rays at 256 blocks in MAX's batch: 7.40, 9.08 and 9.34 ms at
+  radii 12, 16 and 20 (283, 231 and 224 million a second); 43% of them left the box at radius 12,
+  18% at 16 and 13% at 20. Coherent rays toward the low sun: 4.26, 5.04 and 4.78 ms.
+- **Small batches leave the card idle:** 65,536 rays run at 51 to 71% of the rate of two million.
+- **Noon is the easy case.** The tour holds the sun overhead; rays toward it climb out of the box,
+  97 to 100% leaving it, so far shadows are priced from the low sun.
+- **Where each ends, probes:** at 256 blocks in the MEDIUM and HIGH batches 54 to 60% hit; in every
+  batch 9 to 23% began in a cell that blocks (probes are not moved out of terrain), and 0.2 to 5% met a
+  cube not known; in HIGH's batch 11 to 27% left the box.
+- **Underground**, at y 22 and 30 inside rock, 97% of probes begin in a cell that blocks and every
+  probe batch takes under 0.6 ms (the shadow classes start from the surface and cost what they do
+  above); the tour's capture never fires inside rock, so only this one place was measured, and no
+  open cave was found for this seed.
+
+**Each tier's batch as it would run**, at its own radius (MEDIUM 12, from the radius-12 sets that
+the moves did not slow; HIGH 16; MAX 20), and spread over frames:
+
+| Tier | Batch | Whole update | A quarter a frame |
+|---|---|---|---|
+| MEDIUM | 16x8x16 probes, 32 rays: 65,536 rays at 64 blocks; at 256 | 0.18 ms; 0.37 ms | 0.04 ms; 0.09 ms |
+| HIGH | 32x8x32 probes, 64 rays: 524,288 rays at 64 blocks; at 256 | 1.19 ms; 2.66 ms | 0.30 ms; 0.67 ms |
+| MAX | two cascades of 32x8x32 probes, 128 rays: the near one (4 blocks apart) at 64 blocks and the far one (16 apart) at 256 | about 6.6 ms | about 1.7 ms |
+| MAX far shadows | a ray toward the low sun at 256 blocks, a million of them | 2.28 ms | 0.57 ms |
+
+MAX's two cascades were measured together at one length (3.93 ms at 64, 9.34 ms at 256); the line
+above takes half of each. The far-shadow line is per million rays: a whole 2560 by 1440 picture is
+3.7 million.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
@@ -837,6 +960,9 @@ which fails that build, is logged the same way, as `in a build thread`.
 | `quadrature.gbuffer.image=true` | Writes the targets as images into the client's `quadrature-gbuffer/` where the player stands still |
 | `quadrature.materials.audit=true` | Logs each block where the list of kinds and the rule differ, each the rule gives a kind that the list does not name, and the states of blocks that hold a material in each state |
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
+| `quadrature.rays.bench=true` | With the scene's buffers: at a settled view, traces probe and shadow rays at three lengths in each tier's batch, from the scene's buffers and from a copy on the GPU, and logs GPU times, how the rays ended and the driver's moves of each buffer per set. `quadrature.rays.bench.settle`, `.every` and `.warm` set its seconds (3, 20, 2) |
+| `quadrature.rays.check=true` | With the benchmark: traces a sample of each batch's rays again on the CPU over the buffers read back through staging copies, and logs `RAYS CHECK FAILED` where any word differs |
+| `quadrature.rays.fetch=texture` | The trace reads the lookup and bricks through their buffer textures instead of storage blocks |
 
 A settled frame is one with no cube waiting to be meshed.
 ## Limits

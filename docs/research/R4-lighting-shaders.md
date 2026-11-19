@@ -77,6 +77,72 @@ nothing a conforming pack provides is discarded. What it carries beyond that is 
 A shader that reproduces the game's look is the reference for image comparison in P1 and
 P2, and the fallback for players who select no other.
 
+**7.8 Rays through occupancy grids and bricks on the GPU. [V for the methods; measured
+here, 2026-11-18]**
+Indirect light from probes and shadows beyond the light's depth both reduce to one
+operation: from a point, along a direction, the distance to the first cell that blocks
+light. The scene for lighting already holds what that needs (ARCHITECTURE 5.1).
+- **The grid walk.** Amanatides and Woo (1987) walk a uniform grid one cell at a time:
+  keep, for each axis, the distance along the ray to the next cell boundary and cross the
+  smallest; a step costs two comparisons and one addition. Later voxel ray casters build
+  on it; Laine and Karras (2010) name it the basis of most derivative work, theirs
+  included.
+- **Hierarchies and bricks.** Two-level grids (Kalojanov, Billeter and Slusallek, EG
+  2011) nest a fine grid in each coarse cell, are among the fastest structures to build on
+  a GPU, and trace about as fast as other structures for dynamic scenes. Museth's
+  hierarchical walk in OpenVDB (SIGGRAPH 2014 talks) steps a whole node at a time where a
+  node is empty and descends where it is not; he reports stopping its descent at the leaf
+  nodes as a good balance between a fast walk and empty-space skipping. GigaVoxels
+  (Crassin, Neyret, Lefebvre and Eisemann, I3D 2009) keeps an octree whose nodes point at
+  fixed-size bricks in a GPU pool, skips empty nodes and marches inside bricks until a
+  sample is opaque. Van Wingerden (Utrecht, 2015) keeps raw layered grids rather than a
+  sparse octree so the data can be edited without preprocessing.
+- **What a voxel caster reaches.** Laine and Karras's sparse voxel octree cast 60.9
+  million primary rays a second through a displaced Sibenik cathedral of 2.7 GB and 122.0
+  million through the plain one, on a GTX 285, where the fastest triangle caster of the
+  time reached 107.1 million on the same hardware.
+- **Coherence on NVIDIA hardware.** Threads run in warps of 32 that share control flow
+  (SIMT). Aila and Laine (HPG 2009) measured trace kernels on a GTX 285 and found them 1.5
+  to 2.5 times below a simulated bound, mostly through how work is distributed and how
+  many lanes of a warp do useful work, not through memory bandwidth; a few long rays keep
+  a whole warp waiting. Their best kernel traced 135.6 million primary, 130.7 million
+  ambient occlusion and 62.4 million diffuse rays a second in the Conference scene:
+  incoherent rays at about half the rate of coherent ones. The 2012 addendum (Aila, Laine
+  and Karras, NVR-2012-02) measured 432.6 and 245.4 million on a GTX 680, found throughput
+  following peak arithmetic rather than bandwidth, and found Kepler's L1 cache useful
+  only for coherent access, so that incoherent rays did better fetching through the
+  texture path. NVIDIA's Turing tuning guide describes a unified L1 and texture cache that
+  gathers a warp's requests before delivering them, and warns that independent thread
+  scheduling does not make long divergent stretches free.
+- **Probes.** Dynamic diffuse global illumination (Majercik, Guertin, Nowrouzezahrai and
+  McGuire, JCGT 2019) places probes on a grid about the camera; each casts a set of rays
+  spread over the sphere every frame. Rays of one probe share an origin and little else:
+  incoherent by construction. Rays toward the sun from neighboring points are parallel
+  and start side by side: coherent.
+
+*Implication, taken in the build:* the scene's own layout is already a three-level
+grid, so nothing is built for rays. A cube of one state that does not block is passed
+whole, a block of two cells a side whose coarser bit is clear is passed whole, and a cell
+is tested with one 32-bit load. The walk computes every distance afresh from the ray's
+origin rather than accumulating it, so that its results can be checked against a CPU
+reference to the bit (ARCHITECTURE 5.2). Probe rays and shadow rays are measured apart,
+since the published ratio between incoherent and coherent rays is about two.
+
+*Measured on the RTX 3060 (VERIFICATION, rays through the scene):* at P0 clocks, settled
+views and radius 20, 2.1 million rays took 0.92 ms at 16 blocks, 3.9 ms at 64 and 9.3 ms
+at 256 for probe rays (2,290, 534 and 224 million a second), and 1.3, 3.2 and 4.8 ms for
+coherent rays toward a sun 20 degrees up (1,580, 657 and 438 million). At 256 blocks the
+probe rays visit 24 nodes and the coherent ones 26, so the published ratio holds here too:
+incoherent rays at half the rate per node visited, 5.3 against 11.2 billion nodes a second.
+Batches of 65,536 rays run at 51 to 71% of the rate of 2 million, too few to fill the card.
+Two findings beyond the literature: the radius barely changes the rate (probe rays at 256
+blocks: 283, 231 and 224 million a second at radii 12, 16 and 20, most of the difference rays
+leaving the smaller box early); and incoherent rays are sensitive to where the driver keeps
+the bricks. A buffer the CPU has read back may be kept in host memory for a while, and
+probe rays traced from it took three to twelve times as long while coherent rays barely
+changed. Reading the lookup and bricks through buffer textures rather than storage blocks
+made under 5% difference on this card, whose L1 and texture caches are one.
+
 ## 8. Shader system
 
 **8.1 Format. [K]**
@@ -157,3 +223,28 @@ format.
 - "Integrating AMD FSR1 for OpenGL": https://codeonwort.github.io/articles/fsr1-for-opengl.html
 - "Porting FSR 2 to OpenGL": https://juandiegomontoya.github.io/porting_fsr2.html
 - AMD, FSR 1 requirements: https://gpuopen.com/manuals/fidelityfx_sdk/techniques/super-resolution-spatial/
+- Amanatides and Woo, "A Fast Voxel Traversal Algorithm for Ray Tracing", Eurographics 1987:
+  https://www.eecs.yorku.ca/~amana/research/grid.pdf
+- Kalojanov, Billeter and Slusallek, "Two-Level Grids for Ray Tracing on GPUs", Computer
+  Graphics Forum 30(2), Eurographics 2011: https://diglib.eg.org/items/71143a61-9f86-414b-abac-12669ca84360
+- Museth, "Hierarchical Digital Differential Analyzer for Efficient Ray-Marching in OpenVDB",
+  SIGGRAPH 2014 talks, slides:
+  https://research.dreamworks.com/wp-content/uploads/2018/07/talk_hierarchical_digital_OpenVDB_v4-Edited.pdf;
+  his note on stopping at leaf nodes: https://groups.google.com/g/openvdb-forum/c/Bl0ip1_rX2M
+- Crassin, Neyret, Lefebvre and Eisemann, "GigaVoxels: Ray-Guided Streaming for Efficient
+  and Detailed Voxel Rendering", I3D 2009: https://graphics.tudelft.nl/Publications-new/2009/CNLE09a
+- Van Wingerden, "Real-time Ray Tracing and Editing of Large Voxel Scenes", Utrecht
+  University thesis, 2015: https://studenttheses.uu.nl/handle/20.500.12932/20460
+- Laine and Karras, "Efficient Sparse Voxel Octrees", I3D 2010:
+  https://www.nvidia.com/docs/IO/88889/laine2010i3d_paper.pdf
+- Aila and Laine, "Understanding the Efficiency of Ray Traversal on GPUs", HPG 2009, Table 1:
+  https://research.nvidia.com/sites/default/files/pubs/2009-08_Understanding-the-Efficiency/aila2009hpg_paper.pdf
+- Aila, Laine and Karras, "Understanding the Efficiency of Ray Traversal on GPUs: Kepler and
+  Fermi Addendum", NVIDIA NVR-2012-02, Table 1:
+  https://research.nvidia.com/sites/default/files/pubs/2012-06_Understanding-the-Efficiency/nvr-2012-02.pdf
+- NVIDIA, "Tuning CUDA Applications for Turing" (unified L1 and texture cache, divergence):
+  https://docs.nvidia.com/cuda/turing-tuning-guide
+- Majercik, Guertin, Nowrouzezahrai and McGuire, "Dynamic Diffuse Global Illumination with
+  Ray-Traced Irradiance Fields", JCGT 8(2), 2019:
+  https://research.nvidia.com/publication/2019-05_dynamic-diffuse-global-illumination-ray-traced-irradiance-fields
+- Jarzynski and Olano, "Hash Functions for GPU Rendering", JCGT 9(3), 2020: https://jcgt.org/published/0009/03/02/

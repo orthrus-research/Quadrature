@@ -647,7 +647,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Added: 2026-11-18
 
 ### The ray benchmark and its check
-- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`
+- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`,
+  `Staging.java`; `DriverMessages.moves`, `TerrainHook.driverMoves`
 - Source: original in its classes and schedule. Ideas used: probes about the camera casting rays
   in directions spread over the sphere, as in Majercik, Guertin, Nowrouzezahrai, McGuire, "Dynamic
   Diffuse Global Illumination with Ray-Traced Irradiance Fields", JCGT 8(2), 2019; that coherent and
@@ -658,6 +659,11 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   GPU Rendering", JCGT 9(3), 2020, after O'Neill's PCG (2014); its published constants are used.
 - Taken: the shape of the work measured: probe grids, rays a probe, and rays toward the sun from
   surfaces.
+- Original: timing in interleaved rounds after an untimed warm-up; timing each batch from the
+  scene's buffers and from a copy made on the GPU; reading back only staging buffers filled by GPU
+  copies; counting the driver's reported buffer moves per set. Facts used: the OpenGL 4.6
+  specification (`glCopyNamedBufferSubData`, `GL_CLIENT_STORAGE_BIT`, timestamp queries, sync
+  objects) and the driver's own debug messages.
 - Not taken: any probe update, irradiance storage or shading; only the trace is measured.
 - Added: 2026-11-18
 
