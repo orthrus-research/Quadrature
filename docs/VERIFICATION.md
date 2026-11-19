@@ -935,6 +935,52 @@ judge its picture.
   extensions it needs does not name the feature. With the feature enabled for DLSS, a validated
   run with three world changes reported nothing. NGX's time on the first build matched the second
   (1.550 against 1.544 ms at 1080p with preset K).
+### DLSS taking the scaler's picture
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with the DLSS SDK 310.9.16's
+`nvngx_dlss.dll` and preset K, on one fresh instance at 2560x1440 with own terrain, over the
+scaler's short tour (three places far and near and the glowing golem, seven views), scored by
+`tools/frames.py quality` against own terrain at the output's size with both switches off, run in
+the same instance and checked against its settling run. DLSS took the scaler's picture in every
+composite of its runs (17,950 at 0.67, 17,915 at 0.5), with the offset taken as the scaler makes
+it, x +1 and y +1.
+
+| Against native, short tour | Drawn | PSNR | SSIM | Edge detail | GPU for the picture |
+|---|---|---|---|---|---|
+| Own scaler, 0.67 with the temporal pass | 1715x965 | 28.31 dB | 0.811 | 0.513 | 1.03 ms |
+| DLSS, Quality mode, 0.67 | 1715x965 | 30.37 dB | 0.897 | 0.773 | 2.91 ms |
+| DLSS, Performance mode, 0.5 | 1280x720 | 29.21 dB | 0.858 | 0.709 | 2.77 ms |
+
+The GPU time is the sum of the medians of the scaler's passes that ran: the depth copies, motion,
+and either the temporal and scale passes or the handoff, and the depth stretch. The clocks differ:
+while the GPU worked, the own scaler's run sat in P3 for 500 of 574 samples, at a median 1,020 MHz,
+and both DLSS runs in P0 for every frame, at 1,927 MHz.
+
+- **DLSS makes the better picture, at either scale.** At 0.67 it scores 2.06 dB and 0.086 in
+  structural similarity above the own scaler, on every view; at 0.5, drawing 44% fewer pixels,
+  it still scores 0.90 dB above the own scaler at 0.67. The own scaler's scores repeat its
+  measurement on another instance to the third decimal (28.30 dB, 0.811, 0.512).
+- **What it costs.** NGX's own work takes 2.246 ms at 0.67 and 2.215 ms at 0.5, all at P0: set by
+  the output's size, not the drawn one, as in DLSS through the handoff (2.20 ms at this output in
+  Performance mode). The round trip adds 0.26 ms, the copies in 0.14 ms at 0.67 and 0.09 ms at
+  0.5, the copy out 0.09 ms, so the picture costs 1.9 ms more than the own scaler's at 0.67, and
+  the client 0.17 ms a frame. The own scaler's time was taken at about half DLSS's clock, so at
+  equal clocks the difference is larger; and DLSS's load held the card in P0, where the own
+  scaler's let it fall to P3. The frame stayed at the cap, 8.33 ms.
+- **Mode and range.** NGX takes render sizes from 1280x720 to 2560x1440 for this output in
+  Quality mode, so the scaler's 1715x965 at 0.67, a few pixels above Quality's optimal 1707x960,
+  is accepted; 0.5 is Performance mode's optimal size. The scaler cycled through 18 and 32 offsets.
+- **The offset's sign, shown.** With the y offset's sign flipped DLSS scores 27.44 dB and 0.793,
+  and with both flipped 26.57 dB and 0.746, against 30.37 dB and 0.897 as the scaler makes it.
+  Edge detail rises as the sign goes wrong (0.796 and 0.840): misplaced samples alias, which adds
+  gradient, so edge detail alone does not rank a scaler.
+- **Validation.** Over a validated run of the tour, Vulkan's validation layer reported nothing.
+- **The refusals.** With the stand-in asked for beside the scaler, and with DLSS asked for beside
+  a scale of 0.67 without the temporal pass, the handoff was turned away with its message and
+  opened no Vulkan device, and the scaler ran: 7 of 7 views each.
+- **Not measured.** The views are still; a picture in motion is not scored, and the scaler's
+  motion is the camera's, so entities and particles carry none (D21). No texture LOD bias is
+  applied for the scale, which DLSS's guide recommends.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1392,8 +1438,12 @@ handoff to Vulkan onto the build pool.
 
 Since that jar, the tier benchmark waits for the light scene's copy and turns away a trace far from
 the run's other ratios (5f0cd3a); those paths are unit tested, and no run above traced outside the
-bound. Not run: the handoff's refusal beside the scaler, which turns the handoff off at its first
-frame.
+bound. The handoff's refusal beside the scaler ran later the same day, on that code with the
+DLSS shim beside it: with the scaler at LOW and DLSS asked for, and at HIGH with the stand-in,
+the handoff turned itself off at its first frame with one warning and opened no Vulkan device,
+and the scaler ran, 5 of 5 views each. Since then DLSS takes the scaler's picture instead (DLSS
+taking the scaler's picture).
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.

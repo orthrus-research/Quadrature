@@ -52,6 +52,19 @@ class NgxTest {
     }
 
     @Test
+    void theScalersRatioPicksTheNearestMode() {
+        assertEquals(Ngx.DLAA, Ngx.qualityFor(1));
+        assertEquals(Ngx.QUALITY, Ngx.qualityFor(0.6666667));
+        assertEquals(Ngx.QUALITY, Ngx.qualityFor(0.67));
+        assertEquals(Ngx.QUALITY, Ngx.qualityFor(0.77));
+        assertEquals(Ngx.BALANCED, Ngx.qualityFor(0.58));
+        assertEquals(Ngx.PERFORMANCE, Ngx.qualityFor(0.5));
+        assertEquals(Ngx.ULTRA_PERFORMANCE, Ngx.qualityFor(0.34));
+        assertThrows(IllegalArgumentException.class, () -> Ngx.qualityFor(0));
+        assertThrows(IllegalArgumentException.class, () -> Ngx.qualityFor(1.2));
+    }
+
+    @Test
     void failuresAreTheBadRange() {
         assertTrue(Ngx.failed(0xBAD00001));
         assertTrue(Ngx.failed(0xBAD10004));

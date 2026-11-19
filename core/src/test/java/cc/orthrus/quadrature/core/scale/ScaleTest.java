@@ -62,6 +62,18 @@ class ScaleTest {
     }
 
     @Test
+    void phasesKeepEightOffsetsForEveryOutputPixel() {
+        // DLSS's guide gives 32 at one half and 18 at two thirds (its 1.5, our 0.6666667 and 0.67).
+        assertEquals(32, Jitter.phasesFor(0.5));
+        assertEquals(18, Jitter.phasesFor(0.6666667));
+        assertEquals(18, Jitter.phasesFor(0.67));
+        assertEquals(14, Jitter.phasesFor(0.77));
+        assertEquals(8, Jitter.phasesFor(1));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> Jitter.phasesFor(0));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> Jitter.phasesFor(1.5));
+    }
+
+    @Test
     void offsetsRepeatEveryCycleAndStayInsideThePixel() {
         int phases = 8;
         double sumX = 0;

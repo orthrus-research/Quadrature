@@ -25,6 +25,12 @@ import java.util.ServiceLoader;
  * {@link ServiceLoader}; Quadrature holds none itself, and without the module the switch only logs that it
  * is missing. Off, nothing here runs.
  *
+ * <p>Beside the scaler (own temporal anti-aliasing or a scale below 1) the game's framebuffer at the end of the
+ * world pass is already the scaler's output. A handoff that evaluates the scaler's picture (DLSS) is then called
+ * from the scaler's composite instead, with the drawn picture, its depth, its motion and the frame's offset, and
+ * writes the output in place of the scaler's own passes; one that measures the game's framebuffer (the stand-in)
+ * is turned off, and the scaler runs.
+ *
  * <p>Settings are read as {@code quadrature.handoff.<name>}. Two are the host's own, for a measurement of
  * how the handoff survives a window resize: {@code resizeAt} (a frame number) changes the window to
  * {@code resizeTo} (width x height, three quarters of the size by default) and back after {@code resizeHold}
@@ -38,6 +44,7 @@ public final class HandoffHost {
     private static Handoff handoff;
     private static boolean stopped;
     private static long frames;
+    private static long evaluations;
     private static WorldClient world;
     private static long resizeAt = -1;
     private static int restoreWidth;
@@ -55,17 +62,19 @@ public final class HandoffHost {
         if (stopped) {
             return;
         }
-        if (handoff == null && TemporalScaler.REQUESTED) {
-            // The handoff reads the game's framebuffer as the world pass leaves it and takes its size as the
-            // output's, and the scaler stands a smaller framebuffer in for it while the world is drawn. No design
-            // yet takes the scaler's images as the handoff's inputs, so the two do not run together.
-            Quadrature.LOGGER.warn("The handoff ({}) does not run beside the scaler (own temporal anti-aliasing or a "
-                + "scale below 1): it is turned off, and the scaler runs.", SWITCH);
-            stopped = true;
+        if (TemporalScaler.REQUESTED) {
+            // Beside the scaler the handoff is called from the scaler's composite (evaluate), which makes the offset
+            // and the motion only with its temporal pass on.
+            if (!TemporalScaler.TAA) {
+                Quadrature.LOGGER.warn("The handoff ({}) takes the scaler's picture only with its temporal pass on "
+                    + "(quadrature.taa=true), which makes the offset and the motion it needs: it is turned off, and the "
+                    + "scaler runs.", SWITCH);
+                stopped = true;
+            }
             return;
         }
         Minecraft minecraft = Minecraft.getMinecraft();
-        if (handoff == null && !open(minecraft)) {
+        if (handoff == null && !open(minecraft, false)) {
             stopped = true;
             return;
         }
@@ -86,6 +95,39 @@ public final class HandoffHost {
         if (contain("a frame", () -> handoff.frame(frame))) {
             resizeFault(minecraft);
         }
+    }
+
+    /**
+     * The scaler's composite, after its motion pass: the handoff evaluates the drawn picture into the output's
+     * framebuffer in place of the scaler's temporal and scale passes. Returns whether it wrote the output; where
+     * it did not, the scaler makes the picture itself. The first call opens the handoff; one that does not take
+     * the scaler's picture is turned off then.
+     */
+    static boolean evaluate(int framebuffer, int depthRenderbuffer, int motionTexture, int renderWidth, int renderHeight,
+                            double jitterX, double jitterY, boolean reset, boolean depthInverted, int output, int outputWidth,
+                            int outputHeight) {
+        if (!REQUESTED || stopped) {
+            return false;
+        }
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (handoff == null) {
+            if (!open(minecraft, true)) {
+                stopped = true;
+                return false;
+            }
+            Quadrature.LOGGER.info("The {} evaluates the scaler's picture in place of the scaler's temporal and scale "
+                + "passes.", handoff.name());
+        }
+        if (world != minecraft.world) {
+            if (world != null && !contain("a world change", handoff::worldChanged)) {
+                return false;
+            }
+            world = minecraft.world;
+        }
+        Handoff.Evaluation evaluation = new Handoff.Evaluation(evaluations++, framebuffer, depthRenderbuffer, motionTexture,
+            renderWidth, renderHeight, jitterX, jitterY, reset, depthInverted, output, outputWidth, outputHeight);
+        boolean[] written = new boolean[1];
+        return contain("an evaluation", () -> written[0] = handoff.evaluate(evaluation)) && written[0];
     }
 
     /**
@@ -114,7 +156,13 @@ public final class HandoffHost {
         }
     }
 
-    private static boolean open(Minecraft minecraft) {
+    /**
+     * Finds the handoff and opens it.
+     *
+     * @param forScaler called from the scaler's composite: a handoff that does not take the scaler's picture is
+     *                  turned away before it opens anything
+     */
+    private static boolean open(Minecraft minecraft, boolean forScaler) {
         Handoff found = find(minecraft);
         if (found == null) {
             Quadrature.LOGGER.warn("The handoff was asked for ({}={}), but no module provides one: install "
@@ -128,9 +176,24 @@ public final class HandoffHost {
             Quadrature.LOGGER.error("The handoff's folder {} could not be made; it is turned off.", folder, e);
             return false;
         }
+        Handoff.Host host = host(folder);
+        boolean takesPicture;
+        try {
+            takesPicture = !forScaler || found.evaluates(host);
+        } catch (RuntimeException | LinkageError e) {
+            Quadrature.LOGGER.error("The {} could not say whether it takes the scaler's picture; the frame goes on without "
+                + "it.", found.name(), e);
+            return false;
+        }
+        if (!takesPicture) {
+            Quadrature.LOGGER.warn("The {} measures the game's framebuffer, which beside the scaler (own temporal "
+                + "anti-aliasing or a scale below 1) is already the scaler's output: it is turned off, and the scaler "
+                + "runs.", found.name());
+            return false;
+        }
         String reason;
         try {
-            reason = found.open(host(folder));
+            reason = found.open(host);
         } catch (RuntimeException | LinkageError | OutOfMemoryError e) {
             Quadrature.LOGGER.error("The {} failed to open; the frame goes on without it.", found.name(), e);
             return false;

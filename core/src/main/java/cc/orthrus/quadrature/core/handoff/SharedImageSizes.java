@@ -36,14 +36,31 @@ public record SharedImageSizes(RenderSize render, int outputWidth, int outputHei
      * @param depthTexel bytes a texel of the game's depth format takes, 1 to 8
      */
     public static SharedImageSizes of(int outputWidth, int outputHeight, double scale, int depthTexel) {
+        checkOutput(outputWidth, outputHeight);
+        return of(outputWidth, outputHeight, RenderSize.of(outputWidth, outputHeight, scale), depthTexel);
+    }
+
+    private static void checkOutput(int outputWidth, int outputHeight) {
         if (outputWidth < 1 || outputHeight < 1 || outputWidth > LARGEST_SIDE || outputHeight > LARGEST_SIDE) {
             throw new IllegalArgumentException("The handoff refuses an output of " + outputWidth + "x" + outputHeight
                 + ": each side must lie in 1 to " + LARGEST_SIDE + " pixels.");
         }
+    }
+
+    /**
+     * The sizes for an output and a render size someone else chose, the scaler's drawn picture: an exception
+     * where the output lies outside 1 to {@link #LARGEST_SIDE} pixels a side or the render size outside 1 to
+     * the output's.
+     */
+    public static SharedImageSizes of(int outputWidth, int outputHeight, RenderSize render, int depthTexel) {
+        checkOutput(outputWidth, outputHeight);
+        if (render.width() < 1 || render.height() < 1 || render.width() > outputWidth || render.height() > outputHeight) {
+            throw new IllegalArgumentException("The handoff refuses a render size of " + render + " for an output of "
+                + outputWidth + "x" + outputHeight + ".");
+        }
         if (depthTexel < 1 || depthTexel > 8) {
             throw new IllegalArgumentException("A depth texel of " + depthTexel + " bytes is not a depth format's.");
         }
-        RenderSize render = RenderSize.of(outputWidth, outputHeight, scale);
         long inputTexels = (long) render.width() * render.height();
         return new SharedImageSizes(render, outputWidth, outputHeight, inputTexels * COLOR_TEXEL, inputTexels * depthTexel,
             inputTexels * MOTION_TEXEL, (long) outputWidth * outputHeight * OUTPUT_TEXEL);

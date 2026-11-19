@@ -446,10 +446,10 @@ Resolution itself; the bridge itself is not. Research R1, 1.9 has the rules it f
   value; OpenGL waits for that value on the GPU. One semaphore and rising values serve both
   directions; two binary semaphores are an option. Batches are recorded once per set of images
   and slot of a six-deep ring, and a slot is reused after its fence.
-- **What the measurement adds.** The game still renders at output resolution, so OpenGL fills
-  the render-resolution inputs with scaled copies from the game's framebuffer, clears the
-  motion image (the motion vectors of 4.8 exist only beside the scaler, which the handoff does
-  not run with) and copies the output back.
+- **What the measurement adds.** Without the scaler the game renders at output resolution, so
+  OpenGL fills the render-resolution inputs with scaled copies from the game's framebuffer,
+  clears the motion image (the motion vectors of 4.8 exist only beside the scaler) and copies
+  the output back.
   In the bridge, OpenGL draws into the shared images directly and the post effects read the
   output, so these copies are timed apart from the handoff. The parts take turns in segments
   of 120 frames (nothing, the round trip alone, with the stand-in, the copies alone, all of
@@ -475,12 +475,28 @@ Resolution itself; the bridge itself is not. Research R1, 1.9 has the rules it f
   pixel alone, which carries the stamp the check reads, and releases them. A world change
   starts DLSS's history afresh. NGX is shut down after the queue is idle and before the device
   goes.
-- **Not beside the scaler.** The handoff reads the game's framebuffer as the world pass leaves
-  it and takes its size as the output's, and with the scaler's switches on (4.8) the world is
-  drawn into a smaller framebuffer standing in for the game's. Until one design takes the
-  scaler's color, depth and motion at render resolution as the handoff's inputs and the
-  window's framebuffer as its output, the handoff turns itself off at its first frame, with a
-  message, whenever the scaler is on, and the scaler runs.
+- **Beside the scaler, DLSS takes the scaler's picture.** With the scaler's switches on (4.8)
+  the world is drawn into a smaller framebuffer standing in for the game's, so at the end of the
+  world pass the game's framebuffer already holds the scaler's output. A handoff that evaluates
+  DLSS (`evaluates`, answered from the settings before anything opens) is then called from the
+  scaler's composite instead (`Handoff.Evaluation`), after the motion pass: the drawn picture,
+  its depth renderbuffer, the motion target, the frame's sub-pixel offset, whether history
+  applies, whether depth is reversed, and the game's framebuffer as the output. It copies the
+  three inputs into the shared images at the size they were drawn, evaluates with the offset in
+  render pixels (`jitterSign` multiplies each axis, 1 unless set), copies DLSS's output into the
+  game's framebuffer, and the scaler's temporal and scale passes do not run; the drawn depth is
+  stretched over the game's and the offset taken out of the projection as before. The motion
+  target already holds what DLSS reads: where each pixel's point lay a frame earlier minus where
+  it lies, in render pixels, without the offset, and since both APIs see the same rows, the
+  numbers carry over unchanged. DLSS's mode follows the scaler's ratio (Quality near two thirds,
+  Performance at one half, DLAA at one) unless `quality` names one, and the handoff stops with
+  NGX's accepted range where the drawn size lies outside it. Once the handoff makes the picture,
+  the scaler cycles through eight offsets per output pixel, 8 over the scale's square (18 at
+  0.67, 32 at 0.5), unless `quadrature.taa.phases` is set. No stamp is carried: the output's
+  first pixel is the picture's. The scaler's own history starts afresh if it makes the picture
+  again. A handoff that measures the game's framebuffer, the stand-in, is turned away without
+  opening, with a message, and the scaler runs; so is any handoff when the scaler runs without
+  its temporal pass, which makes the offset and the motion.
 
 Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
 alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the
@@ -489,10 +505,11 @@ DLSS in Performance mode (VERIFICATION.md, DLSS through the handoff) takes 1.54 
 its own at 1080p and 1440p with preset K and 2.55 and 4.53 ms with preset M, at P0; the round
 trip around it adds 0.30 to 0.34 ms.
 
-Not built: jitter, exposure, the bridge as a stage with declared resources in the pass graph,
-and the motion vectors DLSS needs from every draw (D21). Without them DLSS evaluates on the
-game's frame copied down, with zero motion, which is enough to time it, not to judge its
-picture.
+Not built: the bridge as a stage with declared resources in the pass graph, OpenGL drawing
+into the shared images directly in place of the copies, a texture LOD bias for the render
+scale, and the motion vectors DLSS needs from every draw (D21): the scaler's motion is the
+camera's, from depth, so what moves on its own (entities, particles) carries none. DLSS takes
+the game's frame as LDR, which needs no exposure value.
 
 ## 5. Scene sources
 

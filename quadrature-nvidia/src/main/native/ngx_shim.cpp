@@ -175,15 +175,15 @@ QN_API unsigned qn_capability(int *available, int *needsUpdatedDriver, unsigned 
 }
 
 // The render size DLSS asks for at an output size and quality mode.
-QN_API unsigned qn_optimal(unsigned outputWidth, unsigned outputHeight, int quality, unsigned *renderWidth,
-                           unsigned *renderHeight) {
+// The render sizes DLSS takes for an output in a quality mode, into sizes[6]: the optimal width and height, then
+// the largest, then the smallest. A render size between the smallest and the largest is accepted.
+QN_API unsigned qn_optimal(unsigned outputWidth, unsigned outputHeight, int quality, unsigned *sizes) {
     if (parameters == nullptr) {
         return NOT_INITIALIZED;
     }
-    unsigned maxWidth = 0, maxHeight = 0, minWidth = 0, minHeight = 0;
     float sharpness = 0;
     return NGX_DLSS_GET_OPTIMAL_SETTINGS(parameters, outputWidth, outputHeight, (NVSDK_NGX_PerfQuality_Value) quality,
-        renderWidth, renderHeight, &maxWidth, &maxHeight, &minWidth, &minHeight, &sharpness);
+        &sizes[0], &sizes[1], &sizes[2], &sizes[3], &sizes[4], &sizes[5], &sharpness);
 }
 
 // Records the creation of a DLSS feature in a slot into a command buffer, which the caller submits and waits for.

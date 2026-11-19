@@ -693,6 +693,24 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   is never committed or put in the JAR.
 - Not taken: any code from NVIDIA's samples or anyone's integration; none were opened.
 - Added: 2026-11-19
+### DLSS taking the scaler's picture
+- Code: `Handoff.Evaluation`, `evaluates` and `evaluate` in
+  `core/src/main/java/cc/orthrus/quadrature/core/handoff/Handoff.java`, `SharedImageSizes.of` with a
+  render size, `Jitter.phasesFor` in `core/src/main/java/cc/orthrus/quadrature/core/scale/Jitter.java`,
+  the evaluation in `src/main/java/cc/orthrus/quadrature/frame/TemporalScaler.java` and
+  `HandoffHost.java`, the scaled copies and mode choice in
+  `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/VulkanHandoff.java`, `Ngx.qualityFor`,
+  the offset and optional stamp in `StandIn.java`, and the render-size range in `ngx_shim.cpp`
+- Source: NVIDIA, DLSS Super Resolution Programming Guide 310.6.0: 3.1.2 (LDR color), 3.2.2
+  (the optimal settings' render-size range), 3.6.1 and 3.6.2 (motion vectors from the current
+  pixel to its place in the previous frame, in render pixels from the top left, unjittered unless
+  flagged), 3.7.1.1 (eight phases times the scale's square), 3.7.3 (the offset in render pixels,
+  -0.5 to 0.5, in the motion vectors' axes) and 3.8.1 (inverted depth); the OpenGL 4.6 and Vulkan
+  specifications for which rows each API counts first.
+- Taken: those conventions, which the scaler's motion target and offsets already met; the
+  phase rule; the quality modes' ratios.
+- Not taken: any code from NVIDIA's samples or anyone's integration; none were opened.
+- Added: 2026-11-19
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

@@ -52,7 +52,8 @@ import java.nio.LongBuffer;
  *
  * <p>With NGX given, the evaluation is DLSS Super Resolution instead of the stand-in. Its batch is recorded again
  * for every submission, since NGX records the frame's inputs into it, and two more timestamps bracket NGX's own
- * work. After DLSS, the stand-in runs on the output's first pixel alone, carrying the stamp the check reads.
+ * work. After DLSS, the stand-in runs on the output's first pixel alone, carrying the stamp the check reads,
+ * unless the evaluation takes the scaler's picture, where that pixel is the picture's and the picture is the check.
  */
 final class StandIn implements AutoCloseable {
 
@@ -80,9 +81,14 @@ final class StandIn implements AutoCloseable {
     private final VkCommandBuffer[][] batches = new VkCommandBuffer[3][RING];
     /** DLSS through NGX, or null for the stand-in. */
     private final Ngx ngx;
-    private final int dlssQuality;
+    private int dlssQuality;
     private final int dlssPreset;
-    private final int dlssFlags;
+    private int dlssFlags;
+    /** This frame's sub-pixel offset, in render pixels, as DLSS takes it. */
+    private float jitterX;
+    private float jitterY;
+    /** Whether the stand-in carries the check's stamp into the output's first pixel after DLSS. */
+    private boolean stamp = true;
     private SharedImage color;
     private SharedImage depth;
     private SharedImage motion;
@@ -284,6 +290,26 @@ final class StandIn implements AutoCloseable {
         reset = true;
     }
 
+    /** The quality mode and flags the next {@link #bind} makes DLSS's feature with. */
+    void feature(int quality, int flags) {
+        dlssQuality = quality;
+        dlssFlags = flags;
+    }
+
+    /** The next submission's sub-pixel offset in render pixels, and whether it has no history to draw on. */
+    void inputs(double offsetX, double offsetY, boolean noHistory) {
+        jitterX = (float) offsetX;
+        jitterY = (float) offsetY;
+        if (noHistory) {
+            reset = true;
+        }
+    }
+
+    /** Whether the stand-in writes the check's stamp into the output's first pixel after DLSS. */
+    void stamp(boolean carried) {
+        stamp = carried;
+    }
+
     /** Whether the evaluation is DLSS. */
     boolean dlss() {
         return ngx != null;
@@ -369,19 +395,22 @@ final class StandIn implements AutoCloseable {
                 null, acquire);
             // Written once everything before it is done, so the pair below brackets NGX's commands alone.
             vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queryPool, STAMPS * slot + 2);
-            int result = ngx.evaluate(FEATURE, commands.address(), ngxImages, color.width, color.height, 0, 0, reset);
+            int result = ngx.evaluate(FEATURE, commands.address(), ngxImages, color.width, color.height, jitterX, jitterY,
+                reset);
             reset = false;
             ngx.check("evaluation", result);
             vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queryPool, STAMPS * slot + 3);
-            // DLSS leaves the images in the states it found them in; the stand-in then writes the stamp's pixel.
-            vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                org.lwjgl.vulkan.VkMemoryBarrier.calloc(1, stack).sType$Default()
-                    .srcAccessMask(VK_ACCESS_SHADER_WRITE_BIT).dstAccessMask(VK_ACCESS_SHADER_WRITE_BIT), null, null);
-            vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-            vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, stack.longs(descriptorSet),
-                null);
-            vkCmdPushConstants(commands, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, stack.ints(1, 1));
-            vkCmdDispatch(commands, 1, 1, 1);
+            if (stamp) {
+                // DLSS leaves the images in the states it found them in; the stand-in then writes the stamp's pixel.
+                vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+                    org.lwjgl.vulkan.VkMemoryBarrier.calloc(1, stack).sType$Default()
+                        .srcAccessMask(VK_ACCESS_SHADER_WRITE_BIT).dstAccessMask(VK_ACCESS_SHADER_WRITE_BIT), null, null);
+                vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+                vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0,
+                    stack.longs(descriptorSet), null);
+                vkCmdPushConstants(commands, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, stack.ints(1, 1));
+                vkCmdDispatch(commands, 1, 1, 1);
+            }
             VkImageMemoryBarrier.Buffer release = VkImageMemoryBarrier.calloc(4, stack);
             barrier(release.get(0), color, vulkan.queueFamily, VK_QUEUE_FAMILY_EXTERNAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0);

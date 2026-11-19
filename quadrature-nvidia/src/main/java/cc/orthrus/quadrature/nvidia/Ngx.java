@@ -89,8 +89,7 @@ final class Ngx implements AutoCloseable {
             ADDRESS, ADDRESS, ADDRESS, ADDRESS));
         capability = handle(linker, lookup, "qn_capability", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS,
             ADDRESS));
-        optimal = handle(linker, lookup, "qn_optimal", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS,
-            ADDRESS));
+        optimal = handle(linker, lookup, "qn_optimal", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS));
         create = handle(linker, lookup, "qn_create", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT,
             JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT));
         evaluate = handle(linker, lookup, "qn_evaluate", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, ADDRESS, JAVA_INT,
@@ -157,6 +156,39 @@ final class Ngx implements AutoCloseable {
         };
     }
 
+    /**
+     * The quality mode whose render size is nearest a ratio of render to output side: DLAA at 1, Quality at two
+     * thirds, Balanced at 0.58, Performance at one half, Ultra Performance at one third (DLSS's guide, 3.7.1.1).
+     * The scaler fixes the render size, so the mode follows it; NGX's optimal settings then say whether the size
+     * lies in the mode's range.
+     */
+    static int qualityFor(double ratio) {
+        if (!(ratio > 0) || ratio > 1) {
+            throw new IllegalArgumentException("A render-to-output ratio of " + ratio + " is not in (0, 1].");
+        }
+        double[] ratios = {1, 2 / 3.0, 1 / 1.724, 0.5, 1 / 3.0};
+        int[] modes = {DLAA, QUALITY, BALANCED, PERFORMANCE, ULTRA_PERFORMANCE};
+        int best = 0;
+        for (int i = 1; i < ratios.length; i++) {
+            if (Math.abs(ratios[i] - ratio) < Math.abs(ratios[best] - ratio)) {
+                best = i;
+            }
+        }
+        return modes[best];
+    }
+
+    /** A quality mode's name as the handoff's options name it. */
+    static String qualityName(int quality) {
+        return switch (quality) {
+            case PERFORMANCE -> "performance";
+            case BALANCED -> "balanced";
+            case QUALITY -> "quality";
+            case ULTRA_PERFORMANCE -> "ultraPerformance";
+            case DLAA -> "dlaa";
+            default -> "mode " + quality;
+        };
+    }
+
     /** NGX's number for a quality mode named as the handoff's options name it. */
     static int quality(String name) {
         return switch (name.trim().toLowerCase(Locale.ROOT)) {
@@ -216,13 +248,15 @@ final class Ngx implements AutoCloseable {
         }
     }
 
-    /** The render size DLSS asks for at an output size and quality mode, as {width, height}. */
+    /**
+     * The render sizes DLSS takes at an output size and quality mode: {optimal width, height, largest width,
+     * height, smallest width, height}. A size between the smallest and the largest is accepted.
+     */
     int[] optimal(int outputWidth, int outputHeight, int quality) {
         try (Arena call = Arena.ofConfined()) {
-            MemorySegment width = call.allocate(JAVA_INT);
-            MemorySegment height = call.allocate(JAVA_INT);
-            check("optimal settings", (int) optimal.invokeExact(outputWidth, outputHeight, quality, width, height));
-            return new int[]{width.get(JAVA_INT, 0), height.get(JAVA_INT, 0)};
+            MemorySegment sizes = call.allocate(JAVA_INT, 6);
+            check("optimal settings", (int) optimal.invokeExact(outputWidth, outputHeight, quality, sizes));
+            return sizes.toArray(JAVA_INT);
         } catch (RuntimeException | Error e) {
             throw e;
         } catch (Throwable e) {
