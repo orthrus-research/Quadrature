@@ -151,7 +151,7 @@ left is measurement, in this order; each runs through a queued GPU turn.
 | 4 | Rays a second through the occupancy bricks by compute | Indirect light, far shadows | Not started |
 | 5 | The tier benchmark, calibrated and repeated across a driver update | Tier selection | Not started |
 | 6 | Own temporal anti-aliasing and spatial scaler at 67% and 77% | The lower tiers' render scale | Not started |
-| 7 | The GL to Vulkan handoff and DLSS's cost, before the bridge is built | D21 | Not started |
+| 7 | The GL to Vulkan handoff and DLSS's cost, before the bridge is built | D21 | Done 2026-11-19 ([research R1](research/R1-platform-frame-hosted.md), 1.9; [verification](VERIFICATION.md), the handoff from OpenGL to Vulkan). Built in measurement form in the separately licensed `quadrature-nvidia` module, with a compute stand-in where DLSS would evaluate. The round trip costs a fixed 0.36 to 0.37 ms of GPU time at P0 (0.47 to 0.50 at P3) at 1080p and 1440p, and the client 0.06 ms a frame; the images take 32 and 57 MiB. DLSS's published cost on the RTX 3060 in Performance mode is 1.45 to 2.81 ms at 1080p and 2.39 to 5.05 ms at 1440p, so with the handoff about 1.82 to 3.18 and 2.75 to 5.41 ms. A mismatched device is refused, a resize remakes the images in 7 to 8 ms, a world change keeps them, and with the round trip on the picture passes 17 of 17 views. Not measured: DLSS itself, which needs its SDK and its license accepted by the user |
 | 8 | The lowest tier's budgets on an RTX 3050 8 GB and a Turing 8 GB card | D22's floor | Waiting on hardware |
 
 ## Reading rules

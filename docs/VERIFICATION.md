@@ -800,6 +800,84 @@ above, from builds on the client thread within 4 ms a frame.
   with no allocation stalls; places settle in the same 24 and 27 s, client CPU is the same,
   and the worst frame in the build pool's calls falls from 32.8 to 9.1 ms.
 
+### The handoff from OpenGL to Vulkan
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with commit 8c8b3e1 (which merges
+feat/build-pool 089e9e9) on one fresh instance, behind `-Dquadrature.handoff=measure`
+(ARCHITECTURE.md 4.9). The window was 1920x1080 or 2560x1440, the render scale two thirds
+(1280x720 and 1707x960 inputs). The handoff's parts took turns in segments of 120 frames over
+the forest tour (1440p) and over the forest tour followed by the Nether and back (1080p): nothing,
+the round trip alone, the round trip with the stand-in, OpenGL's copies alone, and all of it.
+An `nvidia-smi` sampler every 250 ms tagged each frame with the GPU's power state; the card sat
+in P3 (885 to 997 MHz) for most frames and in P0 (1,282 and 1,395 MHz median) for the rest, so
+P0 is given first and P3 after. The lab caps the game at 120 frames a second without vsync.
+
+| Median GPU time, P0 (P3) | 1920x1080 | 2560x1440 |
+|---|---|---|
+| Round trip alone: OpenGL's signal to its resumption | 0.374 (0.499) ms | 0.355 (0.466) ms |
+| of which signal to Vulkan's start | 0.197 (0.261) ms | 0.192 (0.248) ms |
+| of which Vulkan's end to resumption | 0.173 (0.234) ms | 0.162 (0.210) ms |
+| Round trip with the stand-in | 0.477 (0.679) ms | 0.525 (0.739) ms |
+| of which the stand-in on Vulkan | 0.115 (0.162) ms | 0.182 (0.263) ms |
+| The stand-in's copies: in, out | 0.113, 0.083 ms | 0.150, 0.118 ms |
+| All of it | 0.651 (0.913) ms | 0.773 (1.048) ms |
+| Client time a frame: round trip alone, all of it | 0.056, 0.102 ms | 0.058, 0.104 ms |
+| GPU memory: the images (their texels) | 31.9 (29.9) MiB | 56.8 (53.1) MiB |
+
+- **The handoff costs a fixed latency, not bandwidth.** The round trip with no work on Vulkan
+  takes 0.36 to 0.37 ms at P0 and 0.47 to 0.50 ms at P3 at both sizes, split nearly evenly
+  between the way into Vulkan and the way back; the barriers that hand the images between the
+  queues take no measurable time of their own (Vulkan's batch, 0.000 ms). The 99th percentile
+  of the round trip is 0.76 to 0.78 ms at P0. On the client, the round trip costs 0.014 ms in
+  `vkQueueSubmit`, 0.028 ms in OpenGL's semaphore calls and 0.004 ms on fences.
+- **Against DLSS's published cost.** NVIDIA gives the RTX 3060 1.45 ms at 1080p and 2.39 ms at
+  1440p with presets J and K in Performance mode, 2.81 and 5.05 ms with preset M (research R1,
+  1.9). With the round trip measured here, a DLSS evaluation in this handoff would take about
+  1.82 and 2.75 ms (J and K) or 3.18 and 5.41 ms (M) at P0, before its own inputs at Quality
+  mode's larger render size. The copies are the stand-in's: in the bridge OpenGL draws into the
+  shared images and the post effects read the output, so they do not count.
+- **Memory.** Opening the Vulkan device takes 5 to 6 MiB of GPU memory; the images take what
+  their allocations say, 31.9 and 56.8 MiB, so the handoff holds about 38 and 63 MiB beside
+  DLSS's own 85.8 to 119.3 MB at 1080p and 143.5 to 207.4 MB at 1440p. VK_EXT_memory_budget's
+  usage for the process rose 246 to 455 MiB over a run with the handoff's allocations unchanged:
+  on this driver it counts the process's OpenGL memory too.
+- **The frame interval** stays at the cap, 8.33 to 8.34 ms in every part: under the cap the
+  handoff's time fits in the frame's slack, so its cost shows in a GPU-bound frame only.
+- **Checks.** 81 of 81 stamp checks passed at 1080p and 73 of 73 at 1440p, with no OpenGL error
+  on a checked frame and no result dropped; the first two round trips were proved in 1.2 to 1.5 ms.
+- **Formats.** The game's depth renderbuffer is `GL_DEPTH24_STENCIL8`, shared as
+  `VK_FORMAT_D24_UNORM_S8_UINT`; color and output as `RGBA16F`, motion as `RG16F`. The driver
+  accepted every image with every usage its format supports and the mutable-format bit, and
+  prefers, without requiring, dedicated memory for them.
+- **The picture.** With the whole round trip on every frame and the output not written into it,
+  at 1280x720, 17 of 17 forest views pass `near.json` against a game-drawn run of the same
+  instance, 15 of them with no changed pixel and the worst view 07 at 0.0679%. The reference was
+  checked against that run; no view was captured facing elsewhere.
+
+Failure modes, on commit 2f2595e and a fresh instance of its own (its handoff differs from
+8c8b3e1 only in the frame's wall-clock column and in how the check reads the stamp):
+
+- **A device that does not match.** Every opening lists each Vulkan device with its verdict; the
+  integrated UHD 770 beside the card is refused because its driver UUID differs. Forced onto it
+  (`quadrature.handoff.device=other`), the handoff opened a Vulkan device there and OpenGL
+  refused the first handle it was given, the semaphore's, with `GL_INVALID_VALUE`; the handoff
+  turned off with that reason and the frame went on, with no hang.
+- **A window resize** (to 1440x810 and back, with Vulkan's validation layer on): the images were
+  made again in 8.0 and 6.8 ms, and the next round trip's check passed each time.
+- **A world change** (the Nether and back, and leaving the world): the images were kept and the
+  next round trip's check passed each time, on both instances. Nothing in the handoff depends on
+  the world.
+- **Validation.** Over the smoke run, Vulkan's validation layer reported nothing.
+
+The first build measured, 75509b6, never opened: the RTX 3060's driver lists 276 device
+extensions, and reading them on LWJGL's 64 KiB thread stack overflowed it. LWJGL reports that
+as an `OutOfMemoryError`, which escaped into the game's loop, and the game dropped the world.
+Since ea636b6, Vulkan's enumerations read into memory allocated for them, image sizes are
+bounded before anything is allocated, and no error leaves the handoff for the game.
+
+Not measured: DLSS itself, which needs its SDK; a GPU-bound frame, where the round trip's time
+adds to the frame's; a queue of compute alone; binary semaphores.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.

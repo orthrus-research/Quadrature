@@ -37,6 +37,7 @@ the GPU, and keep the client thread's share of a frame small and constant.
 | root (host) | `core`, Cleanroom, Cubature's cube source | Mod entry, reading the context, scene sources, hosted stages, settings screens, state mirroring |
 | `shaders` (to be added) | `core` | The shader format's loader and the shipped shaders |
 | `testkit` (to be added) | `core` | Fixtures for running the graph and techniques without the game |
+| `quadrature-nvidia` (separately licensed, D19) | `core`, LWJGL, its own Vulkan binding | The bridge to NVIDIA's RTX runtimes: today the GL to Vulkan handoff's measurement form (4.9) |
 | OrthLib (separate repository) | Neither | The interface other mods compile against |
 
 Rules:
@@ -310,6 +311,62 @@ with it on.
 
 Not covered yet: entities and block entities in a light's view, which reaches into hosted
 drawing; jitter in the frame's contract.
+
+### 4.9 Handing the frame to another API
+
+The frame stays OpenGL; where DLSS is chosen, it is evaluated by Vulkan on images the two
+APIs share (D21), in a separately licensed module (D19). The handoff is built in measurement
+form behind `-Dquadrature.handoff=measure` (PLAN, capability and tier work, item 7), with a
+stand-in where DLSS would evaluate; the bridge itself is not. Research R1, 1.9 has the rules
+it follows. **Built, behind a switch.**
+
+- **The seam.** `Handoff` in `core`: it opens beside the current context, runs one round trip
+  a frame at the end of the world pass, after the hand and before the interface, where DLSS's
+  guide places it (early in post-processing, before tone mapping), hears when the client's
+  world changes, and closes. `HandoffHost` finds an implementation through `ServiceLoader`;
+  Quadrature holds none, and without the module the switch logs that it is missing and the
+  frame is unchanged. The host's hook runs after the frame's stages are timed. **Decided.**
+- **The module.** `quadrature-nvidia` compiles against `core` and Cleanroom's LWJGL core and
+  OpenGL binding, and embeds LWJGL's Vulkan binding at the LWJGL release `platform.json`
+  names (`cleanroom.lwjgl`), which it compares at startup with the release the game loaded.
+  Its JAR lies beside Quadrature's among the mods; Foundation, the game's class loader,
+  defines `org.lwjgl` classes itself, so the embedded binding links against Cleanroom's core.
+  Where Forge has not put the JAR on the class path, the host adds it. No NVIDIA SDK material
+  is in it.
+- **The device.** A Vulkan 1.3 instance and the physical device whose device and driver UUIDs,
+  and LUID where both sides report one, match the context's (`DeviceIdentity`); every device
+  is logged with why it matches or not. One queue, from a family with graphics and compute by
+  default. Win32 external memory and semaphores are required, timeline semaphores enabled,
+  calibrated timestamps and the memory budget used where present.
+- **The images.** Color (`RGBA16F`), depth (the game's depth format) and motion (`RG16F`) at
+  render resolution, and the output (`RGBA16F`) at output resolution: each a Vulkan image with
+  every usage its format supports, the mutable-format bit and optimal tiling, in a dedicated
+  allocation exported as an NT handle, imported by OpenGL as a memory object flagged
+  dedicated and a texture over it, with a framebuffer of its own; the handle is closed at
+  once. When the output size changes, both APIs are waited for and the images are made again.
+- **The round trip.** OpenGL signals a timeline semaphore, naming the layouts the images are
+  left in; Vulkan's batch waits for it with all its commands, acquires the images from the
+  external queue family, evaluates, releases them to the external family and signals the next
+  value; OpenGL waits for that value on the GPU. One semaphore and rising values serve both
+  directions; two binary semaphores are an option. Batches are recorded once per set of images
+  and slot of a six-deep ring, and a slot is reused after its fence.
+- **What the measurement adds.** The game still renders at output resolution, so OpenGL fills
+  the render-resolution inputs with scaled copies from the game's framebuffer, clears the
+  motion image (no motion vectors exist yet: item 6 makes them) and copies the output back.
+  In the bridge, OpenGL draws into the shared images directly and the post effects read the
+  output, so these copies are timed apart from the handoff. The parts take turns in segments
+  of 120 frames (nothing, the round trip alone, with the stand-in, the copies alone, all of
+  it); OpenGL and Vulkan timestamps are put on the client's clock; a stamp written into the
+  motion image and carried back by the stand-in checks every 600 frames, and after each world
+  change and resize, that the output came from that frame.
+
+Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
+alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the
+client 0.06 ms a frame; the four images take 32 and 57 MiB, the Vulkan device 5 to 6 MiB more.
+
+Not built: DLSS's evaluation, jitter, exposure, the bridge as a stage with declared resources
+in the pass graph, and the motion vectors it needs from every draw (D21).
+
 ## 5. Scene sources
 
 | Source | Owner | Gives Quadrature |

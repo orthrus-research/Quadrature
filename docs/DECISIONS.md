@@ -177,8 +177,10 @@ own Vulkan binding, since Cleanroom's LWJGL has none. Its precondition is a moti
 everything drawn, the game's hosted draws included: the game's fixed-function drawing
 produces none, and DLSS takes bad motion vectors as its main source of artifacts. Own
 temporal anti-aliasing and scaling (D23) remain the default on every tier; DLSS is offered
-where the startup benchmark finds room for its cost, about 1.45 to 2.8 ms at 1080p on an
-RTX 3060. It is an extra above a tier, never part of what a tier needs (D8): its license
+where the startup benchmark finds room for its cost. NVIDIA's DLSS Super Resolution
+Programming Guide (revision 310.6.0) gives, for an RTX 3060 at 1920x1080 in Performance
+mode, 1.45 ms with presets J and K and 2.81 ms with preset M; its Ray Reconstruction guide
+gives 5.83 ms at 1080p and 10.27 ms at 1440p. It is an extra above a tier, never part of what a tier needs (D8): its license
 limits it to systems with NVIDIA GPUs (RTX Supplement §1). The shared-image handoff itself is
 Khronos interop, so the same bridge can later carry a vendor-neutral evaluator. Frame generation and Reflex are not planned: both need the frame presented by
 Vulkan. No shipped OpenGL application is known to reach DLSS this way, so the handoff's cost
