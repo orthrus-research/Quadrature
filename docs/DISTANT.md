@@ -1358,10 +1358,33 @@ storage and uniform point to 7 and every texture unit to 9, the blend functions,
 tests and stacks, 80-odd items) is read just before and just after, and whatever reads
 differently is logged, with the state found on entry once.
 
-**The other layers.** The forward draw of the opaque layers stays at the Mixin's place,
-before entities: where the stage shows its display it covers them, and where it does not
-they are the picture. Water on the shaded path stays there too, after the stage and out of
-the depth (21.2): drawn before the stage it would be covered where the display is shown.
+**The forward layers go first.** Near terrain draws its forward color into the game's
+framebuffer and the same layers into the targets; where the stage is shown it then writes its
+result over the whole picture, color alone, and the game's depth stays as terrain left it.
+Distant terrain does the same: in a pass in which near terrain calls the writer, the forward
+opaque and leaf layers are drawn in that call, into the framebuffer bound on entry and under
+the same guard of state, and then the targets. The stage's result covers their color and
+their depth stays for entities, translucents and the water. In a pass without a writer's
+call (the shaded path off, or no targets made) they are drawn at the Mixin's place as
+before. Water on the shaded path stays at the Mixin's place, after the stage and out of the
+depth (21.2), since the stage does not shade it.
+
+The first build of the registration drew the forward layers at the Mixin's place in every
+pass, on the belief that the stage's result would cover them. It is the other way round: the
+stage runs when the game enters its entities section and the Mixin's place is the first draw
+of entities, after it. The twelfth run showed it: with the stage shown, near ground was lit
+by the stage and distant ground was the forward picture, identical on every pixel to the
+run with the stage off.
+
+**The twelfth run.** The arrival tour twice on one instance, with the writer registered: the
+stage off, then near terrain's stage on and shown. Neither had an error. In both the audit
+read 94 items before and after each of the first three passes and found none changed, and
+the targets were drawn into in every summary after the first tile. With the stage off the
+picture was the eleventh run's but for the fog's nearer end. With it shown the targets held
+distant terrain (albedo alike near and far) and the picture showed the fault above. Whole
+frames came 66 and 67 s after the joins, 22 s after the jump of 2 km and a little over 2 s
+after the steps. Distant terrain took 2.0 ms of GPU time forward and 2.3 ms in the writers'
+stretch; the stage's own passes 0.28 ms.
 
 **Emission.** Target B's green is near terrain's rule in near terrain's own text
 (`KindEmission.GLSL`, included in the targets step as near terrain's stage includes it):
@@ -1370,6 +1393,11 @@ albedo this pass writes to C. The row's byte 3 is not read. The rule's worked va
 held by near terrain's `KindEmissionTest` against the Java twin; distant terrain has no copy
 of its own to drift. Before this the pass wrote byte 3, which after near terrain's change
 to the rule made the two sides differ at the join for every block that gives light.
+No run can show the rule on distant terrain yet: Riven's preview gives stone where native
+cubes hold lava, since the preview carries no emitting blocks, and a block placed in the
+world is not in the preview. Until the preview carries emitters every distant face has a
+kind that gives no light and B's green is 0, as it was in the twelfth run on both sides of a
+desert without a lamp.
 
 **The eleventh run, the writer alone.** Before the registration, with the stage off: the
 arrival tour with the shaded path on, the frame tail and the writer's audit. The audit read

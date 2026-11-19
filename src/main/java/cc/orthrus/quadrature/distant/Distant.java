@@ -104,6 +104,11 @@ final class Distant {
     private final WriterState writerState = new WriterState(DistantProgram.COVER_UNIT, DistantProgram.IMAGES_UNIT);
     private final WriterAudit writerAudit = WriterAudit.ENABLED ? new WriterAudit() : null;
     private boolean writerRegistered;
+    /** Whether this pass's forward layers are drawn, where, and the game's fog there and at the Mixin's place. */
+    private boolean forwardDrawn;
+    private boolean forwardInWriter;
+    private String fogAtForward = "not read";
+    private String fogHere = "not read";
     /** What a pass's preparation leaves for its two places: whether it is done, and what it found. */
     private boolean prepared;
     private boolean passReady;
@@ -255,6 +260,7 @@ final class Distant {
         prepared = true;
         passReady = false;
         wrote = false;
+        forwardDrawn = false;
         frame++;
         DriverMessageAccess.install();
         boolean following = follow();
@@ -325,6 +331,40 @@ final class Distant {
         }
     }
 
+    /**
+     * The forward draw of the opaque and leaf layers, and of the water too where the shaded path is
+     * off: once a pass, into the framebuffer bound, with the state as found but for what the draw
+     * sets itself. In a pass near terrain calls the writer in, it is drawn there, in front of the
+     * shading stage: the stage writes its result over the game's picture as near terrain's own
+     * forward color is written over, and the depth these layers leave stays for what the game
+     * draws after. Drawn at the Mixin's place it would come after the stage and cover its result.
+     */
+    private void drawForward(boolean inWriter) {
+        int timer = (int) (frame % TIMERS);
+        readTimer(timer);
+        GL33.glQueryCounter(timerStart[timer], GL33.GL_TIMESTAMP);
+        timerFaces[timer] = draws.faces();
+        // On the shaded path the water waits for the Mixin's place, after the stage, and draws
+        // there without writing depth. Off it, one draw holds all three layers.
+        program.water(DistantSettings.SHADED ? DistantProgram.WATER_LEFT : DistantProgram.WATER_WITH);
+        lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
+            passDaylight, cover,
+            (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
+            imageFade, passFading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
+        GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
+        forwardDrawn = true;
+        forwardInWriter = inWriter;
+        if (WriterAudit.ENABLED) {
+            fogAtForward = fogState();
+        }
+    }
+
+    /** The game's fog as the driver holds it, for the log: the forward step takes its mode from here. */
+    private static String fogState() {
+        return String.format("%s, mode 0x%x, %.1f to %.1f", GL11.glIsEnabled(GL11.GL_FOG) ? "on" : "off",
+            GL11.glGetInteger(GL11.GL_FOG_MODE), GL11.glGetFloat(GL11.GL_FOG_START), GL11.glGetFloat(GL11.GL_FOG_END));
+    }
+
     /** One world pass: takes finished tiles, asks for more, and draws. */
     void frame(float partialTicks) {
         if (failed) {
@@ -355,21 +395,16 @@ final class Distant {
         Entity viewer = minecraft.getRenderViewEntity();
         boolean captured = passCaptured;
         boolean fading = passFading;
+        if (WriterAudit.ENABLED) {
+            fogHere = fogState();
+        }
         if (draws.commandCount() > 0) {
             DriverMessageAccess.enter("distant terrain");
-            int timer = (int) (frame % TIMERS);
-            readTimer(timer);
-            GL33.glQueryCounter(timerStart[timer], GL33.GL_TIMESTAMP);
-            timerFaces[timer] = draws.faces();
-            // On the shaded path the water waits until the targets are written and then draws
-            // without writing depth. Off it, one draw holds all three layers as before.
-            program.water(DistantSettings.SHADED ? DistantProgram.WATER_LEFT : DistantProgram.WATER_WITH);
-            lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
-                passDaylight, cover,
-                (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
-            GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
-            // The targets were written before this place, by near terrain's call of the writer.
+            if (!forwardDrawn) {
+                // No writer's call in this pass: the shaded path is off, or near terrain made no targets.
+                drawForward(false);
+            }
+            // The targets, where there are any, were written before this place, in the writer's call.
             DistantHook.shaded(DistantSettings.SHADED && wrote);
             if (DistantSettings.SHADED) {
                 program.water(DistantProgram.WATER_ALONE);
@@ -384,7 +419,7 @@ final class Distant {
                 TargetImages.write(TerrainHook.shadingTargets(), travel.lastName());
             }
             DriverMessageAccess.leave();
-        } else {
+        } else if (!forwardDrawn) {
             lastDraws = 0;
         }
         lastFaces = draws.faces();
@@ -836,42 +871,48 @@ final class Distant {
         if (!prepare(minecraft.getRenderPartialTicks())) {
             return;
         }
+        if (minecraft.world == null || draws.commandCount() == 0) {
+            return;
+        }
         ShadingTargets targets = TerrainHook.shadingTargets();
         long pass = TerrainHook.frame();
-        if (!ShadedGate.draws(targets, pass)) {
-            // No targets, or they are not this world pass's: nothing to add to.
-            return;
-        }
         // Near terrain's material table, brought up to date with the rows distant terrain's
         // materials asked for; 0 where own terrain is off or the targets are not drawn.
-        int table = TerrainHook.materialsBuffer();
-        if (table == 0 || minecraft.world == null || draws.commandCount() == 0) {
-            return;
-        }
+        int table = ShadedGate.draws(targets, pass) ? TerrainHook.materialsBuffer() : 0;
         boolean audited = writerAudit != null && writerAudit.due();
         if (audited) {
             writerAudit.before();
         }
         writerGuard.save(writerState);
         try {
-            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, targets.framebuffer());
-            GL11.glViewport(0, 0, targets.width(), targets.height());
-            GL11.glEnable(GL11.GL_DEPTH_TEST);
-            GL11.glDepthFunc(DepthCalls.active() ? GL11.GL_GEQUAL : GL11.GL_LEQUAL);
-            GL11.glDepthMask(true);
-            GL11.glDisable(GL11.GL_ALPHA_TEST);
-            GL11.glDisable(GL11.GL_BLEND);
-            lastShadedDraws = program.drawTargets(draws, arena, materials, modelView, projection, nearBox,
-                passDaylight, cover,
-                (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade, passFading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
-                joinBand, table, (int) (pass & 0x7FFFFFFF));
-            wrote = true;
+            DriverMessageAccess.enter("distant terrain");
+            // The forward layers, into the game's framebuffer as it is bound on entry.
+            drawForward(true);
+            if (table != 0) {
+                // The same layers into the targets, which are this world pass's.
+                GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, targets.framebuffer());
+                GL11.glViewport(0, 0, targets.width(), targets.height());
+                GL11.glEnable(GL11.GL_DEPTH_TEST);
+                GL11.glDepthFunc(DepthCalls.active() ? GL11.GL_GEQUAL : GL11.GL_LEQUAL);
+                GL11.glDepthMask(true);
+                GL11.glDisable(GL11.GL_ALPHA_TEST);
+                GL11.glDisable(GL11.GL_BLEND);
+                lastShadedDraws = program.drawTargets(draws, arena, materials, modelView, projection, nearBox,
+                    passDaylight, cover,
+                    (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
+                    imageFade, passFading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
+                    joinBand, table, (int) (pass & 0x7FFFFFFF));
+                wrote = true;
+            }
         } finally {
+            DriverMessageAccess.leave();
             writerGuard.restore(writerState);
         }
         if (audited) {
             writerAudit.after();
+        }
+        if (!wrote) {
+            return;
         }
         // How far the targets now hold terrain without an edge, for the stage's fade into the sky.
         TerrainHook.targetsEdge(DistantHook.nearestEdge());
@@ -953,6 +994,11 @@ final class Distant {
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
             gpuSamples == 0 ? 0 : gpuFaces / gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
+        line.append(String.format("%n  forward layers: drawn %s", forwardInWriter ? "in the writer's call, in front of the shading stage"
+            : "at the place in front of entities"));
+        if (WriterAudit.ENABLED) {
+            line.append(String.format("; the game's fog where they were drawn: %s; in front of entities: %s", fogAtForward, fogHere));
+        }
         line.append(!DistantSettings.SHADED ? String.format("%n  shaded path: off")
             : String.format("%n  shaded path: on; opaque layers %s near terrain's targets, %d draws",
                 DistantHook.shaded() ? "drawn into" : "not drawn into (none made this frame)", lastShadedDraws));
