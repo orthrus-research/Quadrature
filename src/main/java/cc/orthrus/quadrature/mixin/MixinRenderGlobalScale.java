@@ -4,11 +4,9 @@ import cc.orthrus.quadrature.frame.TemporalScaler;
 
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.culling.ICamera;
-import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.entity.Entity;
 
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -26,13 +24,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(RenderGlobal.class)
 public abstract class MixinRenderGlobalScale {
 
-    @Shadow
-    private Framebuffer entityOutlineFramebuffer;
-
     @Inject(method = "renderEntities", at = @At(value = "INVOKE",
         target = "Lnet/minecraft/client/shader/Framebuffer;bindFramebuffer(Z)V", ordinal = 0, shift = At.Shift.AFTER))
     private void quadrature$outlinesBound(Entity viewer, ICamera camera, float partialTicks, CallbackInfo info) {
-        TemporalScaler.outlinesBegin(entityOutlineFramebuffer);
+        TemporalScaler.outlinesBegin(((RenderGlobalScaleAccess) (Object) this).quadrature$outlineFramebuffer());
     }
 
     @Inject(method = "renderEntities", at = @At(value = "INVOKE",

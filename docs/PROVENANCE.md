@@ -630,6 +630,7 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   standing in for the game's, the view, the composite's order and state), `ScalerShaders.java`
   (`MOTION_COMPUTE`), `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererScale.java`,
   `MinecraftScaleAccess.java`, `MixinFramebufferScale.java`, `MixinRenderGlobalScale.java`,
+  `RenderGlobalScaleAccess.java`,
   `core/src/main/java/cc/orthrus/quadrature/core/scale/`
   (`RenderScale`, `Jitter`, `Reprojection`); hooks in `FrameHost` and `BaselineGraph`
 - Source: original in its placement. Ideas used: a sub-pixel offset of the projection each frame
