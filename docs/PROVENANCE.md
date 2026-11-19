@@ -614,6 +614,41 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
 - Added: 2026-11-17
 
+### Rays walked through the occupancy bricks, cell by cell and node by node
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
+  `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,
+  `ComputeState.java`
+- Source: the walk through a uniform grid that crosses, each step, the nearest of the next cell
+  boundaries along the three axes, from Amanatides and Woo, "A Fast Voxel Traversal Algorithm for Ray
+  Tracing", Eurographics 1987 (https://www.eecs.yorku.ca/~amana/research/grid.pdf). Passing empty
+  space a whole node at a time in a hierarchy of grids, from Museth, "Hierarchical Digital
+  Differential Analyzer for Efficient Ray-Marching in OpenVDB", SIGGRAPH 2014 talks, and from the
+  two-level grids of Kalojanov, Billeter and Slusallek, Eurographics 2011. OpenGL 4.6 specification:
+  compute shaders, shader storage blocks, buffer textures, `precise`, timestamp queries.
+- Taken: the step to the nearest boundary, and skipping a node known to be empty. The nodes are the
+  scene's own: a cube of one state, a block of two cells a side whose coarser bit is clear, a cell.
+- Not taken: the incremental form of the walk, which adds each axis's step to a running distance.
+  Here each distance is worked out afresh from the origin and a whole-numbered boundary, and the cell
+  on the other axes after a node is passed is found by the same crossing test a walk of single cells
+  makes, x before y before z on equal distances, so that the walk by nodes ends exactly where the walk
+  by cells does and the GPU's results can be compared with the CPU's to the bit. That form, the
+  ordering rule and the comparison are original. No code from OpenVDB, NanoVDB or any renderer was read.
+- Added: 2026-11-18
+
+### The ray benchmark and its check
+- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`
+- Source: original in its classes and schedule. Ideas used: probes about the camera casting rays
+  in directions spread over the sphere, as in Majercik, Guertin, Nowrouzezahrai, McGuire, "Dynamic
+  Diffuse Global Illumination with Ray-Traced Irradiance Fields", JCGT 8(2), 2019; that coherent and
+  incoherent rays differ in throughput on NVIDIA hardware through divergence within a warp and
+  scattered memory access, from Aila and Laine, "Understanding the Efficiency of Ray Traversal on
+  GPUs", HPG 2009, and its Kepler and Fermi addendum, NVIDIA NVR-2012-02. Directions are spread by
+  the single-round permuted congruential hash evaluated in Jarzynski and Olano, "Hash Functions for
+  GPU Rendering", JCGT 9(3), 2020, after O'Neill's PCG (2014); its published constants are used.
+- Taken: the shape of the work measured: probe grids, rays a probe, and rays toward the sun from
+  surfaces.
+- Not taken: any probe update, irradiance storage or shading; only the trace is measured.
+
 ### Tier benchmark: bandwidth kernel and timed probes
 - Code: `src/main/java/cc/orthrus/quadrature/platform/TierBench.java`, `BandwidthKernel.java`,
   `TraceProbe.java`; `TerrainHook.java` (`Probes`, `afterOpaque`) and `Terrain.java` (`probes`);
