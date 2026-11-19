@@ -37,7 +37,7 @@ the GPU, and keep the client thread's share of a frame small and constant.
 | root (host) | `core`, Cleanroom, Cubature's cube source | Mod entry, reading the context, scene sources, hosted stages, settings screens, state mirroring |
 | `shaders` (to be added) | `core` | The shader format's loader and the shipped shaders |
 | `testkit` (to be added) | `core` | Fixtures for running the graph and techniques without the game |
-| `quadrature-nvidia` (separately licensed, D19) | `core`, LWJGL, its own Vulkan binding | The bridge to NVIDIA's RTX runtimes: today the GL to Vulkan handoff's measurement form (4.8) |
+| `quadrature-nvidia` (separately licensed, D19) | `core`, LWJGL, its own Vulkan binding | The bridge to NVIDIA's RTX runtimes: today the GL to Vulkan handoff's measurement form (4.9) |
 | OrthLib (separate repository) | Neither | The interface other mods compile against |
 
 Rules:
@@ -312,7 +312,7 @@ with it on.
 Not covered yet: entities and block entities in a light's view, which reaches into hosted
 drawing; jitter in the frame's contract.
 
-### 4.8 Handing the frame to another API
+### 4.9 Handing the frame to another API
 
 The frame stays OpenGL; where DLSS is chosen, it is evaluated by Vulkan on images the two
 APIs share (D21), in a separately licensed module (D19). The handoff is built in measurement
