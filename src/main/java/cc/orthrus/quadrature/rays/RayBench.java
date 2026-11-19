@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.rays;
 
 import cc.orthrus.quadrature.Quadrature;
+import cc.orthrus.quadrature.platform.Staging;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.scene.TraceFormat;
 import cc.orthrus.quadrature.core.view.SunPath;

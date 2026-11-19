@@ -956,8 +956,10 @@ GPU at the set's start and never read back. Over 783 measurements the ratio of t
 the scene's was 1.000 at its middle and within 2% in 88% of them at radius 16 and 95% at 20; the few
 further apart fell either way, the copy faster in 30 and slower in 40. The scene's buffers, made with
 `glNamedBufferStorage` and `GL_DYNAMIC_STORAGE_BIT` and written with `glNamedBufferSubData`, are as
-fast to trace as a copy the CPU never touches, so long as the CPU does not read them. The light scene check (`-Dquadrature.scene.check=true`) reads them back every 600
-frames, so a trace timed with it on may be slowed.
+fast to trace as a copy the CPU never touches, so long as the CPU does not read them. The light scene
+check (`-Dquadrature.scene.check=true`) reads them every 600 frames through a staging buffer filled by
+`glCopyNamedBufferSubData`, as the ray check does; a buffer used only as a copy's source was not moved
+in any measured set.
 
 **Speed.** GPU time of a batch at radius 20, the median over 12 sets of each set's median of five,
 from the scene's own buffers: the walk as shipped (from 71e966d, 2026-11-19); in brackets the earlier

@@ -1,4 +1,4 @@
-package cc.orthrus.quadrature.rays;
+package cc.orthrus.quadrature.platform;
 
 import cc.orthrus.quadrature.Quadrature;
 
@@ -11,23 +11,24 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 /**
- * A buffer the CPU reads back from, filled by copies on the GPU from buffers the trace reads or writes,
+ * A buffer the CPU reads back from, filled by copies on the GPU from buffers the GPU reads or writes,
  * so that the CPU never reads one of those itself: a buffer the CPU reads may be moved by the driver
- * into host memory, and a buffer traced from there is slow to read. Its storage asks for client memory.
+ * into host memory, and a buffer read on the GPU from there is slow to read where reads miss the
+ * cache. A buffer used only as a copy's source stays where it is. Its storage asks for client memory.
  * Grown, made anew, where a read needs more room.
  */
-final class Staging {
+public final class Staging {
 
     private final String name;
     private int buffer;
     private long bytes;
 
-    Staging(String name) {
+    public Staging(String name) {
         this.name = name;
     }
 
     /** The buffer's GL name, 0 before the first read. */
-    int buffer() {
+    public int buffer() {
         return buffer;
     }
 
@@ -41,26 +42,26 @@ final class Staging {
         buffer = GL45.glCreateBuffers();
         GL45.glNamedBufferStorage(buffer, needed, GL44.GL_CLIENT_STORAGE_BIT);
         bytes = needed;
-        Quadrature.LOGGER.info("Ray benchmark staging buffer for {}: buffer {}, {} KiB, client storage.", name, buffer,
+        Quadrature.LOGGER.info("Staging buffer for {}: buffer {}, {} KiB, client storage.", name, buffer,
             needed >> 10);
     }
 
     /** Copies a range of a buffer here on the GPU and reads it back into {@code into}, from its position to its limit. */
-    void read(int source, long offset, ByteBuffer into) {
+    public void read(int source, long offset, ByteBuffer into) {
         long length = into.remaining();
         room(length);
         GL45.glCopyNamedBufferSubData(source, buffer, offset, 0, length);
         GL45.glGetNamedBufferSubData(buffer, 0, into);
     }
 
-    void read(int source, long offset, IntBuffer into) {
+    public void read(int source, long offset, IntBuffer into) {
         long length = 4L * into.remaining();
         room(length);
         GL45.glCopyNamedBufferSubData(source, buffer, offset, 0, length);
         GL45.glGetNamedBufferSubData(buffer, 0, into);
     }
 
-    void read(int source, long offset, FloatBuffer into) {
+    public void read(int source, long offset, FloatBuffer into) {
         long length = 4L * into.remaining();
         room(length);
         GL45.glCopyNamedBufferSubData(source, buffer, offset, 0, length);

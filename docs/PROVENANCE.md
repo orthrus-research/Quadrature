@@ -704,8 +704,9 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Added: 2026-11-18
 
 ### The ray benchmark and its check
-- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`,
-  `Staging.java`; `DriverMessages.moves`, `TerrainHook.driverMoves`
+- Code: `src/main/java/cc/orthrus/quadrature/rays/RayBench.java`, `BenchPrograms.java`, `RayCheck.java`;
+  `src/main/java/cc/orthrus/quadrature/platform/Staging.java`, which the light scene's check in
+  `SceneBuffers` reads through too; `DriverMessages.moves`, `TerrainHook.driverMoves`
 - Source: original in its classes and schedule. Ideas used: probes about the camera casting rays
   in directions spread over the sphere, as in Majercik, Guertin, Nowrouzezahrai, McGuire, "Dynamic
   Diffuse Global Illumination with Ray-Traced Irradiance Fields", JCGT 8(2), 2019; that coherent and
