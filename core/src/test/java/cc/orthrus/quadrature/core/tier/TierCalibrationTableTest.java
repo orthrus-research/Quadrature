@@ -1,5 +1,6 @@
 package cc.orthrus.quadrature.core.tier;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,31 @@ final class TierCalibrationTableTest {
                 assertTrue(calibration.referenceMs(tier, output[0], output[1]) > 0);
                 assertTrue(calibration.needMiB(tier, output[0], output[1]) > 0);
             }
+        }
+    }
+
+    /**
+     * This card's own result, measured on the GPU (VERIFICATION, the tier benchmark: run 25 of the r16 tour, 2026-11-19,
+     * the calibrated jar), at each output: the tiers the calibration in force chooses for it. At 1280 by 720, the
+     * window it ran in, it chose HIGH, and the table it ran with chose HIGH at 1920 by 1080 and 2560 by 1440 and MEDIUM
+     * at 3840 by 2160; at 3840 by 2160 the scaler's cost, priced since, takes MEDIUM past the budget.
+     */
+    @Test
+    void thisCardsMeasuredResultTakesTheTiersItTookOnTheGpu() {
+        int[][] sizes = {{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
+        double[] millis = {1.3117, 1.4817, 1.7203, 3.2143};
+        double[] fragments = {2_042_959, 4_440_170, 7_796_303, 17_329_617};
+        Tier[] expected = {Tier.HIGH, Tier.HIGH, Tier.HIGH, Tier.LOW};
+        for (int o = 0; o < sizes.length; o++) {
+            java.util.List<BenchmarkResult.TerrainPoint> terrain = new java.util.ArrayList<>();
+            for (int i = 0; i < sizes.length; i++) {
+                terrain.add(new BenchmarkResult.TerrainPoint(sizes[i][0], sizes[i][1], millis[i], 0, fragments[i], 4_796_322));
+            }
+            BenchmarkResult result = new BenchmarkResult(TierBenchmark.VERSION, sizes[o][0], sizes[o][1], 347.671, 349.759, 0, 0,
+                terrain, null, 4.72576, 0, 19_338_946, 47_308_444, java.util.List.of(), 0.30918);
+            TierSelection.Outcome outcome = TierSelection.choose(result, TierCalibration.CURRENT, 8_637, null, null);
+            assertEquals(expected[o], outcome.speed(), sizes[o][0] + " by " + sizes[o][1]);
+            assertEquals(Tier.MAX, outcome.memory(), sizes[o][0] + " by " + sizes[o][1]);
         }
     }
 
