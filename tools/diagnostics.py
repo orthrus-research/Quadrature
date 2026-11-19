@@ -19,8 +19,10 @@ indexes the instance's mods (``mod-index.json``) and plays each run in order: a 
 which the motion helper (0.2.0 or later) flies along the plan's route at a player's pace, the
 player really moving, so the world loads ahead of it and unloads behind it as for a player; the
 helper waits wherever the next cube has not arrived, and closes the client when the route ends.
-Every run records both games under JFR with ``DebugNonSafepoints`` (without it samples gather at
-safepoint polls and tight loops look expensive); a tour's client recording is dumped with ``jcmd``
+Every run records both games under JFR with ``DebugNonSafepoints``, and clocks the plan's
+``timed`` methods by JFR's method timing, since execution samples see a thread only while it runs
+Java code and so misstate threads that mix tight loops with VM-heavy work (the server thread
+among them); a tour's client recording is dumped with ``jcmd``
 once every view is captured, before the launcher kills the client, and 1 MiB recorder chunks are
 the fallback. It writes GC logs, samples the GPU with ``nvidia-smi``, and moves logs, recordings
 and the helper's frame records into ``RUN_DIR/<label>/``, with ``run.json`` beside them.
@@ -170,8 +172,10 @@ class Attribution:
     """Owns frames: by package, by the Mixin index where a mod overwrote a game method or merged a
     handler into it, and by the mod name a merged handler carries. Answers are cached by frame."""
 
-    def __init__(self, index=None, owners: dict[str, str] | None = None):
+    def __init__(self, index=None, owners: dict[str, str] | None = None, timed: list[str] | None = None):
         self.index = index
+        # Methods the plan clocks (Class::method), as samples name them (Class.method, simple class).
+        self.timed = {f"{t.split('::')[0].rsplit('.', 1)[-1]}.{t.split('::')[1]}" for t in (timed or [])}
         # Owners a plan adds by package prefix (local tools that are not named here), checked first.
         self.extra = sorted((owners or {}).items(), key=lambda kv: -len(kv[0]))
         self.cache: dict[str, str | None] = {}
@@ -318,6 +322,11 @@ class Tables:
     deopt_methods: Counter = field(default_factory=Counter)
     deopt_reasons: Counter = field(default_factory=Counter)
     compile_failures: Counter = field(default_factory=Counter)
+    # JFR method timing: cumulative (time, method, invocations, average ms) points, kept in every
+    # window's table since a window's share is a difference of them; and samples with a timed method
+    # on their stack, by thread group, for the sampled estimate set against the clock.
+    timing: list = field(default_factory=list)
+    timed_onstack: dict = field(default_factory=counters)
     gc_pause_ms: list = field(default_factory=list)
     gc_ms: list = field(default_factory=list)
     machine: list = field(default_factory=list)
@@ -341,7 +350,7 @@ def quantity(text: str, units: dict) -> float:
 
 EVENTS = ("jdk.ExecutionSample,jdk.NativeMethodSample,jdk.ObjectAllocationSample,jdk.JavaMonitorEnter,"
           "jdk.ThreadPark,jdk.GarbageCollection,jdk.ThreadCPULoad,jdk.CPULoad,jdk.Compilation,"
-          "jdk.Deoptimization,jdk.CompilationFailure")
+          "jdk.Deoptimization,jdk.CompilationFailure,jdk.MethodTiming")
 
 
 def read_events(lines, windows: list[Window], attribution: Attribution = DEFAULT) -> dict[str, Tables]:
@@ -370,7 +379,13 @@ def read_events(lines, windows: list[Window], attribution: Attribution = DEFAULT
                 if t is not None:
                     table.first = t if table.first is None else min(table.first, t)
                     table.last = t if table.last is None else max(table.last, t)
-            if chosen:
+            if kind == "jdk.MethodTiming":
+                # Cumulative since the recording began: every window keeps every point.
+                point = (t, method_of(fields.get("method", "")), int(quantity(fields.get("invocations", "0"), {})),
+                         quantity(fields.get("average", "0"), UNIT_MS))
+                for table in tables.values():
+                    table.timing.append(point)
+            elif chosen:
                 add_event(chosen, kind, fields, stack, t, attribution)
             kind = None
         elif "=" in stripped and kind:
@@ -387,9 +402,13 @@ def add_event(tables: list[Tables], kind: str, fields: dict, stack: list[str], t
     group = thread_group(thread)
     if kind in ("jdk.ExecutionSample", "jdk.NativeMethodSample"):
         c = charge(stack, attribution)
+        timed = {m for m in (method_of(f) for f in stack) if m in attribution.timed} if attribution.timed else ()
         for table in tables:
             (table.samples if kind == "jdk.ExecutionSample" else table.native)[group][c.owner] += 1
             table.hot[group][f"{c.owner}: {c.method}"] += 1
+            if kind == "jdk.ExecutionSample":
+                for m in timed:
+                    table.timed_onstack[group][m] += 1
             if c.owner in ("Minecraft", "Forge (Cleanroom)"):
                 table.systems[group][engine_system(c.owner_class)] += 1
             if c.behalf:
@@ -470,7 +489,51 @@ def top(counter: Counter, n: int, scale: float = 1.0, digits: int = 1) -> dict:
     return {k: round(v * scale, digits) for k, v in counter.most_common(n)}
 
 
-def summarize(tables: Tables, cores: int, n: int = 12) -> dict:
+def clocked(tables: Tables, window: Window, group_cpu: Counter) -> dict:
+    """Each timed method over the window, by JFR's method timing (cumulative points, so the window's
+    share is the difference across it), beside the time its samples imply: the samples with it on
+    the stack at their thread group's CPU a sample. Their ratio is how far sampling misstates it."""
+    result = {}
+    by_method: dict[str, list] = defaultdict(list)
+    for t, method, invocations, average in tables.timing:
+        if t is not None:
+            by_method[method].append((t, invocations, invocations * average))
+    per_sample = {g: group_cpu.get(g, 0.0) / sum(c.values()) for g, c in tables.samples.items() if sum(c.values())}
+    for method, points in sorted(by_method.items()):
+        points.sort()
+        before = [p for p in points if p[0] <= window.start]
+        inside = [p for p in points if p[0] <= window.end]
+        start = before[-1] if before else (0, 0, 0.0)
+        end = inside[-1] if inside else start
+        ms = end[2] - start[2]
+        sampled = 1000 * sum(c.get(method, 0) * per_sample.get(g, 0.0) for g, c in tables.timed_onstack.items())
+        groups = Counter({g: c.get(method, 0) for g, c in tables.timed_onstack.items() if c.get(method, 0)})
+        result[method] = {"calls": end[1] - start[1], "clockMs": round(ms, 1), "sampledMs": round(sampled, 1),
+                          "sampledOverClock": round(sampled / ms, 2) if ms > 0 else None,
+                          "group": groups.most_common(1)[0][0] if groups else None}
+    return result
+
+
+TRUSTED = (0.8, 1.25)  # samples over clock within which a thread's sample shares stand as CPU shares
+
+
+def trust(clocks: dict) -> dict[str, dict]:
+    """Per thread group with a clocked method: the range of samples over clock and a verdict."""
+    by_group: dict[str, list[float]] = defaultdict(list)
+    for v in clocks.values():
+        if v.get("group") and v.get("sampledOverClock") and v["clockMs"] > 100:
+            by_group[v["group"]].append(v["sampledOverClock"])
+    verdicts = {}
+    for group, ratios in by_group.items():
+        low, high = min(ratios), max(ratios)
+        worst = max(high, 1 / low)
+        verdicts[group] = {"low": low, "high": high, "methods": len(ratios),
+                           "verdict": "samples agree with the clocks" if TRUSTED[0] <= low and high <= TRUSTED[1]
+                           else f"samples misstate by up to {worst:.1f}x: use the clocks and phase times"}
+    return verdicts
+
+
+def summarize(tables: Tables, cores: int, n: int = 12, window: Window | None = None) -> dict:
     """A window's tables as JSON: per thread group, CPU seconds split by sample share."""
     group_cpu: Counter = Counter()
     period = load_period(list(tables.cpu.values()))
@@ -517,14 +580,15 @@ def summarize(tables: Tables, cores: int, n: int = 12) -> dict:
                         "deoptimizedMethods": dict(tables.deopt_methods.most_common(n)),
                         "deoptimizationReasons": dict(tables.deopt_reasons.most_common(8)),
                         "failures": dict(tables.compile_failures.most_common(5))},
+        "clocked": clocked(tables, window or Window(), group_cpu),
         "threads": groups,
     }
 
 
-def window_summary(tables: Tables, cores: int) -> dict:
+def window_summary(tables: Tables, cores: int, window: Window | None = None) -> dict:
     """A narrow window's summary: per thread group, CPU by owner and the hottest methods only."""
-    full = summarize(tables, cores, 8)
-    return {"seconds": full["seconds"], "gc": full["gc"],
+    full = summarize(tables, cores, 8, window)
+    return {"seconds": full["seconds"], "gc": full["gc"], "clocked": full["clocked"],
             "threads": {g: {"cpuSeconds": t["cpuSeconds"], "samples": t["samples"], "owners": t["owners"],
                             "hotMethods": dict(list(t["hotMethods"].items())[:8])}
                         for g, t in full["threads"].items() if t["samples"] or t["cpuSeconds"] > 0.5}}
@@ -548,7 +612,8 @@ def attribute_recording(recording: Path, windows: list[Window], cores: int, attr
         raise RuntimeError(f"jfr print failed on {recording}")
     result = {}
     for w in windows:
-        result[w.name] = summarize(tables[w.name], cores) if w.name in ("startup", "run") else window_summary(tables[w.name], cores)
+        result[w.name] = (summarize(tables[w.name], cores, window=w) if w.name in ("startup", "run")
+                          else window_summary(tables[w.name], cores, w))
     return result
 
 
@@ -703,6 +768,46 @@ def stage_times(client_log: Path, window: Window) -> dict:
                            "gpu": percentile([r[k][1] for r in reports if k in r], 0.5)} for k in names}}
 
 
+FEATURES = {
+    # Quadrature's own report lines: what each feature costs where the stage times cannot say (distant
+    # terrain draws under the entities stage, by its own timer).
+    "distantGpuMs": re.compile(r"drawn: \d+ tiles, \d+ faces, \d+ draws; GPU ([\d.]+) ms mean"),
+    "distantClientMs": re.compile(r"; client thread ([\d.]+) ms mean"),
+    "previewTiles": re.compile(r"^\s*built (\d+) \(sample [\d.]+ ms"),
+    "previewSampleMsPerTile": re.compile(r"^\s*built \d+ \(sample ([\d.]+) ms"),
+    "previewMeshMsPerTile": re.compile(r"mesh ([\d.]+) ms a tile\)"),
+    "terrainBuilds": re.compile(r"^\s*terrain: \d+ meshes, \d+ waiting, (\d+) built"),
+    "terrainMsPerBuild": re.compile(r"^\s*terrain: \d+ meshes, \d+ waiting, \d+ built \(([\d.]+) ms each\)"),
+    "handoffPictures": re.compile(r"(\d+) pictures made by the handoff"),
+}
+COUNTED = {
+    "permitCuts": "Client work permits",
+    "slowPlacements": "Terrain: slow placement",
+}
+
+
+def feature_times(client_log: Path, window: Window) -> dict:
+    """The last value inside the window of each of Quadrature's feature report figures (counters are
+    cumulative, times are its own means), and how often the window logged a permit cut or a slow
+    placement."""
+    values: dict = {}
+    counts: Counter = Counter()
+    last = None
+    for t, line in log_lines(client_log):
+        if t is not None:
+            last = t
+        if not window.holds(last):
+            continue
+        for key, pattern in FEATURES.items():
+            match = pattern.search(line)
+            if match:
+                values[key] = float(match.group(1))
+        for key, text in COUNTED.items():
+            if text in line:
+                counts[key] += 1
+    return {**values, **counts}
+
+
 def gpu_samples(csv: Path) -> dict:
     """The GPU sampler's means: utilization, graphics clock, power, memory, and the power states seen."""
     if not csv.exists():
@@ -737,7 +842,8 @@ REQUIRES = {
     "quadrature.scene.states": [("quadrature.scene.gpu", "true")],
     "quadrature.distant.joinFade": [("quadrature.distant", None), ("quadrature.terrain.fade", "true")],
     "quadrature.taa": [("quadrature.scale", None)],
-    "quadrature.handoff.evaluate": [("quadrature.handoff.shim", None), ("quadrature.handoff.dlssPath", None)],
+    "quadrature.handoff.evaluate": [("quadrature.handoff", None), ("quadrature.handoff.shim", None),
+                                    ("quadrature.handoff.dlssPath", None)],
 }
 
 
@@ -798,6 +904,9 @@ def check(plan: dict, plan_path: Path | None = None) -> list[str]:
     if Path(plan["out"]).exists() and any(Path(plan["out"]).iterdir()):
         problems.append(f"{plan['out']} is not empty; a run directory is never reused")
     client_mods = [Path(m) for m in plan.get("clientMods", [])]
+    for timed in plan.get("timed", []):
+        if not TIMED.match(timed):
+            problems.append(f"timed: {timed} is not Class::method (fully qualified class, runtime method name)")
     labels = set()
     for entry in plan["runs"]:
         label = entry.get("label", "?")
@@ -959,10 +1068,23 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+TIMED = re.compile(r"^[\w$.]+::[\w$<>]+$")
+
+
+def record_options(plan: dict) -> str:
+    """The recorder's options, with JFR method timing of the plan's "timed" methods (Class::method,
+    runtime names) emitted every 10 s, the clock set against the samples."""
+    timed = plan.get("timed") or []
+    if not timed:
+        return RECORD
+    return RECORD.replace("settings=profile", "settings=profile,method-timing=" + ";".join(timed)
+                          + ",jdk.MethodTiming#period=10s")
+
+
 def play_command(python: str, plan: dict, entry: dict) -> tuple[list[str], str]:
     """A run's play command and its JVM options (the recorder's included): a tour keeps the motion
     helper off; a flight is the helper's route."""
-    options = " ".join(filter(None, [plan.get("options", ""), entry.get("options", ""), RECORD]))
+    options = " ".join(filter(None, [plan.get("options", ""), entry.get("options", ""), record_options(plan)]))
     command = [python, "tools/runtime.py", "play", "--name", plan["instance"]]
     window = entry.get("window", plan.get("window"))
     if window:
@@ -1205,13 +1327,14 @@ def load_attribution(run_dir: Path, mods: list[Path]) -> Attribution:
     from mod_index import MixinIndex, index_dirs
 
     record = run_dir / "run.json"
-    owners = json.loads(record.read_text(encoding="utf-8"))["plan"].get("owners", {}) if record.exists() else {}
+    plan = json.loads(record.read_text(encoding="utf-8"))["plan"] if record.exists() else {}
+    owners, timed = plan.get("owners", {}), plan.get("timed", [])
     if mods:
-        return Attribution(MixinIndex.of(index_dirs(mods, owner_of)), owners)
+        return Attribution(MixinIndex.of(index_dirs(mods, owner_of)), owners, timed)
     stored = run_dir / "mod-index.json"
     if stored.exists():
-        return Attribution(MixinIndex.from_json(json.loads(stored.read_text(encoding="utf-8"))["index"]), owners)
-    return Attribution(None, owners)
+        return Attribution(MixinIndex.from_json(json.loads(stored.read_text(encoding="utf-8"))["index"]), owners, timed)
+    return Attribution(None, owners, timed)
 
 
 def attribute(run_dir: Path, cores: int, mods: list[Path]) -> int:
@@ -1231,6 +1354,7 @@ def attribute(run_dir: Path, cores: int, mods: list[Path]) -> int:
         client_log = label_dir / "client-latest.log"
         if client_log.exists():
             entry["stageTimes"] = stage_times(client_log, run_window)
+            entry["features"] = feature_times(client_log, run_window)
         entry["gpu"] = gpu_samples(label_dir / "gpu.csv")
         entry["flight"] = flight_times(label_dir)
         result[label_dir.name] = entry
@@ -1395,6 +1519,20 @@ def lines_for(name: str, entry: dict, survey: dict | None = None) -> list[str]:
                    + "; deoptimizations: " + ", ".join(f"{o} {v}" for o, v in comp["deoptimizationsByOwner"].items()))
         out.append(f"GC: {part['gc']['pauseMsTotal']} ms of pauses in {part['gc']['collections']} collections, "
                    f"longest {part['gc']['pauseMsMax']} ms")
+        timed = part.get("clocked") or {}
+        if timed:
+            out += ["", f"Clocked methods on the {side} (JFR method timing) against their samples:", "",
+                    "| Method | Calls | Clock ms | ms a second | Samples imply, ms | Samples over clock |",
+                    "|---|---|---|---|---|---|"]
+            for method, v in sorted(timed.items(), key=lambda kv: -kv[1]["clockMs"]):
+                rate = v["clockMs"] / part["seconds"] if part.get("seconds") else 0
+                out.append(f"| {method} | {v['calls']} | {v['clockMs']} | {rate:.2f} | {v['sampledMs']} | "
+                           f"{v['sampledOverClock']} |")
+            out.append("")
+            for group, t in sorted(trust(timed).items()):
+                out.append(f"Sample trust on {group}: samples over clock {t['low']} to {t['high']} over "
+                           f"{t['methods']} methods; {t['verdict']}.")
+            out.append("")
         startup = entry.get(side, {}).get("startup")
         if startup:
             boot = Counter()
@@ -1426,6 +1564,21 @@ def lines_for(name: str, entry: dict, survey: dict | None = None) -> list[str]:
         if flight.get("gpu"):
             g = flight["gpu"]
             out.append(f"- GPU render bracket: p50/p95/p99 {g['msP50']}/{g['msP95']}/{g['msP99']} ms over {g['samples']} samples")
+    features = entry.get("features") or {}
+    if features:
+        parts = []
+        if "terrainBuilds" in features:
+            parts.append(f"near terrain {features['terrainBuilds']:.0f} builds at {features.get('terrainMsPerBuild')} ms each")
+        if "distantGpuMs" in features:
+            parts.append(f"distant terrain GPU {features['distantGpuMs']} ms and client thread "
+                         f"{features.get('distantClientMs')} ms a frame (its own timer; counted under the entities stage)")
+        if "previewTiles" in features:
+            parts.append(f"distant previews {features['previewTiles']:.0f} tiles, {features.get('previewSampleMsPerTile')} ms "
+                         f"sampling and {features.get('previewMeshMsPerTile')} ms meshing a tile")
+        if "handoffPictures" in features:
+            parts.append(f"{features['handoffPictures']:.0f} pictures made by the handoff")
+        parts.append(f"{features.get('permitCuts', 0)} client permit cuts, {features.get('slowPlacements', 0)} slow placements")
+        out.append("Features: " + "; ".join(parts))
     gpu = entry.get("gpu")
     if gpu:
         out.append(f"GPU: {gpu.get('utilizationPercent')}% busy at {gpu.get('graphicsMHz')} MHz, {gpu.get('powerW')} W, "

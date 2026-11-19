@@ -171,14 +171,14 @@ built whole before any run; the runs and the analysis follow.
 | 6 | Compilation by owner: compiles, their time, deoptimizations and failures | Built |
 | 7 | Preflight: artifacts and their hashes, switch combinations, tour checks, instance names, free disk | Built (`check`) |
 | 8 | Ablation: a mod removed from both sides of a fresh instance, its cost measured by difference | Built; refuses a removal that leaves a mod without one it requires |
-| 9 | Report: the costliest owner per critical resource, the engine work each mod leans on, the engine's CPU by system beside the mods patching it, Cleanroom's own costs, runs compared, a Markdown readout | Built; exercised on one stored recording. The client side waits for the first run, since every client recording before the tool was lost when the tour killed its client |
-| 10 | Runs: base, full stack, then ablations of the mods attribution cannot settle. Plans are kept with the evidence; the generating cave tour is `tools/tours/caves-8675309.json`, the flight a 960-block slide from a pose east of it | Plans written and checked; after 1 to 9 |
+| 9 | Report: the costliest owner per critical resource, the engine work each mod leans on, the engine's CPU by system beside the mods patching it, Cleanroom's own costs, runs compared, a Markdown readout | Built; run on the base configuration's cave tour and route flight |
+| 9a | Clocks against samples: the plan's named methods timed by JFR's method timing, each set beside the time its samples imply, and a verdict per thread. Execution samples see a thread only while it runs Java code: on the base run they put autosave discovery at up to 71% of the server thread in a minute, three times its own budget | Built and calibrated 2026-11-19: the meshing pool's samples agree with its clock (0.89 to 0.99); the server thread's are off three to seven times either way, so its measure is the clocks and Cubature's phase times ([DIAGNOSTICS.md](DIAGNOSTICS.md)) |
+| 10 | Runs: base, full stack, then ablations of the mods attribution cannot settle. Plans are kept with the evidence; the generating cave tour is `tools/tours/caves-8675309.json`; the flight a 2,400-block square loop at 16 blocks a second with a 15 s stop, flown by the motion helper's route (0.2.0) | Base, full stack (without DLSS: its handoff switch was missing, which `check` now refuses) and a clocked base run done 2026-11-19, every route complete with no tick held; the full stack with DLSS running |
 | 11 | Code analysis of what the runs find, with requisitions for Riven and Cubature | After 10 |
 | 12 | Engine work to take over: the engine's CPU by system on the server tick and the frame, set against what each of our mods already patches, ranked by what taking it over would save and what it would free | After 10 |
 | 13 | Cleanroom integration: Forge's, Cleanroom's, Mixin's and LWJGL's own CPU, startup by owner, event dispatch and compilation churn, each as a change to propose to Cleanroom or to work around in our mods | After 10 |
 
-Leads from recordings made before the tool, without `DebugNonSafepoints`, so their shares are
-directions only: Riven is 99% of the generation workers' CPU, and its ore placement rebuilds the
+Leads from recordings made before the tool, their shares directions only: Riven is 99% of the generation workers' CPU, and its ore placement rebuilds the
 27 node cells around a block for every block of every ore body's range (an exact fix: the nodes
 once a cube); Riven's `Drainage.build` and `Hydro.networks` are compiled by C2 again and again,
 0.5 to 0.9 s each; Riven allocates about 200 MB/s while a world generates, Cubature 13; block

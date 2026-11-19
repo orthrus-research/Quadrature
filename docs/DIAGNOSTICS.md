@@ -59,10 +59,33 @@ prepares.
 
 ## What a run records
 
-Both games run under JFR with the profile settings and `-XX:+DebugNonSafepoints`. Without the
-latter a sample is placed at the nearest point with debug information, often a loop's safepoint
-poll, and tight loops gather samples they did not earn: on 2026-11-19 a recording without it put
-Cubature's `needsSaving` at 15 to 20% of the server thread, which a clock measured at 1% of a tick.
+Both games run under JFR with the profile settings and `-XX:+DebugNonSafepoints`, which places
+each sample at its own instruction rather than the nearest point with debug information.
+
+Sample shares are not CPU shares on every thread. An execution sample is taken only while a thread
+runs Java code, so work spent in the VM (allocation slow paths, GC barriers, runtime calls) is
+not seen, and a thread that mixes tight Java loops with allocation-heavy work over-reports the
+loops. On 2026-11-19, with the flag on, the server thread's samples put Cubature's autosave
+discovery at 16.7% (`needsSaving`) and up to 71% in a minute, which would be about 2.9 ms a tick;
+its own loop stops at half the 2 ms autosave budget, and a clock measured it at 0.11 ms a tick,
+inside an unload-and-save phase of 0.80 ms. So a plan's `timed` methods (`Class::method`, runtime
+names, so `func_` names for overrides of the game's methods) are clocked by JFR's method timing,
+emitted every 10 s and cumulative, and the report sets each one's time over a window beside the
+time its samples imply: their ratio is how far the samples misstate that method there, and each
+thread group with a clocked method gets a verdict: its samples stand as CPU shares where every ratio
+lies within 0.8 to 1.25, and otherwise its clocks and Cubature's phase times are the measure. Clock
+methods called per tick, cube or column, not per block: the timing itself costs a little each call.
+
+Calibrated on the base configuration, 2026-11-19 (generating cave tour and route flight):
+Quadrature's meshing pool agrees with its clock (0.89 and 0.99); the generation pool's samples run
+0.6 to 0.9 of the clock, which counts wall time and so any wait inside Riven; the server thread's
+are off both ways, the delivery tick and the cube install methods under-sampled three to seven
+times (0.14 to 0.34) and the unload-and-save tick over-sampled about twice (1.8 and 2.6); the
+frame thread's terrain draw, mostly in the driver, has 0.06 of its clocked time in execution
+samples (its native samples are counted apart). By clock the server's delivery tick, installs
+included, took 3.2 ms a tick on the cave tour and its unload-and-save tick 0.7 ms, which agrees
+with Cubature's own phase times.
+
 The launcher kills a tour's client, and an unfinished recorder chunk cannot be read, so once the
 client has captured every view the driver asks it with the game's own `jcmd` to dump its
 recording; a flight's client closes itself and writes its recording at exit. Recorder chunks of
@@ -144,3 +167,7 @@ closes it.
   swap or presentation), not per pass.
 - Windows are seconds of the local day, as the logs and recordings stamp them: a run that crosses
   midnight is not windowed correctly.
+- JFR's method timing rewrites a class when it loads and skips a class whose rewriting needs a game
+  class it cannot resolve from the loader (it logs `Could not resolve class Chunk. Skipping
+  instrumentation`): Cubature's `PeriodicAutosave` and `ChunkGc` are not clocked; the provider's
+  tick, which calls both, is.

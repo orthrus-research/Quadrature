@@ -311,6 +311,82 @@ class ReadTest(unittest.TestCase):
         self.assertAlmostEqual(4.0, rows[0]["tickEngine"])
         self.assertEqual(900.0, rows[0]["compileMs"])
 
+    def test_a_timed_method_is_clocked_over_its_window_and_set_against_its_samples(self):
+        timing = """jdk.MethodTiming {
+  startTime = 15:05:00.000 (2026-11-19)
+  method = io.example.Autosave.discover(long, long)
+  invocations = 100
+  average = 0.100 ms
+}
+
+jdk.MethodTiming {
+  startTime = 15:05:20.000 (2026-11-19)
+  method = io.example.Autosave.discover(long, long)
+  invocations = 300
+  average = 0.150 ms
+}
+
+jdk.ExecutionSample {
+  startTime = 15:05:10.000 (2026-11-19)
+  sampledThread = "Server thread" (javaThreadId = 40)
+  state = "STATE_RUNNABLE"
+  stackTrace = [
+    io.example.Autosave.discover(long, long) line: 1
+    net.minecraft.server.MinecraftServer.run() line: 1
+  ]
+}
+
+jdk.ExecutionSample {
+  startTime = 15:05:11.000 (2026-11-19)
+  sampledThread = "Server thread" (javaThreadId = 40)
+  state = "STATE_RUNNABLE"
+  stackTrace = [
+    net.minecraft.server.MinecraftServer.run() line: 1
+  ]
+}
+
+jdk.ThreadCPULoad {
+  startTime = 15:05:05.000 (2026-11-19)
+  user = 0.10%
+  system = 0.00%
+  eventThread = "Server thread" (javaThreadId = 40)
+}
+
+jdk.ThreadCPULoad {
+  startTime = 15:05:15.000 (2026-11-19)
+  user = 0.10%
+  system = 0.00%
+  eventThread = "Server thread" (javaThreadId = 40)
+}
+"""
+        attribution = diagnostics.Attribution(None, None, ["io.example.Autosave::discover"])
+        window = diagnostics.Window(at("15:05:01"), 1e9, "run")
+        tables = diagnostics.read_events(timing.splitlines(True), [window], attribution)["run"]
+        summary = diagnostics.summarize(tables, cores=10, window=window)
+        clock = summary["clocked"]["Autosave.discover"]
+        # 300 x 0.15 - 100 x 0.10 = 35 ms over 200 calls; the thread's 0.1 s of CPU (0.1% of 10 cores
+        # for 10 s) over 2 samples is 50 ms a sample, one of them in the method.
+        self.assertEqual(200, clock["calls"])
+        self.assertAlmostEqual(35.0, clock["clockMs"])
+        self.assertAlmostEqual(50.0, clock["sampledMs"])
+        self.assertAlmostEqual(1.43, clock["sampledOverClock"])
+
+    def test_trust_is_judged_per_thread_from_its_clocks(self):
+        clocks = {"A.a": {"group": "pool #", "sampledOverClock": 0.95, "clockMs": 5000},
+                  "A.b": {"group": "pool #", "sampledOverClock": 1.1, "clockMs": 4000},
+                  "S.a": {"group": "Server thread", "sampledOverClock": 0.3, "clockMs": 9000},
+                  "S.b": {"group": "Server thread", "sampledOverClock": 2.5, "clockMs": 800},
+                  "S.c": {"group": "Server thread", "sampledOverClock": 9.0, "clockMs": 50}}  # too little to judge by
+        verdicts = diagnostics.trust(clocks)
+        self.assertEqual("samples agree with the clocks", verdicts["pool #"]["verdict"])
+        self.assertIn("misstate by up to 3.3x", verdicts["Server thread"]["verdict"])
+        self.assertEqual(2, verdicts["Server thread"]["methods"])
+
+    def test_timed_methods_join_the_recorders_options(self):
+        options = diagnostics.record_options({"timed": ["a.B::c", "d.E::f"]})
+        self.assertIn("method-timing=a.B::c;d.E::f,jdk.MethodTiming#period=10s", options)
+        self.assertEqual(diagnostics.RECORD, diagnostics.record_options({}))
+
     def test_a_gap_in_a_threads_points_is_not_bridged(self):
         points = [(0.0, 5.0), (10.0, 5.0), (300.0, 5.0)]
         self.assertAlmostEqual(0.5 + 0.75, diagnostics.cpu_seconds(points, cores=1, period=10.0))
@@ -377,6 +453,30 @@ class LogTest(unittest.TestCase):
         self.assertEqual(2400, costs["ticks"])
         self.assertEqual(1.5, costs["msPerTick"]["CUBE_CONSTRUCT"])
         self.assertEqual(3000.0, costs["usPerCube"]["CUBE_CONSTRUCT"])
+
+    def test_quadratures_feature_lines_are_read_from_the_run(self):
+        lines = [
+            "[17:00:00] [Client thread/INFO]: Stage times, median/95th in ms (CPU | GPU):",
+            "  terrain: 2291 meshes, 0 waiting, 23334 built (1.619 ms each), 80229 empty",
+            "  scaler: drawn 858 by 482 of 1280 by 720 (scale 0.67), temporal on, 0 pictures made by the handoff; passes",
+            "[17:00:01] [Client thread/INFO]: Distant terrain: tiles wanted/stored by level L0 144/144",
+            "  drawn: 392 tiles, 1893908 faces, 6 draws; GPU 2.162 ms mean, 2.183 most (600 samples); client thread 0.478 ms mean",
+            "  built 1856 (sample 319.3 ms, mesh 1.32 ms a tile), stored 1856",
+            "[17:00:02] [Client thread/INFO]: Client work permits 4 -> 2: cut: frame p95 at or over 25.0 ms",
+            "[16:59:00] [Client thread/INFO]: Client work permits 4 -> 2: cut: before the window",
+        ]
+        BUILD.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=BUILD) as d:
+            log = Path(d) / "client.log"
+            log.write_text("\n".join(lines[-1:] + lines[:-1]), encoding="utf-8")
+            features = diagnostics.feature_times(log, diagnostics.Window(at("16:59:30"), 1e9, "run"))
+        self.assertEqual(23334, features["terrainBuilds"])
+        self.assertEqual(1.619, features["terrainMsPerBuild"])
+        self.assertEqual(2.162, features["distantGpuMs"])
+        self.assertEqual(0.478, features["distantClientMs"])
+        self.assertEqual(319.3, features["previewSampleMsPerTile"])
+        self.assertEqual(0, features["handoffPictures"])
+        self.assertEqual(1, features["permitCuts"])
 
     def test_a_flight_is_the_motion_helpers_route(self):
         flight = {"start": [100, 200, 300, 270, 30], "route": [[700, 200, 300], [700, 200, 700, 10]],
@@ -470,6 +570,7 @@ class PlanTest(unittest.TestCase):
         self.plan["runs"][0]["options"] = ("-Dquadrature.handoff.evaluate=dlss -Dquadrature.handoff.shim=missing.dll "
                                            "-Dquadrature.handoff.dlssPath=nowhere")
         problems = "\n".join(diagnostics.check(self.plan))
+        self.assertIn("-Dquadrature.handoff.evaluate needs -Dquadrature.handoff", problems)
         self.assertIn("no DLSS shim", problems)
         self.assertIn("no nvngx_dlss.dll", problems)
         self.assertIn("quadrature-nvidia module", problems)
