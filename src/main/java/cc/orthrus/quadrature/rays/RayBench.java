@@ -37,7 +37,8 @@ import java.util.List;
  * across about the player, toward the sun or the moon, side by side and parallel, as far shadows would.</li>
  * </ul>
  *
- * <p>Each trace runs {@value #REPEATS} times, one a frame, and the median is logged with a count of how
+ * <p>Each trace runs {@value #REPEATS} times reading the lookup and bricks from storage blocks and as many
+ * through their buffer textures, alternately, one trace a frame, and the medians are logged with a count of how
  * the rays ended. A set of all of them runs at most every {@code -Dquadrature.rays.bench.every} seconds
  * (20) in one place; one stops if the view moves to another cube. With
  * {@code -Dquadrature.rays.check=true} a sample of each trace's rays and results is read back and the
@@ -97,15 +98,21 @@ public final class RayBench {
     };
     private static final int MOST_RAYS = TIERS[TIERS.length - 1].rays();
 
-    /** One measurement: a class, a tier, a length, and the times of its repeats. */
+    /** The two ways the trace reads the scene, by {@link RayTracer#STORAGE} and {@link RayTracer#TEXTURE}. */
+    static final String[] WAYS = {"storage blocks", "buffer textures"};
+
+    /**
+     * One measurement: a class, a tier, a length, and the times of its repeats, which alternate between
+     * the two ways of reading the scene where both programs are built.
+     */
     private static final class Step {
         final int rayClass;
         final Tier tier;
         final int length;
-        final double[] millis = new double[REPEATS];
+        final double[][] millis = new double[2][REPEATS];
         int repeat;
         int[] census;
-        /** The scene as the last repeat's trace read it: its generation, origin cube and box. */
+        /** The scene as the latest repeat's trace read it: its generation, origin cube and box. */
         long generation;
         int originX;
         int originY;
@@ -131,6 +138,8 @@ public final class RayBench {
     private boolean prepared;
     private boolean failed;
     private boolean warned;
+    /** Whether both ways of reading the scene are timed, alternately. */
+    private boolean both;
     private int probesProgram;
     private int columnsProgram;
     private int shadowsProgram;
@@ -235,8 +244,10 @@ public final class RayBench {
             GL45.glNamedBufferStorage(resultBuffer, (long) MOST_RAYS * TraceFormat.RESULT_BYTES, 0);
             censusBuffer = GL45.glCreateBuffers();
             GL45.glNamedBufferStorage(censusBuffer, BenchPrograms.CENSUS_WORDS * 4L, 0);
-            Quadrature.LOGGER.info("Ray benchmark buffers: room for {} rays, {} MiB.", String.format("%,d", MOST_RAYS),
-                String.format("%.1f", benchBytes() / 1048576.0));
+            both = tracer.built(RayTracer.STORAGE) && tracer.built(RayTracer.TEXTURE);
+            Quadrature.LOGGER.info("Ray benchmark buffers: room for {} rays, {} MiB; timing {}.", String.format("%,d", MOST_RAYS),
+                String.format("%.1f", benchBytes() / 1048576.0), both ? "both ways of reading the scene, alternately"
+                : "the storage blocks alone");
         }
         return !failed;
     }
@@ -268,7 +279,7 @@ public final class RayBench {
             String.format("%.1f", view.originZ()), setX, setY, setZ, scene.sizeX(), scene.sizeY(), scene.sizeZ(),
             String.format("%.2f", scene.bytes() / 1048576.0), scene.slotsInUse(), scene.mostSlotsInUse(),
             String.format("%.3f", toward[0]), String.format("%.3f", toward[1]), String.format("%.3f", toward[2]),
-            steps.size() * REPEATS);
+            steps.size() * runs());
         if (check != null) {
             check.begin(sets);
         }
@@ -296,21 +307,22 @@ public final class RayBench {
             }
             GL32.glDeleteSync(fence);
             fence = 0;
-            running.millis[running.repeat] = timing.gpuMillis();
-            if (running.repeat == REPEATS - 1) {
+            int way = way(running.repeat);
+            running.millis[way][running.repeat / runsPerRepeat()] = timing.gpuMillis();
+            if (check != null && running.repeat >= runs() - runsPerRepeat()) {
+                // The last repeat of each way: its rays and results, set beside the CPU's.
+                check.sample(running.label() + " through " + WAYS[way], rayBuffer, resultBuffer, running.tier.rays(),
+                    running.generation, running.originX, running.originY, running.originZ, running.sizeX, running.sizeY);
+            }
+            if (running.repeat == runs() - 1) {
                 censusBack.clear();
                 GL45.glGetNamedBufferSubData(censusBuffer, 0, censusBack);
                 running.census = new int[BenchPrograms.CENSUS_WORDS];
                 censusBack.get(running.census);
-                if (check != null) {
-                    check.sample(running.label(), rayBuffer, resultBuffer, running.tier.rays(), running.generation,
-                        running.originX, running.originY, running.originZ, running.sizeX, running.sizeY);
-                }
                 report(running);
                 next++;
             } else {
                 running.repeat++;
-                steps.set(next, running);
             }
             running = null;
             timing = null;
@@ -371,14 +383,14 @@ public final class RayBench {
             GL43.glDispatchCompute((rays + TraceProgram.GROUP - 1) / TraceProgram.GROUP, 1, 1);
             state.restore();
         }
-        timing = tracer.trace(rayBuffer, resultBuffer, rays);
-        if (step.repeat == REPEATS - 1) {
-            step.generation = scene.generation();
-            step.originX = scene.originX();
-            step.originY = scene.originY();
-            step.originZ = scene.originZ();
-            step.sizeX = scene.sizeX();
-            step.sizeY = scene.sizeY();
+        timing = tracer.trace(rayBuffer, resultBuffer, rays, way(step.repeat));
+        step.generation = scene.generation();
+        step.originX = scene.originX();
+        step.originY = scene.originY();
+        step.originZ = scene.originZ();
+        step.sizeX = scene.sizeX();
+        step.sizeY = scene.sizeY();
+        if (step.repeat == runs() - 1) {
             GL45.glClearNamedBufferData(censusBuffer, GL30.GL_R32UI, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT,
                 (java.nio.ByteBuffer) null);
             state.save();
@@ -394,23 +406,52 @@ public final class RayBench {
         fence = GL32.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     }
 
+    /** Traces a measurement takes: each repeat once for each way timed. */
+    private int runs() {
+        return REPEATS * runsPerRepeat();
+    }
+
+    private int runsPerRepeat() {
+        return both ? 2 : 1;
+    }
+
+    /** The way a trace of a measurement reads the scene: alternately, storage blocks first. */
+    private int way(int run) {
+        return both ? run % 2 : RayTracer.STORAGE;
+    }
+
     /** The lowest probe of a grid about a place, at the middle of a cell, on whole multiples of the spacing. */
     private static float corner(float at, int probes, float spacing) {
         return (float) (Math.floor(at / spacing) * spacing - probes / 2 * spacing + 0.5);
     }
 
-    private void report(Step step) {
-        double[] sorted = step.millis.clone();
+    private static double median(double[] millis) {
+        double[] sorted = millis.clone();
         Arrays.sort(sorted);
-        double median = sorted[REPEATS / 2];
+        return sorted[sorted.length / 2];
+    }
+
+    private static double least(double[] millis) {
+        return Arrays.stream(millis).min().orElse(Double.NaN);
+    }
+
+    private static double most(double[] millis) {
+        return Arrays.stream(millis).max().orElse(Double.NaN);
+    }
+
+    private void report(Step step) {
+        double[] times = step.millis[RayTracer.STORAGE];
+        double median = median(times);
         int rays = step.tier.rays();
         int[] census = step.census;
         double share = 100.0 / rays;
-        Quadrature.LOGGER.info("Ray benchmark set {}, {}: GPU {} ms median of {} (least {}, most {}); {} million rays a second; "
+        String other = !both ? "" : String.format(" (through buffer textures %.3f ms, least %.3f, most %.3f)",
+            median(step.millis[RayTracer.TEXTURE]), least(step.millis[RayTracer.TEXTURE]), most(step.millis[RayTracer.TEXTURE]));
+        Quadrature.LOGGER.info("Ray benchmark set {}, {}: GPU {} ms median of {} (least {}, most {}){}; {} million rays a second; "
                 + "hit {}% ({}% began in a cell that blocks), missed {}%, left the box {}%, not available {}%, out of steps {}%; "
                 + "{} nodes a ray, {} at most; {} blocks to a hit on average. {}.",
-            sets, step.label(), String.format("%.3f", median), REPEATS, String.format("%.3f", sorted[0]),
-            String.format("%.3f", sorted[REPEATS - 1]), String.format("%.1f", rays / median / 1000.0),
+            sets, step.label(), String.format("%.3f", median), REPEATS, String.format("%.3f", least(times)),
+            String.format("%.3f", most(times)), other, String.format("%.1f", rays / median / 1000.0),
             String.format("%.1f", census[TraceFormat.HIT] * share), String.format("%.1f", census[BenchPrograms.CENSUS_INSIDE] * share),
             String.format("%.1f", census[TraceFormat.MISS] * share), String.format("%.1f", census[TraceFormat.LEFT] * share),
             String.format("%.1f", census[TraceFormat.NOT_AVAILABLE] * share), String.format("%.1f", census[TraceFormat.STEPS] * share),
@@ -434,9 +475,7 @@ public final class RayBench {
                     line.append(", ").append(tier.name);
                     for (Step step : steps) {
                         if (step.rayClass == rayClass && step.tier == tier) {
-                            double[] sorted = step.millis.clone();
-                            Arrays.sort(sorted);
-                            line.append(' ').append(String.format("%.3f", sorted[REPEATS / 2]));
+                            line.append(' ').append(String.format("%.3f", median(step.millis[RayTracer.STORAGE])));
                         }
                     }
                 }

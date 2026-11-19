@@ -31,8 +31,14 @@ public final class RayTracer implements RayTrace {
 
     private static RayTracer shared;
 
+    /** The two ways of reading the lookup and bricks: from storage blocks, and through their buffer textures. */
+    static final int STORAGE = 0;
+    static final int TEXTURE = 1;
+
     private final ComputeState state = new ComputeState();
-    private int program;
+    private final int[] programs = new int[2];
+    private final boolean[] tried = new boolean[2];
+    private final int path = TEXTURES ? TEXTURE : STORAGE;
     private boolean failed;
     private int blockingBuffer;
     private long statesSent = -1;
@@ -56,16 +62,24 @@ public final class RayTracer implements RayTrace {
     }
 
     private boolean prepare() {
-        if (program == 0 && !failed) {
-            program = TraceProgram.link(TEXTURES ? "trace through textures" : "trace", TEXTURES
-                ? TraceProgram.TRACE_TEXTURE_COMPUTE : TraceProgram.TRACE_COMPUTE);
-            failed = program == 0;
+        if (!tried[path]) {
+            failed = !built(path);
             blockingBuffer = GL45.glCreateBuffers();
             GL45.glNamedBufferStorage(blockingBuffer, (long) LightScene.STATES / 8, GL44.GL_DYNAMIC_STORAGE_BIT);
-            Quadrature.LOGGER.info("Ray trace ready: work groups of {}, the lookup and bricks read {}.", TraceProgram.GROUP,
-                TEXTURES ? "through buffer textures" : "from storage blocks");
+            Quadrature.LOGGER.info("Ray trace {}: work groups of {}, the lookup and bricks read {}.", failed ? "failed"
+                : "ready", TraceProgram.GROUP, TEXTURES ? "through buffer textures" : "from storage blocks");
         }
-        return program != 0;
+        return !failed;
+    }
+
+    /** Whether the program reading one way is built, building it on first asking. */
+    boolean built(int way) {
+        if (!tried[way]) {
+            tried[way] = true;
+            programs[way] = TraceProgram.link(way == TEXTURE ? "trace through textures" : "trace", way == TEXTURE
+                ? TraceProgram.TRACE_TEXTURE_COMPUTE : TraceProgram.TRACE_COMPUTE);
+        }
+        return programs[way] != 0;
     }
 
     /** Whether the trace program failed to build, so that nothing can be traced. */
@@ -87,13 +101,18 @@ public final class RayTracer implements RayTrace {
 
     @Override
     public Timed trace(int rayBuffer, int resultBuffer, int count) {
+        return trace(rayBuffer, resultBuffer, count, path);
+    }
+
+    /** As {@link #trace(int, int, int)}, reading the scene one way; null where that way's program is not built. */
+    Timed trace(int rayBuffer, int resultBuffer, int count, int way) {
         PublishedScene scene = scene();
-        if (scene == null) {
+        if (scene == null || !built(way)) {
             return null;
         }
         Timing timing = new Timing(count);
         GL33.glQueryCounter(timing.before, GL33.GL_TIMESTAMP);
-        dispatch(scene, rayBuffer, resultBuffer, count);
+        dispatch(scene, rayBuffer, resultBuffer, count, way);
         GL33.glQueryCounter(timing.after, GL33.GL_TIMESTAMP);
         return timing;
     }
@@ -102,14 +121,16 @@ public final class RayTracer implements RayTrace {
     void traceUntimed(int rayBuffer, int resultBuffer, int count) {
         PublishedScene scene = scene();
         if (scene != null) {
-            dispatch(scene, rayBuffer, resultBuffer, count);
+            dispatch(scene, rayBuffer, resultBuffer, count, path);
         }
     }
 
-    private void dispatch(PublishedScene scene, int rayBuffer, int resultBuffer, int count) {
+    private void dispatch(PublishedScene scene, int rayBuffer, int resultBuffer, int count, int way) {
         int blocking = blockingBuffer();
-        state.save();
-        if (TEXTURES) {
+        int program = programs[way];
+        state.save(way == TEXTURE);
+        if (way == TEXTURE) {
+            // A texture other than zero binds to its own target on the unit, touching nothing else there.
             GL45.glBindTextureUnit(TraceProgram.LOOKUP_UNIT, scene.lookupTexture());
             GL45.glBindTextureUnit(TraceProgram.BRICK_UNIT, scene.brickTexture());
         } else {
