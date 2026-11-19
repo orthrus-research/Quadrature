@@ -717,6 +717,9 @@ public final class Terrain
             tasks.remove(key);
         }
         if (task.state() == IClientBuildWork.FAILED) {
+            if (task.failure() instanceof OutOfMemoryError) {
+                cc.orthrus.quadrature.platform.OutOfMemoryWatch.caught(task.failure(), "a build thread");
+            }
             if (buildFailures++ < 5) {
                 Quadrature.LOGGER.error("Terrain: the build of cube {} {} {} failed; it keeps the mesh it had.", x, y, z,
                     task.failure());
