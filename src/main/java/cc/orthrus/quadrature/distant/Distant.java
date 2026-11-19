@@ -103,13 +103,18 @@ final class Distant {
     private final StateGuard writerGuard = new StateGuard(WriterState.all());
     private final WriterState writerState = new WriterState(DistantProgram.COVER_UNIT, DistantProgram.IMAGES_UNIT);
     private final WriterAudit writerAudit = WriterAudit.ENABLED ? new WriterAudit() : null;
-    private float writerPartialTicks;
+    private boolean writerRegistered;
+    /** What a pass's preparation leaves for its two places: whether it is done, and what it found. */
+    private boolean prepared;
+    private boolean passReady;
+    private boolean passCaptured;
+    private boolean passFading;
+    private float passDaylight;
     /** Passes that listed, those in which near terrain's band was read and its origin, and the most the origin was apart. */
     private long joinPasses;
     private long joinRead;
     private long joinOrigins;
     private double joinApart;
-    private boolean writerFading;
     private boolean wrote;
     private final long[] boxBlocks = new long[6];
     private final DistantCover cover = new DistantCover();
@@ -235,6 +240,91 @@ final class Distant {
         return new Distant(source);
     }
 
+    /**
+     * A world pass's work before anything is drawn, done once a pass by whichever of distant
+     * terrain's two places the pass reaches first: near terrain's call of the target writer, after
+     * its cutout layer, or the Mixin's place in front of entities. Takes the view, the tiles that
+     * finished, the selection and the frame's list.
+     *
+     * @return whether there is a terrain preview and a viewer to draw for
+     */
+    private boolean prepare(float partialTicks) {
+        if (prepared) {
+            return passReady;
+        }
+        prepared = true;
+        passReady = false;
+        wrote = false;
+        frame++;
+        DriverMessageAccess.install();
+        boolean following = follow();
+        DistantHook.sampling(following);
+        registerWriter(following);
+        if (!following) {
+            unsettle();
+            return false;
+        }
+        Minecraft minecraft = Minecraft.getMinecraft();
+        Entity viewer = minecraft.getRenderViewEntity();
+        if (viewer == null || minecraft.world == null) {
+            unsettle();
+            return false;
+        }
+        fillView(viewer, partialTicks, minecraft);
+        passCaptured = travel.frame(viewer);
+        arena.beginFrame();
+        workers.drain();
+        takeEnded();
+        takeBuilt();
+        select();
+        if (travel.awaitsWhole() && whole(viewer)) {
+            travel.whole();
+            passCaptured = true;
+        }
+        DistantHook.drawnTo(drawnTo);
+        DistantHook.nearestEdge(nearestEdge());
+        release();
+        while (true) {
+            // A fill tile whose ground finer tiles draw already is not built.
+            long key = DistantSettings.FILL ? schedule.next(workers.threads() * 2, arrival::spare)
+                : schedule.next(workers.threads() * 2);
+            if (key == -1) {
+                break;
+            }
+            inFlight.add(key);
+            workers.submit(preview, key, schedule.generation());
+        }
+        materials.refresh();
+        list();
+        passFading = DistantSettings.CROSSFADE && DistantSettings.DEBUG != DistantSettings.DEBUG_BOX;
+        if (draws.commandCount() > 0) {
+            if (passFading) {
+                bands();
+            }
+            squares();
+        }
+        passDaylight = minecraft.world.getSunBrightness(partialTicks);
+        passReady = true;
+        return true;
+    }
+
+    /**
+     * Keeps the pass into the targets registered with near terrain as a writer of them while the
+     * shaded path is on and there is a preview to draw from, and takes it off when there is none.
+     * A change made from inside near terrain's call holds from the next pass.
+     */
+    private void registerWriter(boolean following) {
+        boolean wanted = DistantSettings.SHADED && following;
+        if (wanted != writerRegistered) {
+            writerRegistered = wanted;
+            if (wanted) {
+                TerrainHook.addTargetWriter(targetWriter);
+            } else {
+                TerrainHook.removeTargetWriter(targetWriter);
+            }
+        }
+    }
+
     /** One world pass: takes finished tiles, asks for more, and draws. */
     void frame(float partialTicks) {
         if (failed) {
@@ -255,75 +345,36 @@ final class Distant {
     }
 
     private void run(float partialTicks) {
-        frame++;
-        DriverMessageAccess.install();
-        boolean following = follow();
-        DistantHook.sampling(following);
-        if (!following) {
-            unsettle();
+        boolean ready = prepare(partialTicks);
+        // The next pass prepares anew, whichever place it reaches first.
+        prepared = false;
+        if (!ready) {
             return;
         }
         Minecraft minecraft = Minecraft.getMinecraft();
         Entity viewer = minecraft.getRenderViewEntity();
-        if (viewer == null || minecraft.world == null) {
-            unsettle();
-            return;
-        }
-        fillView(viewer, partialTicks, minecraft);
-        boolean captured = travel.frame(viewer);
-        arena.beginFrame();
-        workers.drain();
-        takeEnded();
-        takeBuilt();
-        select();
-        if (travel.awaitsWhole() && whole(viewer)) {
-            travel.whole();
-            captured = true;
-        }
-        DistantHook.drawnTo(drawnTo);
-        DistantHook.nearestEdge(nearestEdge());
-        release();
-        while (true) {
-            // A fill tile whose ground finer tiles draw already is not built.
-            long key = DistantSettings.FILL ? schedule.next(workers.threads() * 2, arrival::spare)
-                : schedule.next(workers.threads() * 2);
-            if (key == -1) {
-                break;
-            }
-            inFlight.add(key);
-            workers.submit(preview, key, schedule.generation());
-        }
-        materials.refresh();
-        list();
+        boolean captured = passCaptured;
+        boolean fading = passFading;
         if (draws.commandCount() > 0) {
             DriverMessageAccess.enter("distant terrain");
             int timer = (int) (frame % TIMERS);
             readTimer(timer);
             GL33.glQueryCounter(timerStart[timer], GL33.GL_TIMESTAMP);
             timerFaces[timer] = draws.faces();
-            boolean fading = DistantSettings.CROSSFADE && DistantSettings.DEBUG != DistantSettings.DEBUG_BOX;
-            if (fading) {
-                bands();
-            }
-            squares();
             // On the shaded path the water waits until the targets are written and then draws
             // without writing depth. Off it, one draw holds all three layers as before.
             program.water(DistantSettings.SHADED ? DistantProgram.WATER_LEFT : DistantProgram.WATER_WITH);
             lastDraws = program.draw(draws, arena, materials, modelView, projection, nearBox,
-                minecraft.world.getSunBrightness(partialTicks), cover,
+                passDaylight, cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
                 imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(), joinBand);
             GL33.glQueryCounter(timerEnd[timer], GL33.GL_TIMESTAMP);
-            if (DistantSettings.SHADED) {
-                writerPartialTicks = partialTicks;
-                writerFading = fading;
-                targetWriter.run();
-            }
+            // The targets were written before this place, by near terrain's call of the writer.
             DistantHook.shaded(DistantSettings.SHADED && wrote);
             if (DistantSettings.SHADED) {
                 program.water(DistantProgram.WATER_ALONE);
                 lastDraws += program.draw(draws, arena, materials, modelView, projection, nearBox,
-                    minecraft.world.getSunBrightness(partialTicks), cover,
+                    passDaylight, cover,
                     (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
                     imageFade, fading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
                     joinBand);
@@ -403,6 +454,7 @@ final class Distant {
         }
         inFlight.clear();
         travel.forget();
+        registerWriter(false);
         joinPasses = 0;
         joinRead = 0;
         joinOrigins = 0;
@@ -419,8 +471,20 @@ final class Distant {
         double x = viewer.lastTickPosX + (viewer.posX - viewer.lastTickPosX) * partialTicks;
         double y = viewer.lastTickPosY + (viewer.posY - viewer.lastTickPosY) * partialTicks;
         double z = viewer.lastTickPosZ + (viewer.posZ - viewer.lastTickPosZ) * partialTicks;
-        GL11.glGetFloatv(GL11.GL_MODELVIEW_MATRIX, modelView);
-        GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, projection);
+        View main = TerrainHook.active() ? TerrainHook.mainView() : null;
+        if (main != null) {
+            // Near terrain's view of this frame, read when its first opaque layer began: the same
+            // matrices and origin by construction, and the only ones promised where near terrain
+            // calls the writer.
+            System.arraycopy(main.modelView(), 0, modelView, 0, 16);
+            System.arraycopy(main.projection(), 0, projection, 0, 16);
+            x = main.originX();
+            y = main.originY();
+            z = main.originZ();
+        } else {
+            GL11.glGetFloatv(GL11.GL_MODELVIEW_MATRIX, modelView);
+            GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, projection);
+        }
         boolean reversed = DepthCalls.active();
         if (!reversed && !depthWarned) {
             depthWarned = true;
@@ -766,7 +830,12 @@ final class Distant {
      * ({@link WriterState}). Nothing is cleared. {@link #wrote} says afterwards whether it drew.
      */
     private void writeTargets() {
-        wrote = false;
+        // Near terrain calls this in front of the Mixin's place: a pass begins here.
+        prepared = false;
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (!prepare(minecraft.getRenderPartialTicks())) {
+            return;
+        }
         ShadingTargets targets = TerrainHook.shadingTargets();
         long pass = TerrainHook.frame();
         if (!ShadedGate.draws(targets, pass)) {
@@ -776,7 +845,6 @@ final class Distant {
         // Near terrain's material table, brought up to date with the rows distant terrain's
         // materials asked for; 0 where own terrain is off or the targets are not drawn.
         int table = TerrainHook.materialsBuffer();
-        Minecraft minecraft = Minecraft.getMinecraft();
         if (table == 0 || minecraft.world == null || draws.commandCount() == 0) {
             return;
         }
@@ -794,9 +862,9 @@ final class Distant {
             GL11.glDisable(GL11.GL_ALPHA_TEST);
             GL11.glDisable(GL11.GL_BLEND);
             lastShadedDraws = program.drawTargets(draws, arena, materials, modelView, projection, nearBox,
-                minecraft.world.getSunBrightness(writerPartialTicks), cover,
+                passDaylight, cover,
                 (float) (cover.firstBlockX() - view.originX()), (float) (cover.firstBlockZ() - view.originZ()),
-                imageFade, writerFading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
+                imageFade, passFading ? holes : null, bandWidths, LEVELS, shownMasks, squareOrigins, rings.across(),
                 joinBand, table, (int) (pass & 0x7FFFFFFF));
             wrote = true;
         } finally {
@@ -805,6 +873,8 @@ final class Distant {
         if (audited) {
             writerAudit.after();
         }
+        // How far the targets now hold terrain without an edge, for the stage's fade into the sky.
+        TerrainHook.targetsEdge(DistantHook.nearestEdge());
     }
 
     /** Which tiles of each level's square are shown this frame, and where each square begins. */

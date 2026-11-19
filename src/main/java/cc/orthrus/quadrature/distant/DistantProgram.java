@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.distant;
 
 import cc.orthrus.quadrature.core.fade.FadePattern;
+import cc.orthrus.quadrature.core.material.KindEmission;
 import cc.orthrus.quadrature.core.lod.MaterialTable;
 import cc.orthrus.quadrature.core.lod.NearCover;
 import cc.orthrus.quadrature.core.lod.TileDraws;
@@ -302,12 +303,12 @@ final class DistantProgram {
         "vec3 linear(vec3 stored) {",
         "    return mix(stored / 12.92, pow((stored + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), stored));",
         "}",
+        KindEmission.GLSL,
         "void finish(vec3 albedo, float fogDistance) {",
         "    uvec2 material = shaded[faceState];",
         "    float roughness = float(material.x & 255u) / 255.0;",
         "    float reflectance = float((material.x >> 8) & 255u) / 255.0;",
         "    float subsurface = float((material.x >> 16) & 255u) / 255.0;",
-        "    float emission = float(material.x >> 24) / 255.0;",
         "    bool conductor = (material.y & 1u) != 0u;",
         "    vec3 light = linear(albedo);",
         "    float occlusion = faceOcclusion;",
@@ -325,6 +326,9 @@ final class DistantProgram {
         "        occlusion *= " + LEAF_OCCLUSION + ";",
         "    }",
         "    targetA = vec4(NORMAL[faceDirection] * 0.5 + 0.5, roughness);",
+        "    // Emission by near terrain's rule, in its own text: from the surface's kind, byte 5 of its",
+        "    // row, and the linear albedo written to C. The row's byte 3 is not read.",
+        "    float emission = rivenKindEmission((material.y >> 8) & 255u, light);",
         "    targetB = vec4(faceSky, emission, 0.0, 0.375);",
         "    targetC = vec4(sqrt(light), conductor ? 1.0 : 0.0);",
         "    targetD = conductor ? vec4(light, occlusion) : vec4(reflectance, subsurface, 0.0, occlusion);",

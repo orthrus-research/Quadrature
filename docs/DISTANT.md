@@ -1260,24 +1260,33 @@ outside near terrain, which is the shader thread's test.
 
 ### 16.9 The pass as a writer of near terrain's targets
 
-**Late since near terrain d574a3e.** Near terrain's shading stage now runs as a stage of its
-own when the game enters its `entities` section (`FrameHost.section`, before `StageHost.run`),
-and reads the targets there. Distant terrain draws from its Mixin at the first draw of
-entities, which is after that. So with the stage on (`-Dquadrature.stage=true`) this pass
-writes the targets after the stage has read them: distant terrain is missing from what the
-stage shades in that frame, and what the stage reads of it is the frame before's where the
-targets were not made anew. With the stage off nothing reads the targets in the frame and
-the images written beside a capture are as before. No run with the stage on is to be read
-for distant terrain until the writer point below is in this tree.
+**Registered.** The pass is a writer of near terrain's targets
+(`TerrainHook.addTargetWriter`): near terrain calls it after its cutout layer has written the
+targets and before its shading stage reads them, stage on or off, in every world pass in
+which the targets were drawn. Distant terrain registers it while the shaded path is on and a
+terrain preview is attached, and takes it off when the preview goes. Between near terrain
+d574a3e, which moved the stage in front of entities, and this registration the pass wrote
+after the stage had read the targets: no run from a jar of that span with the stage on is to
+be read for distant terrain.
 
-**The writer point, agreed, not yet in this tree.** Near terrain will add
-`TerrainHook.addTargetWriter(Runnable)` and `removeTargetWriter(Runnable)`: writers are
+**A pass has two places now.** The writer, where near terrain calls it, and the Mixin's place
+at the first draw of entities, where the forward layers and the water are drawn. The pass's
+preparation (the view, the tiles that finished, the selection, the frame's list) is done
+once, by whichever place the pass reaches first: the writer in a pass whose targets were
+drawn, the Mixin's place otherwise. The view is near terrain's own where it has one
+(`TerrainHook.mainView()`: the projection and model-view read when its first opaque layer
+began and the origin they are relative to), and the driver's matrices with the viewer's
+interpolated place only where own terrain is off. Inside the writer's call the pass gives
+`TerrainHook.targetsEdge(DistantHook.nearestEdge())` (16.10), also in a pass in which it
+drew nothing yet, since the value is the selection's.
+
+**The contract.** `TerrainHook.addTargetWriter(Runnable)` and `removeTargetWriter(Runnable)`: writers are
 called on the client thread in the order registered, once in every world pass in which the
 targets were drawn, after its cutout layer wrote them and before the stage reads them,
 stage on or off. On entry only documented state is promised; on return the writer has put
 back what it changed.
 
-**What near terrain says of the call** (in its source, not yet in this tree):
+**What near terrain says of the call:**
 
 - `TerrainHook.mainView()` is this frame's at the call: it is filled when the frame's first
   opaque layer begins, and writers are called after terrain's layers, in front of entities.
@@ -1295,8 +1304,7 @@ back what it changed.
   terrain without an edge (16.10), for that pass only; the largest of several writers'
   stands, and near terrain's own edge where none is given.
 
-**Built toward it.** The pass is one piece, `Distant.writeTargets`, held as a `Runnable` and
-called from the present place. It asks the gate and the material table itself, binds the
+**The pass.** It is one piece, `Distant.writeTargets`, held as a `Runnable`. It asks the gate and the material table itself, binds the
 targets' framebuffer for drawing, sets the viewport to their size and every switch it
 depends on, draws, and puts back what it touched. What it sets and does not merely find:
 depth test on, nearer-or-equal (greater-or-equal in reversed depth), depth written, alpha
@@ -1350,24 +1358,25 @@ storage and uniform point to 7 and every texture unit to 9, the blend functions,
 tests and stacks, 80-odd items) is read just before and just after, and whatever reads
 differently is logged, with the state found on entry once.
 
-**When the writer point arrives.** The writer is registered and the call from the Mixin for
-the shaded path goes. Three things move with it:
+**The other layers.** The forward draw of the opaque layers stays at the Mixin's place,
+before entities: where the stage shows its display it covers them, and where it does not
+they are the picture. Water on the shaded path stays there too, after the stage and out of
+the depth (21.2): drawn before the stage it would be covered where the display is shown.
 
-- *The frame's preparation.* The writer runs before the Mixin's place, so taking built
-  tiles, selecting and listing must have happened by then: they become a step done once a
-  frame by whichever of the two places comes first.
-- *The view.* At the writer's point the driver's matrices are not promised. Near terrain's
-  `TerrainHook.mainView()` gives the player's view as its terrain was drawn: projection and
-  model-view as read when its first opaque layer began, column-major, and the origin the
-  model-view is relative to, the viewer's place. Distant terrain reads the same two matrices
-  from the driver once a frame and takes the same origin from the viewer, so the values
-  should be equal today; taking them from `mainView()` makes them near terrain's by
-  construction, saves two reads that wait on the driver, and is needed at the writer's
-  point. Its one instance is filled again each frame and is to be read, not kept.
-- *The other layers.* The forward draw of the opaque layers stays at the Mixin's place,
-  before entities: where the stage shows its display it covers them, and where it does not
-  they are the picture. Water on the shaded path stays there too, after the stage and out of
-  the depth (21.2): drawn before the stage it would be covered where the display is shown.
+**Emission.** Target B's green is near terrain's rule in near terrain's own text
+(`KindEmission.GLSL`, included in the targets step as near terrain's stage includes it):
+from the surface's kind, byte 5 of its row in near terrain's material table, and the linear
+albedo this pass writes to C. The row's byte 3 is not read. The rule's worked values are
+held by near terrain's `KindEmissionTest` against the Java twin; distant terrain has no copy
+of its own to drift. Before this the pass wrote byte 3, which after near terrain's change
+to the rule made the two sides differ at the join for every block that gives light.
+
+**The eleventh run, the writer alone.** Before the registration, with the stage off: the
+arrival tour with the shaded path on, the frame tail and the writer's audit. The audit read
+94 items before and after each of the first three drawing passes and found none left
+changed. The whole frame came 117.5 s after a cold join, past the last fixed delay of 60 s,
+21.6 s after a jump of 2 km, and 2.3 and 2.1 s after steps of 32 blocks. No error; distant
+terrain 1.93 ms of GPU time a frame.
 
 ### 16.10 The far edge
 
@@ -1840,7 +1849,21 @@ the governor's rule over the same 120 intervals: the percentile, how many are at
 and 25 ms, the worst, how many of those over 25 held a client tick and the longest such
 tick, how many frames held a tick at all, the time the collectors report for the second,
 and how many jobs the pool lets run. A frame costs three readings of the clock and two
-array cells; nothing is allocated but the line. Not yet run.
+array cells; nothing is allocated but the line.
+
+**The eleventh run's cold join, by that log.** Outside bursts the percentile was 9.2 to
+9.6 ms at a cap of 120 frames a second, with client ticks of about 1 ms. The cuts came from
+bursts of 7 to 10 frames of 57 to 104 ms each: at 23 s (the pool from 3 to 1), 45 s (3 to
+1) and 74 s (4 to 2), and one at 55 s while the pool was already at 1. In those seconds no
+tile was being placed (none was stored until after the first burst), near terrain had no
+mesh waiting, the world pass's stages summed to under 2 ms at the median, the collectors
+reported 0 to 20 ms, and the longest client tick in a long frame was 1.2 ms, 3.9 once. Six
+of the cold phase's 111 seconds had the percentile at or over 25 ms. So the long frames were
+not ticks, not collector pauses as the beans report them, not near terrain's meshing and not
+distant terrain's pass, and they came also with one job at once; what they were is not
+shown. That nearly every long frame held a client tick says nothing: a frame over 50 ms
+always spans one. The pool came back by one every two seconds each time and stayed at 4
+from 78 s.
 
 ## 20. The near join's fade, distant terrain's side
 
