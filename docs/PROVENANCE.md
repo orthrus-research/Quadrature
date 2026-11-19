@@ -392,6 +392,29 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names.
 - Added: 2026-11-13
 
+### Cross-mod diagnostics
+- Code: `tools/diagnostics.py`
+- Source: original. Facts used: the JDK's JFR event names and fields as its `jfr` tool prints
+  them (`jdk.ExecutionSample`, `jdk.ThreadCPULoad`, `jdk.ObjectAllocationSample`,
+  `jdk.Compilation`, `jdk.Deoptimization` and the rest) and the HotSpot options
+  `DebugNonSafepoints` and `FlightRecorderOptions`; Mixin's documented naming of merged handler
+  methods; the logs and frame records of Cubature, Quadrature, Riven's launcher and the motion
+  helper.
+- Taken: nothing. Charging a sample to the nearest owned frame with libraries transparent, keeping
+  the engine's time with the mod frame below it, and splitting each thread's measured CPU by its
+  samples are this project's own.
+- Added: 2026-11-19
+
+### Mod index
+- Code: `tools/mod_index.py`
+- Source: original. Facts used: the Java class file format (constant pool, members, the
+  `RuntimeVisibleAnnotations` and `RuntimeInvisibleAnnotations` attributes), from the Java Virtual
+  Machine Specification; the names and members of Mixin's, MixinExtras' and Forge's annotations
+  and the Mixin configuration and refmap formats, as published.
+- Taken: nothing from the indexed mods. The tool reads names and annotation values; it does not
+  decompile or execute mod code.
+- Added: 2026-11-19
+
 ### Mod survey
 - Code: `tools/mod_survey.py`
 - Source: original. Facts used: the Java class file format (constant pool), from the Java

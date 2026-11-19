@@ -154,6 +154,37 @@ left is measurement, in this order; each runs through a queued GPU turn.
 | 7 | The GL to Vulkan handoff and DLSS's cost, before the bridge is built | D21 | Done 2026-11-19 ([research R1](research/R1-platform-frame-hosted.md), 1.9; [verification](VERIFICATION.md), the handoff from OpenGL to Vulkan). Built in measurement form in the separately licensed `quadrature-nvidia` module, with a compute stand-in where DLSS would evaluate. The round trip costs a fixed 0.36 to 0.37 ms of GPU time at P0 (0.47 to 0.50 at P3) at 1080p and 1440p, and the client 0.06 ms a frame; the images take 32 and 57 MiB. DLSS's published cost on the RTX 3060 in Performance mode is 1.45 to 2.81 ms at 1080p and 2.39 to 5.05 ms at 1440p, so with the handoff about 1.82 to 3.18 and 2.75 to 5.41 ms. A mismatched device is refused, a resize remakes the images in 7 to 8 ms, a world change keeps them, and with the round trip on the picture passes 17 of 17 views. DLSS itself, through the shim since 2026-11-19 ([verification](VERIFICATION.md), DLSS through the handoff): NGX's own work at P0 takes 1.54 and 2.20 ms with preset K at 1080p and 1440p and 2.55 and 4.53 ms with preset M, and the round trip with it 1.89 to 4.84 ms. Since the same day DLSS also takes the scaler's picture ([verification](VERIFICATION.md), DLSS taking the scaler's picture): at 2560 by 1440 against native, 30.37 dB and SSIM 0.897 at 0.67 and 29.21 dB and 0.858 at 0.5, against the own scaler's 28.31 dB and 0.811 at 0.67, for 2.9 ms of GPU at P0 against 1.0 ms at P3 |
 | 8 | The lowest tier's budgets on an RTX 3050 8 GB and a Turing 8 GB card | D22's floor | Waiting on hardware |
 
+## Cross-mod diagnostics
+
+Asked 2026-11-19, for Riven worlds: which mod costs the most, what the engine still does that
+Quadrature, Cubature or Riven could take over for speed or freedom, and where the Cleanroom
+integration can improve. One tool, `tools/diagnostics.py` ([DIAGNOSTICS.md](DIAGNOSTICS.md)), is
+built whole before any run; the runs and the analysis follow.
+
+| # | Work | Status |
+|---|---|---|
+| 1 | Run driver: a plan of tours and flights on a fresh instance, both games recorded with `DebugNonSafepoints`, recorder chunks small enough that a killed client keeps its data, GC logs, the GPU sampled, logs and recordings collected | Built |
+| 2 | Attribution: each thread's CPU, from `jdk.ThreadCPULoad`, split by owner (a mod, the engine, Cleanroom); the engine's time on a mod's behalf and the engine methods it calls; each owner's hot methods; allocation, monitor waits, GC | Built; checked against one recording: the server thread's CPU within 20% of Cubature's tick clock, the process's threads within 0.2 cores of its CPU |
+| 3 | Mixin index: each mod's Mixin targets and overwrites, read from its jar, so a game method a mod overwrote is charged to that mod | Built (`tools/mod_index.py`) |
+| 4 | Static survey: each mod's event subscriptions, the engine systems it patches, the threads and executors it starts | Built; the pack's ten jars (nine mods) read, 240 Mixins among them |
+| 5 | Windows: startup, each tour view, each flight phase | Built |
+| 6 | Compilation by owner: compiles, their time, deoptimizations and failures | Built |
+| 7 | Preflight: artifacts and their hashes, switch combinations, tour checks, instance names, free disk | Built (`check`) |
+| 8 | Ablation: a mod removed from both sides of a fresh instance, its cost measured by difference | Built; refuses a removal that leaves a mod without one it requires |
+| 9 | Report: the costliest owner per critical resource, the engine work each mod leans on, the engine's CPU by system beside the mods patching it, Cleanroom's own costs, runs compared, a Markdown readout | Built; exercised on one stored recording. The client side waits for the first run, since every client recording before the tool was lost when the tour killed its client |
+| 10 | Runs: base, full stack, then ablations of the mods attribution cannot settle. Plans are kept with the evidence; the generating cave tour is `tools/tours/caves-8675309.json`, the flight a 960-block slide from a pose east of it | Plans written and checked; after 1 to 9 |
+| 11 | Code analysis of what the runs find, with requisitions for Riven and Cubature | After 10 |
+| 12 | Engine work to take over: the engine's CPU by system on the server tick and the frame, set against what each of our mods already patches, ranked by what taking it over would save and what it would free | After 10 |
+| 13 | Cleanroom integration: Forge's, Cleanroom's, Mixin's and LWJGL's own CPU, startup by owner, event dispatch and compilation churn, each as a change to propose to Cleanroom or to work around in our mods | After 10 |
+
+Leads from recordings made before the tool, without `DebugNonSafepoints`, so their shares are
+directions only: Riven is 99% of the generation workers' CPU, and its ore placement rebuilds the
+27 node cells around a block for every block of every ore body's range (an exact fix: the nodes
+once a cube); Riven's `Drainage.build` and `Hydro.networks` are compiled by C2 again and again,
+0.5 to 0.9 s each; Riven allocates about 200 MB/s while a world generates, Cubature 13; block
+state numbers are looked up through Forge's map for every block a primer is given and every block
+saved.
+
 ## Reading rules
 
 The rules for what may be read and used, and a record for each technique, are in
