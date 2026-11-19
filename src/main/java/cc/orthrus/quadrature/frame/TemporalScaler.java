@@ -31,8 +31,8 @@ import java.nio.FloatBuffer;
 
 /**
  * Draws the world below the output's resolution and with a sub-pixel offset each frame, then makes the
- * output's picture from it: motion for what stands still from depth, a temporal pass, and an
- * edge-adaptive spatial scaler. Off unless {@code -Dquadrature.scale=<0.5 to 1>} or
+ * output's picture from it: motion for what stands still from depth, a temporal pass, and a
+ * spatial scaler. Off unless {@code -Dquadrature.scale=<0.5 to 1>} or
  * {@code -Dquadrature.taa=true} is set; with both off nothing here runs and nothing is changed.
  *
  * <p>Where the world is drawn. For the world pass the game's framebuffer is a smaller one of the same
@@ -78,12 +78,6 @@ public final class TemporalScaler {
     private static final float MOVING = number("quadrature.taa.moving", 1f / 16);
     private static final int PHASES = Math.max(1, (int) number("quadrature.taa.phases", 8));
     private static final float SHARPNESS = number("quadrature.scale.sharpness", 0.2f);
-    /** How much longer the scaler's kernel is along an edge than across it, less one. */
-    private static final float STRETCH = number("quadrature.scale.stretch", 1f);
-    /** How a luma gradient's size counts toward an edge's strength. */
-    private static final float EDGE = number("quadrature.scale.edge", 8f);
-    /** {@code -Dquadrature.scale.kernel=plain}: the separable cubic without edge steering in place of the edge-adaptive scaler. */
-    private static final boolean PLAIN = "plain".equals(System.getProperty("quadrature.scale.kernel"));
     /** {@code -Dquadrature.taa.check=true}: the motion target read back every 600 composites and summarized. */
     private static final boolean CHECK = Boolean.getBoolean("quadrature.taa.check");
 
@@ -186,7 +180,7 @@ public final class TemporalScaler {
                 Quadrature.LOGGER.warn("Scaler: quadrature.scale={} is not a factor from {} to 1; the world is drawn at the output's size.",
                     SCALE_SETTING, RenderScale.LEAST);
             }
-            Quadrature.LOGGER.info("Scaler: render scale {}, {} scaler, temporal pass {}{}.", SCALE, PLAIN ? "plain" : "edge-adaptive",
+            Quadrature.LOGGER.info("Scaler: render scale {}, temporal pass {}{}.", SCALE,
                 TAA ? "on" : "off", TAA ? String.format(" (least weight %.3f, reactive %.2f, %d offsets)", LEAST, REACTIVE, PHASES) : "");
         }
         if (minecraft.gameSettings.anaglyph || !OpenGlHelper.isFramebufferEnabled() || minecraft.world == null) {
@@ -432,10 +426,6 @@ public final class TemporalScaler {
                 GL41.glProgramUniform2f(scaleProgram, 1, drawnWidth, drawnHeight);
                 GL41.glProgramUniform2f(scaleProgram, 2, outputWidth, outputHeight);
                 GL41.glProgramUniform1f(scaleProgram, 3, SHARPNESS);
-                if (!PLAIN) {
-                    GL41.glProgramUniform1f(scaleProgram, 4, STRETCH);
-                    GL41.glProgramUniform1f(scaleProgram, 5, EDGE);
-                }
             } else {
                 GL20.glUseProgram(copyProgram);
                 GL41.glProgramUniform2f(copyProgram, 1, outputWidth, outputHeight);
@@ -508,7 +498,7 @@ public final class TemporalScaler {
         if (programsMissing()) {
             motionProgram = link("motion", ScalerShaders.MOTION_COMPUTE);
             temporalProgram = link("temporal", ScalerShaders.TEMPORAL_COMPUTE);
-            scaleProgram = link("scale", PLAIN ? ScalerShaders.SCALE_PLAIN_COMPUTE : ScalerShaders.SCALE_COMPUTE);
+            scaleProgram = link("scale", ScalerShaders.SCALE_COMPUTE);
             copyProgram = link("copy", ScalerShaders.COPY_COMPUTE);
             linear = sampler(GL11.GL_LINEAR);
             nearest = sampler(GL11.GL_NEAREST);
@@ -679,9 +669,9 @@ public final class TemporalScaler {
         if (failed) {
             return "scaler failed and is off";
         }
-        StringBuilder line = new StringBuilder(String.format("scaler: drawn %d by %d of %d by %d (scale %.2f, %s), temporal %s, "
+        StringBuilder line = new StringBuilder(String.format("scaler: drawn %d by %d of %d by %d (scale %.2f), temporal %s, "
             + "history kept in %d of %d composites; passes at the median, GPU:", drawnWidth, drawnHeight, outputWidth, outputHeight, SCALE,
-            PLAIN ? "plain" : "edge", TAA ? "on" : "off", historyKept, composites));
+            TAA ? "on" : "off", historyKept, composites));
         for (int i = 0; i < PASSES.length; i++) {
             line.append(String.format(" %s %.3f", PASSES[i], clock.median(i) / 1e6));
         }

@@ -668,23 +668,18 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   research R4, 7b.1).
 - Added: 2026-11-18
 
-### Edge-adaptive spatial scaler
-- Code: `src/main/java/cc/orthrus/quadrature/frame/ScalerShaders.java` (`scale`, giving
-  `SCALE_COMPUTE` and the plain `SCALE_PLAIN_COMPUTE`, and `COPY_COMPUTE`)
+### Spatial scaler
+- Code: `src/main/java/cc/orthrus/quadrature/frame/ScalerShaders.java` (`SCALE_COMPUTE` and
+  `COPY_COMPUTE`)
 - Source: Keys, "Cubic convolution interpolation for digital image processing", IEEE
-  Transactions on Acoustics, Speech and Signal Processing 29(6), 1981 (the kernel, a = -1/2); the
-  idea of interpolating along an edge rather than across it from Li and Orchard, "New
-  edge-directed interpolation" (2001), Zhou, Shen and Dong, "Image zooming using directional
-  cubic convolution interpolation" (2012), and Takeda, Farsiu and Milanfar, "Kernel Regression
-  for Image Processing and Reconstruction" (2007), whose kernels follow the local dominant
-  orientation; the structure tensor of image gradients as the measure of that orientation
-  (Bigün and Granlund, 1987; Kass and Witkin, 1987; its coherence as in Weickert, 1999).
-- Taken: Keys' kernel as published; that a kernel lengthened along an edge removes stairs while
-  keeping the edge. The blend of a separable and an elliptical kernel by the tensor's coherence
-  and strength, the hold to the central texels' range and the sharpening boost are Quadrature's.
-- Not taken: steering kernel regression's iterative estimation or any part of its procedure; any
-  code or constant of NVIDIA Image Scaling or AMD FidelityFX Super Resolution, neither of which
-  was opened. NVIDIA Image Scaling is a comparison reference only (D23).
+  Transactions on Acoustics, Speech and Signal Processing 29(6), 1981 (the kernel, a = -1/2).
+- Taken: Keys' kernel as published. The hold to the central texels' range and the sharpening
+  boost are Quadrature's.
+- Not taken: a kernel steered along the edge the structure tensor shows, built and measured
+  against this one and not used (D23; research R4, 7b.2); steering kernel regression or any part
+  of its procedure; any code or constant of NVIDIA Image Scaling or AMD FidelityFX Super
+  Resolution, neither of which was opened. NVIDIA Image Scaling is a comparison reference only
+  (D23).
 - Added: 2026-11-18
 
 ### Picture quality measures

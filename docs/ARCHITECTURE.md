@@ -382,15 +382,11 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
      by the inverse of their luma. History is dropped after a teleport (8 blocks in a frame),
      another dimension, new targets, or a frame without a composite;
   4. *scale*, at the output's size, into the game's picture: the 4 by 4 texels around each
-     output pixel's source point under two Keys cubic kernels, the separable one and a round one
-     lengthened along the edge (`quadrature.scale.stretch`, 1: twice as long), blended by how
-     coherent and strong the edge is in the structure tensor of the four central texels' luma
-     gradients (`quadrature.scale.edge`); a boost of `quadrature.scale.sharpness` (0.2) of the
-     difference from a bilinear read; held inside the four central texels' range.
-     `-Dquadrature.scale.kernel=plain` puts the separable kernel alone in its place, with the same
-     boost and hold and no edge steering (research R4, 7b.2). A work group of 8 by 8 output pixels
-     reads the 12 by 12 source texels it reaches once into shared memory, with their luma; the round
-     kernel is not summed where the edge's weight is under a 256th. At scale 1 a copy takes its place;
+     output pixel's source point under the separable Keys cubic kernel; a boost of
+     `quadrature.scale.sharpness` (0.2) of the difference from a bilinear read; held inside the
+     four central texels' range. No kernel is steered along edges (D23; research R4, 7b.2). A
+     work group of 8 by 8 output pixels reads the 12 by 12 source texels it reaches once into
+     shared memory. At scale 1 a copy takes its place;
   5. the drawn depth stretched over the game's whole depth buffer by a nearest blit, for what
      mods draw last against the world;
   6. the offset taken out of the projection on the stack, so what is drawn after it, the hand

@@ -202,10 +202,11 @@ enforced 8 GB budget and scaled until an RTX 3050 8 GB and a Turing 8 GB card ar
 no budget is taken from a card with Ada's or Blackwell's cache.
 
 **D23. Rendering below output resolution uses Quadrature's own scaler.**
-Quadrature's own temporal anti-aliasing and an edge-adaptive spatial scaler, written from
-published descriptions (D2), serve every tier that renders below output resolution. NVIDIA
+Quadrature's own temporal anti-aliasing and a spatial scaler, written from published
+descriptions (D2), serve every tier that renders below output resolution. NVIDIA
 Image Scaling is a comparison reference only and is never shipped: its license would allow
 it, but no published timing shows an advantage worth an exception to D2. DLSS is the option
 above it (D21). The history is rectified by clipping to the neighborhood's minimum and
 maximum; variance clipping, which NVIDIA patents describe, is not used (the user's decision of
-2026-11-18, to be revisited with its measured quality gain).
+2026-11-18, to be revisited with its measured quality gain). The scaler is Keys' separable
+cubic; a kernel steered along edges, measured against it, is not used (the user's decision).

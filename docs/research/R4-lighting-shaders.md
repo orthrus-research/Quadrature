@@ -195,11 +195,12 @@ below is taken as ideas; the records are in PROVENANCE.md and the design is ARCH
   2022-08-15). Claim 1: estimate local gradients by classic kernel regression; take their
   singular value decomposition for scaling, rotation and elongation, which define a steering
   kernel; apply steering kernel regression with it; repeat the last two steps, up to ten times.
-  Quadrature's scaler takes gradients by central differences, finds an edge's direction and
-  coherence from the eigenvectors of the 2 by 2 structure tensor (the same information as a
-  singular value decomposition of the gradients), and interpolates once with a lengthened
-  cubic kernel; it does not iterate. The comparison was sent to the project for a decision.
-- Published before that patent's priority date of 2005-08-30, the ideas the scaler combines
+  The steered kernel Quadrature built and measured took gradients by central differences,
+  found an edge's direction and coherence from the eigenvectors of the 2 by 2 structure tensor
+  (the same information as a singular value decomposition of the gradients), and interpolated
+  once with a lengthened cubic kernel, without iterating. The comparison was sent to the
+  project for a decision, and the steered kernel is not used (D23).
+- Published before that patent's priority date of 2005-08-30, the ideas that kernel combined
   (facts only): the local orientation of an image from the eigenvectors of its gradients'
   second-moment matrix, the structure tensor, in Bigün and Granlund, "Optimal orientation
   detection of linear symmetry" (First International Conference on Computer Vision, 1987,
@@ -214,16 +215,16 @@ below is taken as ideas; the records are in PROVENANCE.md and the design is ARCH
   Heckbert, "Creating raster omnimax images from multiple perspective views using the
   elliptical weighted average filter" (IEEE Computer Graphics and Applications 6(6), 1986) [K,
   not re-read]; and Keys' kernel (1981).
-- A plain scaler stands behind the same interface: the separable Keys cubic with the same
-  sharpening and hold, and no edge steering (`-Dquadrature.scale.kernel=plain`). VERIFICATION
-  compares the two at 67% and 77%.
+- The scaler is the separable Keys cubic with the sharpening and hold below, and no edge
+  steering. VERIFICATION compares it with the steered kernel at 67% and 77%: at both the
+  steered kernel scored no better on any measure, and its pass cost 0.613 ms against 0.385 ms
+  at 67% and 0.475 ms against 0.274 ms at 77%.
 - NVIDIA Image Scaling is a comparison reference only and never shipped (D23); comparing
   against it needs a download, which is a gate.
-*Implication:* the scaler reads the 4 by 4 texels around each output pixel's source point and
-blends two Keys kernels: the separable one, and a round one lengthened along the edge that the
-structure tensor of the four central texels' luma gradients shows, weighted by how coherent
-and strong that edge is. The result is held to the four central texels' range, which keeps the
-negative lobe from ringing, with a small boost against a bilinear read for sharpness.
+*Implication:* the scaler reads the 4 by 4 texels around each output pixel's source point under
+the separable Keys kernel. The result is held to the four central texels' range, which keeps
+the negative lobe from ringing, with a small boost against a bilinear read for sharpness. No
+kernel is steered along edges (D23).
 
 **7b.3 This frame below output resolution. [V, read from the game's classes and Quadrature's
 code]**
