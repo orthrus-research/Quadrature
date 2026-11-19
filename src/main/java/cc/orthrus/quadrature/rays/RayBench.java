@@ -34,7 +34,9 @@ import java.util.List;
  * <li>probes: a grid of probes about the player, each casting its rays in directions spread over the
  * sphere, as indirect light would;</li>
  * <li>shadows: from just above the first thing met straight down at each point of a square 256 blocks
- * across about the player, toward the sun or the moon, side by side and parallel, as far shadows would.</li>
+ * across about the player, toward the sun or the moon, side by side and parallel, as far shadows would;</li>
+ * <li>low sun: the same, toward a sun {@value #LOW_SUN_DEGREES} degrees above the eastern horizon, whatever
+ * the hour, since the hour a tour holds may put the sun overhead.</li>
  * </ul>
  *
  * <p>Each trace runs {@value #REPEATS} times reading the lookup and bricks from storage blocks and as many
@@ -55,8 +57,13 @@ public final class RayBench {
     private static final double EVERY = number("quadrature.rays.bench.every", 20);
     static final int REPEATS = 5;
     static final int[] LENGTHS = {16, 64, 256};
-    static final String[] CLASSES = {"probes", "shadows"};
+    static final String[] CLASSES = {"probes", "shadows", "low sun"};
     private static final int PROBES = 0;
+    private static final int SHADOWS = 1;
+    /** How high the low sun stands. */
+    static final double LOW_SUN_DEGREES = 20;
+    /** The celestial angle at which the sun stands that high in the morning. */
+    private static final double LOW_SUN_ANGLE = 1 - Math.acos(Math.sin(Math.toRadians(LOW_SUN_DEGREES))) / (2 * Math.PI);
     private static final double SUN_TILT = number("quadrature.sun.tilt", 0);
 
     /** A tier's batch: cascades of probes, each probes along x, y, z, rays a probe and spacing; and the shadow square's points. */
@@ -166,6 +173,7 @@ public final class RayBench {
     private RayTrace.Timed timing;
     private long fence;
     private final double[] toward = new double[3];
+    private final double[] lowSun = new double[3];
 
     /** The benchmark where it is asked for, or null. */
     public static RayBench create() {
@@ -274,11 +282,13 @@ public final class RayBench {
         }
         lightDirection(partialTicks);
         Quadrature.LOGGER.info("Ray benchmark set {} begins at ({}, {}, {}) in cube ({}, {}, {}); the box {} by {} by {} cubes; "
-                + "scene buffers {} MiB, {} brick slots in use and {} at most; toward the light ({}, {}, {}); {} measurements.",
+                + "scene buffers {} MiB, {} brick slots in use and {} at most; toward the light ({}, {}, {}), the low sun ({}, {}, "
+                + "{}); {} measurements.",
             sets, String.format("%.1f", view.originX()), String.format("%.1f", view.originY()),
             String.format("%.1f", view.originZ()), setX, setY, setZ, scene.sizeX(), scene.sizeY(), scene.sizeZ(),
             String.format("%.2f", scene.bytes() / 1048576.0), scene.slotsInUse(), scene.mostSlotsInUse(),
             String.format("%.3f", toward[0]), String.format("%.3f", toward[1]), String.format("%.3f", toward[2]),
+            String.format("%.3f", lowSun[0]), String.format("%.3f", lowSun[1]), String.format("%.3f", lowSun[2]),
             steps.size() * runs());
         if (check != null) {
             check.begin(sets);
@@ -288,6 +298,7 @@ public final class RayBench {
 
     private void lightDirection(double partialTicks) {
         SunPath.towardLight(Minecraft.getMinecraft().world.getCelestialAngle((float) partialTicks), SUN_TILT, toward);
+        SunPath.towardSun(LOW_SUN_ANGLE, SUN_TILT, lowSun);
     }
 
     /** Waits for the trace in flight, then starts the next. */
@@ -376,7 +387,8 @@ public final class RayBench {
             GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, resultBuffer);
             GL41.glProgramUniform3i(shadowsProgram, 0, step.tier.columnsX, step.tier.columnsZ, rays);
             GL41.glProgramUniform4f(shadowsProgram, 1, px - 128, pz - 128, stepX, stepZ);
-            GL41.glProgramUniform4f(shadowsProgram, 2, (float) toward[0], (float) toward[1], (float) toward[2], step.length);
+            double[] light = step.rayClass == SHADOWS ? toward : lowSun;
+            GL41.glProgramUniform4f(shadowsProgram, 2, (float) light[0], (float) light[1], (float) light[2], step.length);
             GL41.glProgramUniform1f(shadowsProgram, 3, top);
             GL20.glUseProgram(shadowsProgram);
             GL42.glMemoryBarrier(GL43.GL_SHADER_STORAGE_BARRIER_BIT);
