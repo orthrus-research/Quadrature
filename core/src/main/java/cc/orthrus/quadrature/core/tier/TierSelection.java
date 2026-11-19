@@ -14,7 +14,12 @@ import java.util.Arrays;
  */
 public final class TierSelection {
 
-    /** How far the trace's ratio may stand from the other probes', as a factor either way. */
+    /**
+     * How far the trace's ratio may stand from the geometric mean of the other probes', as a factor either way,
+     * before the run chooses nothing. Over the calibration's 128 runs a sound trace stood within 1.29 times of the
+     * others (a standard deviation of 1.14 times, in the logarithm), so two is past five of those; the runs that
+     * timed the light scene's copy before it caught up stood 10.6 to 12.7 times above, and one 3.5 times below.
+     */
     public static final double TRACE_LEEWAY = 2;
 
     private TierSelection() {
@@ -36,6 +41,18 @@ public final class TierSelection {
                 case BANDWIDTH -> bandwidth;
             };
             return own > 0 && Double.isFinite(own) ? own : fallback;
+        }
+
+        /**
+         * How far the trace's ratio stands from the geometric mean of the other probes', as a factor of one or more;
+         * not a number where the trace or every other probe did not run.
+         */
+        public double traceApart() {
+            double others = Samples.geometricMean(new double[] {terrain, light, bandwidth}, new double[] {1, 1, 1});
+            if (!(trace > 0 && Double.isFinite(trace) && others > 0 && Double.isFinite(others))) {
+                return Double.NaN;
+            }
+            return Math.max(trace / others, others / trace);
         }
     }
 
@@ -60,6 +77,14 @@ public final class TierSelection {
         /** Whether the speed tier leaves room for DLSS above it (D21). */
         public boolean dlssOffered() {
             return dlssFit >= 1;
+        }
+
+        /**
+         * Whether the trace agrees with the other probes within {@link #TRACE_LEEWAY}, or did not run. A run whose
+         * trace stands further off measured something other than the card, and chooses nothing.
+         */
+        public boolean traceAgrees() {
+            return !(ratios.traceApart() > TRACE_LEEWAY);
         }
     }
 
@@ -88,12 +113,7 @@ public final class TierSelection {
         double bandwidth = Samples.geometricMean(
             new double[] {result.smallGBs() / reference.smallGBs(), result.largeGBs() / reference.largeGBs()},
             new double[] {1, 1});
-        // The trace's rate follows what its rays meet as much as the card: where they leave the scene at once it
-        // reads ten times as fast. It is held within a factor of two of what the other probes say.
-        double others = Samples.geometricMean(new double[] {terrain, light, bandwidth}, new double[] {1, 1, 1});
-        if (trace > 0 && Double.isFinite(trace) && others > 0 && Double.isFinite(others)) {
-            trace = Math.max(others / TRACE_LEEWAY, Math.min(others * TRACE_LEEWAY, trace));
-        }
+        // The trace is kept as measured: one far from the others turns the run away (Outcome.traceAgrees).
         double fallback = Samples.geometricMean(new double[] {terrain, light, trace, bandwidth},
             new double[] {1, 1, 1, 1});
         return new Ratios(terrain, light, trace, bandwidth, fallback);

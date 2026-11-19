@@ -1040,7 +1040,9 @@ vendor and renderer strings and interop's device identifier), the driver (the co
 version string and interop's driver identifier) and the benchmark's version, it runs once at
 the first settled moment: the view still for 240 frames with nothing waiting to be meshed, no
 mesh coming or going, and the view's search meeting no cube that is not loaded, since a place
-still arriving can hold its meshes for seconds between batches. A run takes about 75 frames, one
+still arriving can hold its meshes for seconds between batches; and, where the light scene is
+copied to the GPU for the trace, that copy caught up, with nothing left to take from the scene
+or copy and some bricks held, since it trails the meshes. A run takes about 75 frames, one
 probe repetition a frame after near terrain's last opaque layer, so no frame is held for long;
 it is abandoned and begun again later if the view moves or terrain changes, and a run whose
 terrain drew fewer than 200,000 primitives, too few to measure the card, chooses nothing. Times are taken by pairs of timestamps, never by a time-elapsed query, since
@@ -1068,8 +1070,10 @@ kept ones of each, medians kept, the GPU kept loaded between them:
 the geometric mean of the two sets; terrain as what the reference card's model, a line a
 resolution by primitives drawn, says it would have taken at the run's sizes, summed, over what
 this card took, which leaves a view's own make-up out; the light's box the same by primitives
-and fragments; the trace held within a factor of two of the others, since its rate follows what
-its rays meet. A tier's cost on the
+and fragments; the trace as measured. A run whose trace stands more than twice or less than half
+the geometric mean of the others chooses nothing: it timed something other than the card, as the
+runs that met the light scene's copy before it caught up did (VERIFICATION.md, the tier
+benchmark). A tier's cost on the
 card is the reference card's cost of each of its groups at the window's output, over the
 ratio of the probe standing for that group; its fit is the budget over that cost. The speed
 tier is the highest tier that fits, with a band at each boundary: from the tier chosen last
@@ -1094,11 +1098,14 @@ radius 12 and at seven of them at 16 and 20: bandwidth 348 and 350 GB/s; opaque 
 0.263 ms a million primitives at 1280 by 720, 0.097 + 0.289 at 1920 by 1080, 0.135 + 0.330 at
 2560 by 1440 and 0.187 + 0.867 at 3840 by 2160; the light's box -0.249 ms + 0.126 ms a million
 primitives + 0.053 ms a million fragments; the trace 305 million rays a second for MEDIUM's
-probes. The trace's figure is 376 million over the 128 runs, measured on the walk that read the
+probes. The trace's figure is 376 million over the 128 runs, the same with or without the nine
+that met the light scene's copy before it caught up, measured on the walk that read the
 bricks' coarser bits, scaled to the walk as shipped by the trace's own times of the probe's
 batch, MEDIUM's at 64 blocks: 0.180 ms with those bits against 0.222 without, 0.81. The
-benchmark is at version 2 for it, so a result stored before is measured again. A tier's cost on the reference card, in ms at 2560 by 1440 output, against a budget of 7
-ms (85% of a frame at 120 frames a second), and the speed against this card a machine needs:
+benchmark went to version 2 for it, and to 3 when it began to wait for the light scene's copy
+and to turn away a trace far from the other probes, so a result stored before is measured
+again. A tier's cost on the reference card, in ms at 2560 by 1440 output, against a budget of
+7 ms (85% of a frame at 120 frames a second), and the speed against this card a machine needs:
 
 | Group, and where its figure comes from | LOW | MEDIUM | HIGH | MAX |
 |---|---|---|---|---|

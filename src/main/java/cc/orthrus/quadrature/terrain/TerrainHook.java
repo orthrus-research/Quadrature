@@ -40,6 +40,14 @@ public final class TerrainHook {
         /** The light scene as a shader reads it, or null when it is not copied to the GPU. */
         PublishedScene publishedScene();
 
+        /**
+         * What the light scene's copy on the GPU has yet to take from the scene and copy, or -1 when the scene is
+         * not copied.
+         */
+        default long sceneCopyWaiting() {
+            return -1;
+        }
+
         /** For each chunk column of the box, whether its surface is loaded and meshed; null when not worked out. */
         CoverageMap coverage();
 
@@ -171,6 +179,14 @@ public final class TerrainHook {
      */
     public static long driverMoves(int buffer, String to) {
         return DriverMessages.moves(buffer, to);
+    }
+
+    /**
+     * What the light scene's copy on the GPU has yet to take from the scene and copy: cubes queued, bricks and lookup
+     * entries not yet copied; -1 when own terrain is off or the scene is not copied. Read only.
+     */
+    public static long sceneCopyWaiting() {
+        return drawer == null ? -1 : drawer.sceneCopyWaiting();
     }
 
     /**

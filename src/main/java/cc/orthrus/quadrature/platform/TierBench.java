@@ -4,6 +4,7 @@ import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.platform.GpuMemory;
 import cc.orthrus.quadrature.core.platform.GpuMemorySource;
 import cc.orthrus.quadrature.core.platform.PlatformProfile;
+import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.tier.BenchmarkResult;
 import cc.orthrus.quadrature.core.tier.BenchmarkRun;
 import cc.orthrus.quadrature.core.tier.ClockSettle;
@@ -123,6 +124,8 @@ public final class TierBench {
     private int stillFrames;
     private final TerrainSettle settle = new TerrainSettle();
     private boolean settleSaid;
+    /** Whether this place's wait on the light scene's copy, near terrain caught up, has been logged. */
+    private boolean sceneBehindSaid;
     private int runsHere;
     private int sinceRun;
     private int runs;
@@ -227,24 +230,37 @@ public final class TierBench {
             if (!viewStill) {
                 settle.arrived(now);
                 settleSaid = false;
+                sceneBehindSaid = false;
             }
             // A place still arriving can hold its count of meshes for seconds between batches: the view's search must
-            // also meet no cube that is not loaded, or find their count standing still (TerrainSettle).
+            // also meet no cube that is not loaded, or find their count standing still; and the light scene's copy,
+            // which the trace walks, must have caught up with the scene (TerrainSettle).
             SearchEdge edge = TerrainHook.searchEdge();
+            PublishedScene published = TerrainHook.publishedScene();
             boolean steady = settle.frame(now, probes.waiting(), probes.held(), edge != null && edge.searched(),
-                edge == null ? -1 : edge.unloaded());
+                edge == null ? -1 : edge.unloaded(), TerrainHook.sceneCopyWaiting(),
+                published == null ? 0 : published.slotsInUse());
+            if (settle.sceneBehind() && !sceneBehindSaid) {
+                sceneBehindSaid = true;
+                Quadrature.LOGGER.info("Tier benchmark: near terrain has caught up, the light scene's copy not: {} cubes, bricks "
+                    + "and entries to take and copy, {} bricks held; nothing is timed until it has.", settle.sceneWaiting(),
+                    settle.sceneBricks());
+            }
             if (steady && !settleSaid) {
                 settleSaid = true;
+                double sceneSeconds = settle.secondsTerrainCaughtUp(now);
                 Quadrature.LOGGER.info("Tier benchmark: near terrain caught up {} s after the view came to rest, with {} meshes "
-                    + "held; {}.", fixed(settle.secondsSinceArrival(now)), probes.held(), settle.byPlateau()
+                    + "held; {}{}.", fixed(settle.secondsSinceArrival(now) - sceneSeconds), probes.held(), settle.byPlateau()
                     ? settle.unloaded() + " cubes of the view's box not loaded, their count unchanged for 15 s"
-                    : "no cube of the view's box not loaded");
+                    : "no cube of the view's box not loaded", settle.sceneWaiting() < 0 ? ""
+                    : "; the light scene's copy caught up " + fixed(sceneSeconds) + " s after it, with " + settle.sceneBricks()
+                    + " bricks held");
             }
             boolean still = viewStill && steady;
             if (running != null) {
                 if (!still) {
                     Quadrature.LOGGER.info("Tier benchmark: run abandoned at its step {} of {}: {}.", running.next,
-                        running.steps.size(), steady ? "the view moved" : "terrain changed");
+                        running.steps.size(), steady ? "the view moved" : "terrain or the light scene's copy changed");
                     running.delete();
                     running = null;
                     stillFrames = 0;
@@ -365,10 +381,26 @@ public final class TierBench {
             }
             return;
         }
+        TierSelection.Outcome outcome = TierCalibration.CURRENT.calibrated() ? TierSelection.choose(result,
+            TierCalibration.CURRENT, available, StoredTiers.previousSpeed(stored, gpu), StoredTiers.previousMemory(stored, gpu))
+            : null;
+        if (outcome != null && !outcome.traceAgrees()) {
+            Quadrature.LOGGER.info("Tier benchmark run {}: the trace's ratio {} stands {} times from the other probes' "
+                    + "(terrain {}, light {}, bandwidth {}), past the {} allowed: it timed something other than the card, "
+                    + "and the run chooses nothing.", runs, fixed(outcome.ratios().trace()),
+                fixed(outcome.ratios().traceApart()), fixed(outcome.ratios().terrain()), fixed(outcome.ratios().light()),
+                fixed(outcome.ratios().bandwidth()), fixed(TierSelection.TRACE_LEEWAY));
+            record.put("counted", false);
+            record.put("traceApart", outcome.ratios().traceApart());
+            append(record);
+            if (!CALIBRATE) {
+                runsHere = 0;
+                stillFrames = 0;
+            }
+            return;
+        }
         record.put("counted", true);
-        if (TierCalibration.CURRENT.calibrated()) {
-            TierSelection.Outcome outcome = TierSelection.choose(result, TierCalibration.CURRENT, available,
-                StoredTiers.previousSpeed(stored, gpu), StoredTiers.previousMemory(stored, gpu));
+        if (outcome != null) {
             Quadrature.LOGGER.info("Tier benchmark run {}: score {} against the reference; ratios terrain {}, light {}, trace {}, "
                     + "bandwidth {}; predicted ms {}, fits {}; speed tier {} ({} without the band); memory {} MiB available, "
                     + "needs {}, memory tier {} ({} without the band).", runs, fixed(outcome.score()),

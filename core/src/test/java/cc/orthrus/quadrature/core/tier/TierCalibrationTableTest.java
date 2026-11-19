@@ -1,6 +1,7 @@
 package cc.orthrus.quadrature.core.tier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -64,7 +65,42 @@ final class TierCalibrationTableTest {
             TierSelection.Outcome outcome = TierSelection.choose(result, TierCalibration.CURRENT, 8_637, null, null);
             assertEquals(expected[o], outcome.speed(), sizes[o][0] + " by " + sizes[o][1]);
             assertEquals(Tier.MAX, outcome.memory(), sizes[o][0] + " by " + sizes[o][1]);
+            assertTrue(outcome.traceAgrees());
         }
+    }
+
+    /**
+     * Two runs of this card that timed the light scene's copy on the GPU before it had caught up with the scene
+     * (VERIFICATION, the tier benchmark), at 1280 by 720: one on the forest tour at radius 12, 2026-11-19, whose rays
+     * met a copy that held no brick, and one at radius 16 whose first run at a place read the trace a third as fast as
+     * the place's later runs. Each trace stands past {@link TierSelection#TRACE_LEEWAY} from the other probes, so
+     * neither run chooses. The traces were timed on the walk that read the bricks' coarser bits and are scaled to the
+     * walk as shipped, as the reference is.
+     */
+    @Test
+    void runsThatTimedTheScenesCopyBeforeItCaughtUpChooseNothing() {
+        TierSelection.Outcome empty = outcomeAt720(new double[] {0.478208, 0.572416, 0.693248, 1.439744},
+            new double[] {1_590_275, 3_457_276, 6_058_498, 13_407_253}, 1_445_920, 348.364, 351.164,
+            2.376704, 5_980_284, 29_649_601, 4.266667);
+        assertFalse(empty.traceAgrees());
+        assertTrue(empty.ratios().traceApart() > 10);
+        TierSelection.Outcome slow = outcomeAt720(new double[] {0.914432, 1.074176, 1.283072, 2.886656},
+            new double[] {1_948_828, 4_251_588, 7_458_228, 16_572_749}, 3_103_454, 348.133, 349.992,
+            2.605056, 11_890_966, 30_237_551, 0.109589);
+        assertFalse(slow.traceAgrees());
+        assertTrue(slow.ratios().traceApart() > 3);
+    }
+
+    private static TierSelection.Outcome outcomeAt720(double[] millis, double[] fragments, long primitives, double smallGBs,
+                                                      double largeGBs, double lightMs, long lightPrimitives,
+                                                      double lightFragments, double traceGigaRays) {
+        java.util.List<BenchmarkResult.TerrainPoint> terrain = new java.util.ArrayList<>();
+        for (int i = 0; i < OUTPUTS.length; i++) {
+            terrain.add(new BenchmarkResult.TerrainPoint(OUTPUTS[i][0], OUTPUTS[i][1], millis[i], 0, fragments[i], primitives));
+        }
+        BenchmarkResult result = new BenchmarkResult(TierBenchmark.VERSION, 1280, 720, smallGBs, largeGBs, 0, 0, terrain,
+            null, lightMs, 0, lightPrimitives, lightFragments, java.util.List.of(), traceGigaRays * 0.180 / 0.222);
+        return TierSelection.choose(result, TierCalibration.CURRENT, 8_550, null, null);
     }
 
     @Test
