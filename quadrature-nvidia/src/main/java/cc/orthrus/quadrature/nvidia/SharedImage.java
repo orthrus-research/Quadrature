@@ -94,24 +94,50 @@ final class SharedImage implements AutoCloseable {
 
     private final long texelBytes;
     private int usage;
+    private int flags;
+    /** Which configuration of usage and flags the driver accepted for export, for the log. */
+    private String accepted;
     private long size;
     private boolean dedicatedRequired;
     private boolean dedicatedPreferred;
     private boolean dedicatedOnly;
 
     private void create(MemoryStack stack) {
-        usage = usage(stack);
+        int supported = usage(stack);
         int required = role == Role.OUTPUT ? VK_IMAGE_USAGE_STORAGE_BIT : VK_IMAGE_USAGE_SAMPLED_BIT;
-        if ((usage & required) == 0) {
+        if ((supported & required) == 0) {
             throw new IllegalStateException(role + " format " + vkFormat + " lacks the usage DLSS needs ("
                 + (role == Role.OUTPUT ? "storage" : "sampled") + ").");
         }
-        dedicatedOnly = exportable(stack);
+        // Every supported usage and the mutable-format bit first, as OpenGL's external objects ask (issues 13 and
+        // 17); then, should the driver refuse to export that, the same without the bit, and without the input
+        // attachment usage nothing here needs. What was accepted is logged.
+        int noInput = supported & ~VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+        int[][] ladder = {
+            {supported, VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT}, {supported, 0},
+            {noInput, VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT}, {noInput, 0}};
+        String[] names = {"every usage, mutable format", "every usage", "no input attachment, mutable format",
+            "no input attachment"};
+        StringBuilder refusals = new StringBuilder();
+        for (int i = 0; i < ladder.length && accepted == null; i++) {
+            int result = exportQuery(stack, ladder[i][0], ladder[i][1]);
+            if (result == VK_SUCCESS) {
+                usage = ladder[i][0];
+                flags = ladder[i][1];
+                accepted = names[i];
+            } else {
+                refusals.append(refusals.isEmpty() ? "" : "; ").append(names[i]).append(": ").append(result);
+            }
+        }
+        if (accepted == null) {
+            throw new IllegalStateException(role + " format " + vkFormat + " cannot be exported as an opaque Win32 handle ("
+                + refusals + ").");
+        }
 
         VkExternalMemoryImageCreateInfo external = VkExternalMemoryImageCreateInfo.calloc(stack).sType$Default()
             .handleTypes(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT);
         VkImageCreateInfo info = VkImageCreateInfo.calloc(stack).sType$Default().pNext(external.address())
-            .flags(VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT).imageType(VK_IMAGE_TYPE_2D).format(vkFormat)
+            .flags(flags).imageType(VK_IMAGE_TYPE_2D).format(vkFormat)
             .mipLevels(1).arrayLayers(1).samples(VK_SAMPLE_COUNT_1_BIT).tiling(VK_IMAGE_TILING_OPTIMAL)
             .usage(usage).sharingMode(VK_SHARING_MODE_EXCLUSIVE).initialLayout(VK_IMAGE_LAYOUT_UNDEFINED);
         info.extent().set(width, height, 1);
@@ -218,30 +244,36 @@ final class SharedImage implements AutoCloseable {
         return flags;
     }
 
-    /** Whether the image can be exported as an opaque Win32 handle; returns whether only dedicated memory can. */
-    private boolean exportable(MemoryStack stack) {
-        VkPhysicalDeviceExternalImageFormatInfo externalInfo = VkPhysicalDeviceExternalImageFormatInfo.calloc(stack)
-            .sType$Default().handleType(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT);
-        VkPhysicalDeviceImageFormatInfo2 info = VkPhysicalDeviceImageFormatInfo2.calloc(stack).sType$Default()
-            .pNext(externalInfo.address()).format(vkFormat).type(VK_IMAGE_TYPE_2D).tiling(VK_IMAGE_TILING_OPTIMAL)
-            .usage(usage).flags(VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT);
-        VkExternalImageFormatProperties external = VkExternalImageFormatProperties.calloc(stack).sType$Default();
-        VkImageFormatProperties2 properties = VkImageFormatProperties2.calloc(stack).sType$Default().pNext(external.address());
-        int result = vkGetPhysicalDeviceImageFormatProperties2(vulkan.physical, info, properties);
-        if (result != VK_SUCCESS) {
-            throw new IllegalStateException(role + " format " + vkFormat + " with usage 0x" + Integer.toHexString(usage)
-                + " cannot be exported as an opaque Win32 handle (" + result + ").");
+    /**
+     * Asks whether an image of this format with the given usage and flags can be exported as an opaque Win32
+     * handle; returns VK_SUCCESS when it can, noting whether only dedicated memory can, else why not.
+     */
+    private int exportQuery(MemoryStack stack, int usage, int flags) {
+        try (MemoryStack frame = stack.push()) {
+            VkPhysicalDeviceExternalImageFormatInfo externalInfo = VkPhysicalDeviceExternalImageFormatInfo.calloc(frame)
+                .sType$Default().handleType(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT);
+            VkPhysicalDeviceImageFormatInfo2 info = VkPhysicalDeviceImageFormatInfo2.calloc(frame).sType$Default()
+                .pNext(externalInfo.address()).format(vkFormat).type(VK_IMAGE_TYPE_2D).tiling(VK_IMAGE_TILING_OPTIMAL)
+                .usage(usage).flags(flags);
+            VkExternalImageFormatProperties external = VkExternalImageFormatProperties.calloc(frame).sType$Default();
+            VkImageFormatProperties2 properties = VkImageFormatProperties2.calloc(frame).sType$Default()
+                .pNext(external.address());
+            int result = vkGetPhysicalDeviceImageFormatProperties2(vulkan.physical, info, properties);
+            if (result != VK_SUCCESS) {
+                return result;
+            }
+            int features = external.externalMemoryProperties().externalMemoryFeatures();
+            if ((features & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) == 0) {
+                return VK_ERROR_FORMAT_NOT_SUPPORTED;
+            }
+            dedicatedOnly = (features & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT) != 0;
+            return VK_SUCCESS;
         }
-        int features = external.externalMemoryProperties().externalMemoryFeatures();
-        if ((features & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) == 0) {
-            throw new IllegalStateException(role + " format " + vkFormat + " is not exportable.");
-        }
-        return (features & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT) != 0;
     }
 
     String describe() {
-        return String.format(Locale.ROOT, "%s %dx%d Vulkan format %d / GL 0x%04x, usage 0x%x, %.2f MiB, dedicated %s%s%s",
-            role, width, height, vkFormat, glFormat, usage, size / 1048576.0,
+        return String.format(Locale.ROOT, "%s %dx%d Vulkan format %d / GL 0x%04x, usage 0x%x (%s), %.2f MiB, dedicated %s%s%s",
+            role, width, height, vkFormat, glFormat, usage, accepted, size / 1048576.0,
             dedicatedRequired ? "required" : dedicatedPreferred ? "preferred" : "chosen",
             dedicatedOnly ? ", dedicated only for export" : "", stencil ? ", with stencil" : "");
     }
