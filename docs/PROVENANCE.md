@@ -614,6 +614,41 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
 - Added: 2026-11-17
 
+### Tier benchmark: bandwidth kernel and timed probes
+- Code: `src/main/java/cc/orthrus/quadrature/platform/TierBench.java`, `BandwidthKernel.java`,
+  `TraceProbe.java`; `TerrainHook.java` (`Probes`, `afterOpaque`) and `Terrain.java` (`probes`);
+  `core/src/main/java/cc/orthrus/quadrature/core/tier/BenchmarkRun.java`, `BenchmarkResult.java`,
+  `TerrainFit.java`, `ClockSettle.java`, `Samples.java`, `TierBenchmark.java`
+- Source: original. Facts used: the OpenGL 4.6 compatibility specification (timestamp, primitives
+  generated and samples passed queries, their availability, the one time-elapsed query a target
+  may have open, compute dispatch, storage buffers, framebuffer clears, the fixed-function alpha
+  test after a program); `GL_EXT_memory_object` (the device and driver identifiers); the game's
+  public classes (the block texture's mipmap switch and the alpha state around its opaque layers).
+- Taken: nothing. The probes issue the frame's own commands again; the kernel reads a buffer once
+  a dispatch, threads a dispatch's width apart; a register-bound load runs until its own times
+  agree, so the clocks have settled without any clock being asked for; a probe's time is set
+  against a model of the reference card fitted over many places, by primitives and pixels.
+- Added: 2026-11-18
+
+### Tier selection: predicted cost, a band at each boundary, memory and overrides
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/tier/TierSelection.java`,
+  `TierCalibration.java`, `TierCalibrationTable.java`, `TierChoice.java`, `StoredTiers.java`,
+  `Tier.java`, `TierGroup.java`
+- Source: original, from D22. A band around each boundary is ordinary hysteresis, as in a
+  Schmitt trigger.
+- Taken: nothing. A tier's cost on a machine is the reference card's, group by group, over the
+  ratio of the probe standing for the group; the band is a share of the budget, and the last tier
+  on the same GPU, kept by digest, is the one the band holds to.
+- Added: 2026-11-18
+
+### Memory tier lowered at run time by evictions and 1% lows
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/tier/EvictionWatch.java`, `TierBench.java`
+  (`watchFrame`)
+- Source: original, from D22. Facts used: NVIDIA, `GL_NVX_gpu_memory_info` (the eviction count
+  since the system started).
+- Taken: nothing.
+- Added: 2026-11-18
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed
