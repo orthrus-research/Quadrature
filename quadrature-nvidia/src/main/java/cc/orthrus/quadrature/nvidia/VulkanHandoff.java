@@ -97,6 +97,8 @@ public final class VulkanHandoff implements Handoff {
     private FloatBuffer stamp;
     private FloatBuffer readback;
     private long timeline;
+    /** One texel OpenGL owns, which the check copies the output's stamp into and reads. */
+    private int stampTexel;
 
     // Clocks: OpenGL's timestamp minus the client's nanoTime, and a Vulkan calibration pair.
     private long glOffset;
@@ -187,6 +189,8 @@ public final class VulkanHandoff implements Handoff {
             for (int[] row : glQueries) {
                 GL15.glGenQueries(row);
             }
+            stampTexel = GL45.glCreateTextures(GL11.GL_TEXTURE_2D);
+            GL45.glTextureStorage2D(stampTexel, 1, GL30.GL_RGBA16F, 1, 1);
             // No buffers take part in the round trip; a buffer of one with nothing remaining says so.
             noBuffers = memAllocInt(1).limit(0);
             textures = memAllocInt(4);
@@ -272,6 +276,7 @@ public final class VulkanHandoff implements Handoff {
         readBack(n);
         FrameRecord record = records[(int) (n % RECORDS)];
         record.reset(n);
+        record.wall = System.currentTimeMillis();
         record.phase = schedule.phase(n);
         record.measured = schedule.measured(n);
         if (lastFrame == n - 1 && lastStart >= 0 && !lastDisturbed) {
@@ -455,7 +460,11 @@ public final class VulkanHandoff implements Handoff {
         GL11.glPixelStorei(GL11.GL_PACK_SKIP_PIXELS, 0);
         GL11.glPixelStorei(GL11.GL_PACK_SKIP_ROWS, 0);
         long start = System.nanoTime();
-        GL45.glGetTextureSubImage(output.glTexture, 0, 0, 0, 0, 1, 1, 1, GL30.GL_RG, GL11.GL_FLOAT, readback);
+        // The stamp is copied on the GPU into a texel OpenGL owns, and only that is read back: an image the GPU reads
+        // every frame is never read by the client, so the driver has no reason to move it out of video memory.
+        org.lwjgl.opengl.GL43.glCopyImageSubData(output.glTexture, GL11.GL_TEXTURE_2D, 0, 0, 0, 0, stampTexel,
+            GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 1, 1, 1);
+        GL45.glGetTextureSubImage(stampTexel, 0, 0, 0, 0, 1, 1, 1, GL30.GL_RG, GL11.GL_FLOAT, readback);
         long waited = System.nanoTime() - start;
         GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, packBuffer);
         GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, alignment);
@@ -745,6 +754,10 @@ public final class VulkanHandoff implements Handoff {
                     GL15.glDeleteQueries(row);
                 }
             }
+            if (stampTexel != 0) {
+                GL11.glDeleteTextures(stampTexel);
+                stampTexel = 0;
+            }
             for (java.nio.Buffer buffer : new java.nio.Buffer[]{noBuffers, textures, signalLayouts, waitLayouts, zero, stamp,
                 readback}) {
                 if (buffer != null) {
@@ -769,9 +782,11 @@ public final class VulkanHandoff implements Handoff {
     /** What one frame recorded, until its timestamps are read. Times in nanoseconds; -1 where not measured. */
     private static final class FrameRecord {
         static final String HEADER = "frame,phase,cpu_since_previous,gpu_since_previous,copy_in,round_trip,copy_out,total,"
-            + "vk_work,inbound,outbound,cpu_handoff,cpu_round_trip,cpu_submit,cpu_gl,cpu_fence";
+            + "vk_work,inbound,outbound,cpu_handoff,cpu_round_trip,cpu_submit,cpu_gl,cpu_fence,wall_ms";
 
         long frame = -1;
+        /** The wall clock at the frame's start, to match it with a sampler of the GPU's clocks and power state. */
+        long wall;
         Phase phase;
         boolean measured;
         int vkSlot;
@@ -808,7 +823,7 @@ public final class VulkanHandoff implements Handoff {
             return frame + "," + phase + "," + cell(cpuSincePrevious) + "," + cell(gpuSincePrevious) + "," + cell(copyIn) + ","
                 + cell(roundTrip) + "," + cell(copyOut) + "," + cell(total) + "," + cell(vkWork) + ","
                 + (hasClocks ? inbound : "") + "," + (hasClocks ? outbound : "") + "," + cell(cpuHandoff) + ","
-                + cell(cpuRoundTrip) + "," + cell(cpuSubmit) + "," + cell(cpuGl) + "," + cell(cpuFence);
+                + cell(cpuRoundTrip) + "," + cell(cpuSubmit) + "," + cell(cpuGl) + "," + cell(cpuFence) + "," + wall;
         }
 
         private static String cell(long value) {
