@@ -190,6 +190,47 @@ documents. No SDK was downloaded and no license accepted.
   release archives. *Implication:* a Java module reaches NGX through a small native library of its own,
   compiled against the SDK the builder supplies, since static libraries cannot be loaded from
   Java; what the evaluation needs is listed for the user in PLAN item 7's report.
+- *Patents searched* (2026-11-19, Google Patents; a record of the search, not a legal
+  conclusion). For each technique the handoff uses:
+  - *Sharing memory and semaphores between two APIs through exported handles.* US 8,539,516 B1
+    (NVIDIA, "System and method for enabling interoperability between application programming
+    interfaces"; priority 2008-02-14; granted 2013-09-17; shown active, adjusted expiration
+    2032-06-01). Its independent claims 1, 6 and 11, read from the claims text, require (a) a
+    semaphore buffer at a location a first and a second driver can access; (b) a memory buffer
+    made accessible to the first driver; (c) on a request to make it accessible to the second,
+    determining it is not accessible to both, moving it to a location both can access and marking
+    it registered there; (d) suspending the second driver's commands until the semaphore shows the
+    first has finished with the buffer; (e) updating the semaphore. It cites US 5,842,015 (HP),
+    Apple's WO 2008/127610, 127622 and 127623 and US 2008/0276220, and NVIDIA's CUDA Programming
+    Guide 0.8. Steps (a), (d) and (e) correspond in kind to the handoff's semaphore and waits.
+    Steps (b) and (c) are not performed by Quadrature: its memory is allocated exportable in
+    Vulkan at creation and imported once in OpenGL, and nothing asks a driver to move an existing
+    buffer. US 2023/0185635
+    A1 (family CN 116257354 A, DE 102022132017 A1) and US 2023/0185636 A1 (CN 116257371 A,
+    DE 102022132176 A1), NVIDIA, "Application programming interfaces for interoperability",
+    priority 2021-12-10, shown pending: their descriptions have one API import or update a
+    timeline semaphore exported by another, with Vulkan and CUDA as the example; their claims
+    could not be read from the published pages (USPTO applications 17/548,412 and 17/548,433).
+    They are to be checked again before any release and when either is granted. EP 3159849 B1 and US 10,497,083 B2 (Channel One
+    Holdings, priority 2015-10-21, active to 2036-10-21) claim translating OpenGL objects, state
+    and render calls into Vulkan objects and command buffers, which the handoff does not do.
+  - *Choosing the Vulkan device by the context's UUIDs and LUID.* Three searches (device UUID
+    and LUID matching across graphics APIs; OpenGL context and Vulkan physical device identity)
+    found no patent on point; the hits concern switching between GPUs by load or policy.
+  - *Handing a frame's color, depth and motion to another API's pass and taking the output back
+    within the frame.* Three searches (upscaling a frame from one API with another; interop
+    with super-resolution; shared textures and semaphores with post-processing) found none on
+    point. The nearest render at low resolution on one GPU and scale on another (US 9,171,350
+    B2) or super-resolve streamed frames on a client (US 11,683,358 and family), without a
+    second API or synchronization between APIs; their status was not checked, as their claims
+    concern neither.
+  - *The stamp check.* US 9,424,619 B2 (Google, priority 2014-02-20, active to 2034-12-07)
+    claims sensor data embedded in camera images with a frame identifier in two corner pixels
+    whose values are compared; US 8,347,344 B2 (VMware, priority 2008-12-18, expired for
+    unpaid fees) and US 8,910,228 B2 (Omnissa, priority 2010-11-09, active to 2033-07-11) claim
+    markers and frame numbers in frames sent to a remote client to measure display performance.
+    The handoff writes a frame number into one texel of an input, the pass carries it to the
+    output, and the client compares a copy of it locally.
 
 ## 2. Pass graph and frame
 
