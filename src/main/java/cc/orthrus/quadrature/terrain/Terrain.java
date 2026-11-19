@@ -1971,6 +1971,102 @@ public final class Terrain
         return lightLayers.length == 0 ? -1 : lightLayers[lightLayers.length - 1].swept.count();
     }
 
+    @Override
+    public TerrainHook.Probes probes() {
+        return probes;
+    }
+
+    /** The tier benchmark's probes: the frame's own draws issued again, and nothing kept of them. */
+    private final TerrainHook.Probes probes = new TerrainHook.Probes() {
+        @Override
+        public int waiting() {
+            return dirty.size() + tasks.size();
+        }
+
+        @Override
+        public int held() {
+            return meshes.size();
+        }
+
+        @Override
+        public boolean opaqueAgain(BlockRenderLayer layer) {
+            if (DIRECT || arena == null) {
+                return false;
+            }
+            net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
+            program.begin(mainView);
+            int index = layer.ordinal();
+            program.drawIndirect(mainList, index, arena);
+            if (FACES) {
+                program.drawFaces(mainFaceList, index, faceArena);
+            }
+            for (int i = 0, apart = loose.size(); i < apart; i++) {
+                CubeMesh mesh = loose.get(i);
+                if (mesh.count(index) > 0) {
+                    program.draw(mesh, index, (float) ((mesh.x << 4) - mainView.originX()),
+                        (float) ((mesh.y << 4) - mainView.originY()), (float) ((mesh.z << 4) - mainView.originZ()));
+                }
+            }
+            program.end();
+            net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
+            return true;
+        }
+
+        @Override
+        public boolean lightAgain(Runnable before, Runnable after) {
+            if (lightLayers.length == 0) {
+                return false;
+            }
+            LightLayer layer = lightLayers[lightLayers.length - 1];
+            LightBox box = layer.plan.front();
+            if (box == null || layer.plan.next() != null) {
+                return false;
+            }
+            // As the check draws it: every drawable cube the box holds, into the scratch cleared whole. A box
+            // begun later clears each tile before drawing it, so what is left there does no harm.
+            View view = View.throughLight(layer.front, mainView, box);
+            layer.swept.sweep(Terrain.this, view);
+            layer.chosen.clear();
+            for (int i = 0, count = layer.swept.count(); i < count; i++) {
+                long key = layer.swept.key(i);
+                if (drawable(key) && box.texelsOf(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), lightRange)) {
+                    layer.chosen.add(key);
+                }
+            }
+            if (layer.chosen.count() == 0) {
+                return false;
+            }
+            command(lightList, layer.chosen, view, false);
+            if (FACES) {
+                commandFaces(lightFaceList, layer.chosen, view);
+            }
+            // The light's depth is otherwise drawn in front of the solid layer, where the game holds the alpha
+            // test off; after the cutout layer it is on, and the depth program writes no alpha to judge.
+            boolean alpha = org.lwjgl.opengl.GL11.glIsEnabled(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
+            if (alpha) {
+                org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
+            }
+            DriverMessages.enter("shadow");
+            shadow.begin(lightFrames);
+            shadow.attach(true, layer.index);
+            layer.rectangles[0] = 0;
+            layer.rectangles[1] = 0;
+            layer.rectangles[2] = ShadowTarget.SIDE;
+            layer.rectangles[3] = ShadowTarget.SIDE;
+            shadow.clear(layer.rectangles, 1);
+            before.run();
+            drawDepthLayers(lightList, lightFaceList, view);
+            after.run();
+            shadow.end();
+            program.end();
+            DriverMessages.leave();
+            if (alpha) {
+                org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
+            }
+            return true;
+        }
+    };
+
     /** Writes the images that waited for the shading stage: the targets' and the stage's picture, of one frame. */
     @Override
     public void writeImagesDue() {

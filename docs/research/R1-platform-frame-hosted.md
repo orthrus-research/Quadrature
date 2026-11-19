@@ -232,6 +232,155 @@ documents. No SDK was downloaded and no license accepted.
     The handoff writes a frame number into one texel of an input, the pass carries it to the
     output, and the client compares a copy of it locally.
 
+**1.10 Timing a card at first launch. [V]**
+Observed 2026-11-18 and 19 with the tier benchmark (ARCHITECTURE 12.1.1) on an RTX 3060 12
+GB, driver 610.88, in the game, with the card's clocks sampled beside each tour by
+`nvidia-smi` (evidence only; the benchmark asks no clock of the driver).
+- **The card's clock follows its load.** Under the game alone, own terrain at radius 12 and
+  120 frames a second, the card moves among P5, P3 and P0: graphics 510 to 1,440 MHz, memory
+  810, 5,001 or 7,501 MHz. It reaches its top state, about 1,950 MHz and 7,501 MHz, only
+  under added load, over one to two seconds. The first run at a place read opaque terrain
+  24% slow while the clock climbed (1.04 against 0.84 ms at 1280 by 720); whole runs left
+  in P3 read the bandwidth kernel 33% slow (232 against 348 GB/s, the ratio of the memory
+  clocks). A benchmark that times whatever state it finds measures the state, not the card.
+- **One time-elapsed query a target.** A context has at most one `GL_TIME_ELAPSED` query open,
+  and the frame's own stage timer holds one around opaque terrain, where the probes run: a
+  probe's begin fails and its end closes the stage's query. Pairs of `GL_TIMESTAMP` counters
+  nest anywhere.
+- **At one place and one clock, a run repeats to within a tenth of a percent:** the median
+  spread of a probe's figure over the repetitions at one still view was 0.03 to 0.07%.
+- **Opaque terrain's time rises faster than its pixels.** From 2560 by 1440 to 3840 by 2160,
+  2.25 times the pixels, far views take 2.0 to 2.25 times as long and near views full of
+  foliage up to 4.6 times. Fitted per view against its fragments, the split into geometry and
+  fragments swings from all geometry to all fragments between places. At one resolution the
+  time follows the primitives drawn closely, so the reference card is held as a line a
+  resolution, a fixed part and a part a million primitives, mixed by pixels between them: it
+  leaves a standard deviation of 8.6% between places. The light view's box drawn whole, by its
+  primitives and fragments, leaves 7.1%.
+- **The trace's rate follows its rays' scene.** MEDIUM's probes, 65,536 rays of 64 blocks, ran
+  at 290 to 460 million rays a second at 16 of 17 places and 4,267 at one, where the rays left
+  the scene at once. Without a count of the nodes each ray visited, the rate is a figure of the
+  place as much as of the card.
+- **The settling load.** An arithmetic pass and a pass over 256 MiB, with two more arithmetic
+  passes untimed, about 6 ms a frame, agreed within 5% after 13 to 15 frames in most runs and
+  within 40 in nearly all. The loaded top clock still steps between about 1,950 and 2,100 MHz,
+  moving the arithmetic pass by up to 7%. With it, a place's first run reads as its later ones,
+  and the same place on another fresh instance agrees to 0.5%.
+- The RTX 3060 stands within about 9% of an RTX 2060 Super at 1440p in published game
+  comparisons, on either side of it by the source, so it sits in the first of ARCHITECTURE
+  12.1's clusters.
+*Implication:* a first-launch benchmark brings the clocks up with a load of its own and waits
+until that load's own times stop changing before it times anything, keeps the GPU loaded
+between its probes, times with timestamps, takes its settings in a new order each round, and
+scores a view against a model of the reference card fitted over many places, with a band at
+each tier's boundary wider than what remains between places. A count of the work each ray
+does would make the trace's rate a figure of the card.
+
+**1.11 Patents searched for the tier benchmark. [V for what the pages show]**
+Searched 2026-11-19 on Google Patents, with full-text and claims-field queries, for the five
+techniques of ARCHITECTURE 12.1.1. Statuses and dates are as the Google Patents pages show
+them, which the pages call assumptions; claims were read on the pages, verbatim where quoted
+here. Not a legal reading.
+- **Searches.** Full text: settings chosen from a benchmark of the graphics processor; "graphics
+  settings" with benchmark, game and "frame rate"; benchmark with first launch, first execution
+  or first run and a quality level, preset or setting. Claims field: benchmark with graphics or
+  rendering and a quality level, quality setting, graphics settings or rendering quality (46
+  results); a frame, render or rendering time, predicted or estimated, with a quality level or
+  setting and a budget or target (11); hysteresis with a quality level, graphics or rendering
+  quality, level of detail or quality setting and a frame rate or time (6); evictions with a
+  frame rate or time, quality or level of detail, and memory (3); video, graphics or GPU memory
+  with a frame rate, time or percentile and a quality or graphics setting (none); a benchmark or
+  performance test of a GPU with its clock frequency and stable, steady state, converge or
+  warm-up (10). General web searches for each of the five pointed to the patents below.
+- **(1) Settings from a benchmark at first launch; (2) a predicted cost per group and the highest
+  tier that fits a budget.** The patents found choose settings from the hardware's description,
+  not from a measurement of it:
+  - US9286247B2, "System, method, and computer program product for determining settings for a
+    device by utilizing a directed acyclic graph containing a plurality of directed nodes each
+    with an associated speed and image quality", NVIDIA, priority 2012-07-06, shown active to
+    2033-08-15. Claim 1: identify parameters of a device, "including descriptions of hardware and
+    software installed within the device"; create a directed acyclic graph whose nodes each
+    represent "a unique variation of the plurality of parameters"; give each node a speed
+    "determined based on the parameters represented by the node"; identify the device's node;
+    take the nodes "known to be slower than or equal in speed to the identified node" that have
+    a monotonic set of presets, and use the presets with "the highest output image quality".
+    Claims 6 and 7 are the same as a program and a system. It cites US6059842A and
+    US20030023841A1 (IBM, optimum configurations of a system), US8296781B1, US8276133B1,
+    US8280864B1 and US7659897B1 (NVIDIA), and Hellerstein, "Optimizing Software Packages for
+    Application Management" (IEEE 2008). Quadrature builds no graph of device configurations and
+    names no device node: it times probes on the machine and compares each tier's predicted cost
+    with a budget.
+  - US8276133B1, "... determining a plurality of application settings utilizing a mathematical
+    function", NVIDIA, priority 2007-12-11, shown active to 2031-06-09. Claim 1: identify
+    "hardware specifications associated with a system" and an application; identify application
+    parameters from the specifications; define them as a "mathematical build function"; choose
+    the settings for which "a composition of the application build function and an execution
+    function [is] less than a predetermined threshold value", the parameters coming from "a
+    database storing the application parameters ... including the hardware specification ...
+    [with] an optimized application setting corresponding to the hardware specification".
+    Its citations were not read. Quadrature has no database of settings by hardware
+    specification; its comparison with a budget is of costs scaled by measured ratios.
+  - US8296781B1, "... determining application parameters based on hardware specifications",
+    NVIDIA, priority 2007-12-11, shown active to 2030-06-14. Claims 1, 19 and 21: identify
+    hardware specifications of at least two of the graphics processor, central processor and
+    memory, query a database whose table correlates them, the application and an optimized set
+    of parameters, and configure the application with the result. Performance data appear only
+    in dependent claim 16. It cites 37 patents, among them US6646653B2 (programmable graphics
+    processor for a video game system).
+  - US11413542B2, "Systems and methods for measuring and optimizing the visual quality of a video
+    game application", Dell, priority 2020-04-29, shown active to 2041-02-04. Claims 1 and 13: a
+    target frame rate; each setting's range divided into subsets numbered from lowest to
+    highest; the optimal settings for the target. Claim 10: during play, adjust the applied
+    settings "one setting at a time, until the generated FPS equals the target FPS". Dependent
+    claims score a combination by the frame rate times the sum of its subsets' numbers and take
+    the highest. It cites NVIDIA's US20140011581A1, US20150154934A1, US10878770B2,
+    US20160291989A1 and US20160323336A1, and AMD's and NVIDIA's settings tools as non-patent
+    art. Quadrature numbers no subsets, scores no combination and does not step settings toward
+    a frame rate.
+  - US20160291989A1, "Method and system for applying optimal settings from first invocation of
+    a gaming application", NVIDIA, priority 2015-03-30: shown abandoned (claims: pre-defined
+    optimal settings by hardware configuration written into a game's settings file).
+  - US20250061640A1, "Realtime 3D Performance Management System", Ascendant Studios, priority
+    2023-08-17: shown pending. Claim 1: a hardware scan when the user launches a game, a total
+    GPU and CPU performance budget, and the user adjusting settings against it.
+  - Expired, as prior art: EP1055199B1, "Estimating graphics system performance for polygons",
+    Sun Microsystems, priority 1998-02-17, shown expired 2019-02-16. Claim 1: calculate a
+    rendering time for graphics data and, where it exceeds that of a minimum frame rate, decide
+    whether the data are "polygon overhead limited or pixel fill limited" and select object
+    variants with fewer polygons or fewer pixel calculations. US7659897B1, "... video
+    benchmarking", NVIDIA, priority 2006-06-30: shown expired, fee related (claims: a video
+    output's performance from its frames a second at one of four pre-defined quality levels).
+- **(3) A band at each tier's boundary.** US9940904B2, "Techniques for determining an adjustment
+  for a visual output", Intel, priority 2013-10-23, shown active to 2034-12-21, with its
+  continuation US10573275B2: up and down frame-time hysteresis counters, each incremented where
+  a change in perceived quality passes a threshold, the frame time changed once a counter passes
+  its own threshold (claim text read through a page summary). It cites Qualcomm's
+  US20140002730A1, "Adaptive frame rate control", and LG's US6611653B1. Quadrature counts
+  nothing: a tier is left or taken once a run's fit lies past a fixed band. CN122089573B,
+  Moore Threads, shown active in China to 2046: its claim 1 sets a driver's super-resolution
+  parameter, device and algorithm from frame commit intervals, rendering time and memory use;
+  a first and a smaller second time threshold appear in its later claims, not read in full.
+- **(4) The memory tier lowered at run time on evictions and falling 1% lows.** Nothing found in
+  any search that claims evictions or a frame-time percentile as the trigger. The nearest:
+  US8547378B2, "Time-based degradation of images using a GPU", Adobe, priority 2008-08-28, shown
+  active to 2031-08-30: claim 1 renders a frame, finds its elapsed rendering time above a
+  threshold, and renders the next at its resolution divided by a downsampling factor (claim text
+  through a page summary); it cites US6075513A (Cirrus Logic, maintaining an image quality) and
+  US6975319B1 (NVIDIA, level of detail).
+- **(5) The warm-up by agreement of the benchmark's own times.** Nothing found claiming it. The
+  one claims-field result about a performance test, US10534696B1 (Facebook, priority
+  2017-08-29), is shown expired, fee related, and claims comparing two builds' frame times on a
+  RAM drive. Published practice for warm-up before timing a GPU: NVIDIA's CUTLASS measurement
+  guidelines (warm-up iterations; clocks oscillating for about three seconds before settling).
+- Also met and not related to the claims: US10909653B2 (Intel, a video encoder's quantization
+  range by its target), US10379611B2 (Intel, light-field streaming for virtual reality),
+  US11798514B2 and US20210074237A1 (NVIDIA, settings ranked by users' preferences between
+  clips).
+*Implication:* no patent found claims the benchmark as built. The nearest in force, NVIDIA's
+three, choose settings from a device's hardware description through a database or a graph of
+configurations; the benchmark measures the machine and keeps no table of devices. The record
+is for the user's decision, not a conclusion.
+
 ## 2. Pass graph and frame
 
 **2.1 Frame graph design. [V]**
@@ -629,6 +778,9 @@ its place in the frame expects, through the cache.
 4. Evaluate DLSS itself on the measured handoff once an SDK is supplied and its license
    accepted (1.9), and ask NVIDIA whether an OpenGL frame handing images to a Vulkan
    evaluation is supported (D19).
+5. Repeat the tier benchmark after a driver update, on this card, and on an RTX 3050 8 GB and a Turing
+   8 GB card (1.10; D22).
+6. Count the nodes each traced ray visits, so the trace probe's rate is a figure of the card (1.10).
 
 ## Sources
 
@@ -685,3 +837,8 @@ its place in the frame expects, through the cache.
 - NVIDIA, DLSS SDK repository and releases (310.9.16, October 2026) and its license file,
   "NVIDIA RTX SDKs LICENSE" (v. March 14, 2024): https://github.com/NVIDIA/DLSS, read 2026-11-18
 - NVIDIA, Streamline 2.14.16, README and license: https://github.com/NVIDIA-RTX/Streamline, read 2026-11-18
+- RTX 3060 against the RTX 2060 Super (1.10), read 2026-11-18: dropreference.com game comparison
+  (https://dropreference.com/en/compare/gpu/nvidia-geforce-rtx-2060-super-vs-nvidia-geforce-rtx-3060-12gb),
+  CheckFPS (https://checkfps.io/en/compare/rtx-3060-vs-rtx-2060-super), PassMark G3D
+  (https://www.videocardbenchmark.net/compare/4345vs4117/GeForce-RTX-3060-vs-GeForce-RTX-2060-SUPER) and Windows
+  Central (https://www.windowscentral.com/nvidia-geforce-rtx-3060-vs-rtx-2060-super)

@@ -42,6 +42,13 @@ public final class PlatformGateHandler {
             failures = PlatformGate.evaluate(profile, requirements);
             if (failures.isEmpty()) {
                 Quadrature.LOGGER.info("Platform gate passed.");
+                if (TierBench.enabled()) {
+                    try {
+                        TierBench.atGate(profile, PlatformReader.memorySource(profile.extensions()));
+                    } catch (RuntimeException e) {
+                        Quadrature.LOGGER.error("The tier benchmark could not start; the game continues without it.", e);
+                    }
+                }
             } else {
                 for (GateFailure failure : failures) {
                     Quadrature.LOGGER.fatal("Stopping: {} {} {}", failure.found(), failure.required(), failure.remedy());
