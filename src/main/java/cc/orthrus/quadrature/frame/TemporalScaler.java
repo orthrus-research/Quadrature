@@ -272,6 +272,41 @@ public final class TemporalScaler {
         return swapped ? (float) outputWidth / outputHeight : aspect;
     }
 
+    /** The projection outlines were drawn without the offset under, to be put back after them; null when none is kept. */
+    private static float[] outlineProjection;
+
+    /**
+     * The game bound the framebuffer it draws glowing entities' outlines into: while the drawn picture
+     * stands in, the viewport is that framebuffer's whole size, which is the output's, and the projection
+     * loses the frame's offset, since the outlines are laid over the picture after the composite.
+     */
+    public static void outlinesBegin(Framebuffer outlines) {
+        if (!swapped || outlines == null) {
+            return;
+        }
+        net.minecraft.client.renderer.GlStateManager.viewport(0, 0, outlines.framebufferWidth, outlines.framebufferHeight);
+        if (TAA) {
+            float[] kept = new float[16];
+            GL11.glGetFloatv(GL11.GL_PROJECTION_MATRIX, kept);
+            double[] projection = FrameBlock.doubles(kept);
+            Jitter.remove(projection, offsetMatrix[12], offsetMatrix[13]);
+            EXTDirectStateAccess.glMatrixLoadfEXT(GL11.GL_PROJECTION, FrameBlock.floats(projection));
+            outlineProjection = kept;
+        }
+    }
+
+    /** The game bound its framebuffer back after the outlines: the drawn viewport and the projection with its offset return. */
+    public static void outlinesEnd() {
+        if (!swapped) {
+            return;
+        }
+        net.minecraft.client.renderer.GlStateManager.viewport(0, 0, drawnWidth, drawnHeight);
+        if (outlineProjection != null) {
+            EXTDirectStateAccess.glMatrixLoadfEXT(GL11.GL_PROJECTION, outlineProjection);
+            outlineProjection = null;
+        }
+    }
+
     // The work.
 
     /**

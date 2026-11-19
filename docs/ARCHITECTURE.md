@@ -343,6 +343,16 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
   stands on the left of the perspective, inside reversed depth's reversal, with which it
   commutes. Entities, particles, block entities, weather and own terrain draw under it. The
   hand's projection is never offset.
+- **Glowing entities' outlines.** The game draws them into a framebuffer of its own, binding it
+  without setting the viewport, runs its outline shader group over it and binds the game's
+  framebuffer back, again without a viewport; after the world pass it lays the result over the
+  picture. The shader group's passes draw in pixels of their own targets through a projection
+  made from the framebuffer the group was created with, the game's own, so its targets stay at
+  the output's size. While the drawn picture stands in, the viewport is that framebuffer's whole
+  size and the projection loses the frame's offset once it is bound (`MixinRenderGlobalScale`),
+  so the outlines are drawn at the output's size and in place without shimmering; the drawn
+  viewport and the offset return when the game's framebuffer is bound back, so block entities,
+  drawn after the outlines in the same stage, stay in the drawn picture.
 - **The view.** Where the frame enters opaque terrain, the driver's projection and model-view
   are read, the offset is taken out of the projection, and the viewer's interpolated position
   is kept in double precision as the frame's origin. Before entities draw, the depth of what
@@ -398,8 +408,7 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
   Motion vectors for hosted draws from each draw's previous transform are not built; D21 needs
   them before DLSS.
 - **Not covered:** a mod that keeps the game's framebuffer from before the pass and draws into
-  it there; the outline shader of glowing entities, whose shader group holds the game's own
-  framebuffer from its creation; anaglyph, which is drawn at the output's size.
+  it there; anaglyph, which is drawn at the output's size.
 
 ## 5. Scene sources
 

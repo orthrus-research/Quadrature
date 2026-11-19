@@ -277,9 +277,15 @@ code]**
   entities, opaque particles, the outline, clouds above the player) take a higher share of the
   current frame. Motion vectors for hosted draws, from each draw's previous transform, remain
   the precondition D21 names for the Vulkan bridge.
+- *Glowing entities.* `RenderGlobal.renderEntities` binds the outline framebuffer and later the
+  game's with no viewport, and its shader group's passes (`Shader.render`) set the viewport to
+  their targets' size and draw a quad in their pixels through a projection made from the group's
+  main framebuffer, the game's own from creation (`ShaderGroup.resetProjectionMatrix`). Targets
+  made at the drawn size would be covered only in part, so they stay at the output's size and the
+  outlines are drawn into them at that size, with the drawn viewport set back afterward: the
+  passes leave the viewport at the targets' size, and block entities are drawn next.
 - *Not covered.* A mod that keeps the game's framebuffer from before the pass and draws into it
-  there; the glowing-entity outline shader, whose shader group holds the game's framebuffer from
-  its creation; anaglyph, which falls back to the output's size.
+  there; anaglyph, which falls back to the output's size.
 
 **7b.4 Ghosting needs a motion tour. [V]**
 The lab's tours teleport to a view and wait until the player has held still for 400 ticks
