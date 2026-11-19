@@ -449,6 +449,76 @@ the driver and never mapped, each also the store of a buffer texture read with
 Not built: the color of light a state emits or passes, shapes smaller than a cell,
 entities.
 
+### 5.2 Rays through the scene
+
+Built behind the scene's buffers: a compute program that walks rays through the lookup and
+the occupancy bricks of 5.1, the operation indirect light and far shadows both reduce to
+(research R4, 7.8). `RayTrace` is its entry point, `RayTracer.get()` the one instance,
+`BrickTrace` in `core` the reference it is checked against.
+
+- **Rays in, results out, time later.** A ray is 32 bytes: its origin relative to the
+  lowest corner of the box's origin cube, its length, and the inverse of its direction.
+  A result is 16 bytes: the distance at which the ray entered the cell that ended it, that
+  cell, how it ended and how many nodes it visited. A trace takes the rays in one buffer
+  and writes the results into another between two GPU timestamps, read in a later frame
+  without waiting, and puts back every binding it changes. It also keeps a bit for each
+  state that blocks light, 8 KiB, sent again when a state is first met.
+- **Two sizes of node, from the scene's own layout.** A cube whose lookup entry names one
+  state that does not block is passed whole; in a cube with a brick each cell is tested
+  with one 32-bit load. The bricks' coarser bits are not read: a walk that also passed
+  blocks of two cells a side by them was built first, and set aside on 2026-11-19 by the
+  user's decision after the patent search of research R4, 7.8a. Leaving a node, the nearest
+  of its far faces is crossed, x before y before z on equal distances.
+- **To the bit.** Every distance is worked out afresh as `(face - origin) * inverse` from a
+  whole-numbered face, marked `precise`, and never accumulated; after a node is passed the
+  ray's cell on the other two axes is found by the same crossing test a walk of single
+  cells makes. The walk by nodes therefore ends in the cell, at the distance to the bit,
+  where a walk of single cells ends, and since the program reads the inverse direction the
+  CPU reads back, the GPU's results can be compared with `BrickTrace`'s word for word.
+- **How a ray ends:** in the first cell that blocks light (at distance 0 if it began in
+  one); at the first cube nothing is known of, which never reads as empty; on leaving the
+  box; where the next face lies past its length; or after 4,096 nodes.
+- **Beyond radius 12.** The lookup is sized by the box, `(2r + 1)²` by `(2v + 1)` cubes,
+  and made anew when the reach changes, so radii 16 and 20 need no other scheme: a cell is
+  packed in ten bits an axis and a slot in 24, enough for a reach of 31 cubes. What grows
+  is the room taken for a brick for every cube of the box: at a vertical radius of 12 the
+  lookup and bricks take 8.6, 15.0 and 23.1 MiB at radii 12, 16 and 20, with at most 5,863,
+  10,969 and 17,401 bricks in use over the dwell tour. The trace's rate barely depends on the
+  radius (VERIFICATION, rays through the scene).
+- **Each cell's state is what outgrows the budget**, not the bricks. With room for every
+  cube, the states of 5.1 add 69, 120 and 185 MiB at radii 12, 16 and 20 (126 MiB at radius
+  20 with a vertical radius of 8), against the 128 MiB the shading pool allows for materials
+  and visibility. Sized to one and a half times the most bricks seen at radius 20 they still
+  take about 115 MiB, the lookup and bricks besides. MAX keeps the states within radius 12
+  and the bricks alone out to 20: 69 MiB, or 39 MiB sized to the bricks seen, and 23 MiB of
+  bricks. The trace needs no state at all. **Default;** only forest has been measured.
+- **What a batch costs** on an RTX 3060: two million probe rays, whose directions spread
+  over the sphere, take 1.1, 4.9 and 12.2 ms at lengths of 16, 64 and 256 blocks; two
+  million rays toward a low sun, side by side and parallel, 1.4, 3.6 and 5.4 ms. Incoherent
+  rays pass well under half as many nodes a second as coherent ones. Batches of 65,536 rays
+  leave the card partly idle. The earlier walk, which also passed blocks of two cells a side
+  by the coarser bits, visited 57 to 75% of the nodes; probe rays took 0.77 to 0.93 times as
+  long with it, rays toward the sun 0.82 to 1.27 times (VERIFICATION, rays through the scene).
+- **The CPU never reads a buffer a trace reads.** A buffer read back is kept by the driver
+  in host memory for a while, and probe rays traced from it took three to twelve times as
+  long, coherent rays barely longer. The benchmark reads back only staging buffers filled by
+  copies on the GPU; the scene's buffers so used trace as fast as a copy the CPU never sees.
+  The light scene check reads them back directly and slows a trace that follows it.
+
+**For the tiers** (12.1), measured on the RTX 3060, a card of the lowest speed cluster:
+
+| Tier | Indirect light | Its cost, whole update | Far shadows |
+|---|---|---|---|
+| LOW | An ambient term | | None |
+| MEDIUM | 16x8x16 probes, 32 rays of 64 blocks, all every frame | 0.22 ms | None |
+| HIGH | 32x8x32 probes, 64 rays of 64 blocks, a quarter of the probes a frame | 1.45 ms, 0.36 ms a frame | None |
+| MAX | Two cascades of 32x8x32 probes, 128 rays: 64 blocks for the one 4 blocks apart, 256 for the one 16 apart, a quarter a frame | about 8.5 ms, 2.1 ms a frame | A march toward the light from pixels the near layer of the light's depth does not cover, inside the box: 2.6 ms a million rays at a low sun |
+
+MEDIUM's cost was measured at radius 16. Rays of 256 blocks cost 2.4 to 2.5 times those of
+64 for probes. The bricks reach only the
+near box, 320 blocks at radius 20, so far shadows past it need distant terrain's own data
+(section 8). **Default;** the tier benchmark (D22) places each card and scales these.
+
 ## 6. Near terrain
 
 ### 6.1 Geometry
@@ -996,6 +1066,11 @@ The values below are starting points for the groups that dominate cost, at 1440p
 | Indirect light | An ambient term | Probes, 16x8x16, 32 rays | 32x8x32, 64 rays | Two probe cascades, 128 rays |
 | Fog and clouds | Height fog; a cloud layer | 160x90x64 fog cells; volumetric clouds at quarter resolution, 32 to 64 steps | 160x90x128; 64 to 128 steps | 8-pixel cells by 128; half resolution, 96 to 160 steps |
 
+The rays indirect light and far shadows share were measured through the occupancy bricks
+(5.2): on an RTX 3060 MEDIUM's probe update takes 0.22 ms whole, HIGH's 1.45 ms, MAX's two
+cascades about 8.5 ms, and MAX's far shadows 2.6 ms a million rays toward a low sun; HIGH and
+MAX spread their updates over frames.
+
 Some work is a precondition of a tier rather than a setting in it. Every tier needs the
 light's depth redrawn spread over frames: one layer already peaks at 6.5 ms on the frames
 that draw it. HIGH also needs the near layer scrolled and spread over frames, which took the
@@ -1032,7 +1107,7 @@ radii are not measured; the runs held 12, or 8 at radius 8.
 | Ringed distant terrain with shared mesher | Default | Memory per square kilometer |
 | Far-field representation | Candidate | The same |
 | Deferred shading with clustered lights | Default | Phase 5 prototype |
-| Far shadows, indirect light | Candidate | Phase 5 prototypes |
+| Far shadows, indirect light | Candidate; the trace they share through the bricks built and measured (5.2) | Phase 5 prototypes |
 | Shader format | Candidate | Two concrete shaders |
 | Driver floor R580, a warning below the production branch | Decided (D20); not built | |
 | Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); not built | PLAN.md, capability and tier work |

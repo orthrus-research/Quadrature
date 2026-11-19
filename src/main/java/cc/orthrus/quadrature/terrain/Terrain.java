@@ -178,6 +178,8 @@ public final class Terrain
     /** A diagnostic, off unless {@code -Dquadrature.scene.check=true}: the buffers are read back and set beside the scene. */
     private static final boolean SCENE_CHECK = SCENE_GPU && Boolean.getBoolean("quadrature.scene.check");
     private final SceneBuffers sceneBuffers = SCENE_GPU ? new SceneBuffers(scene, SCENE_STATES, SCENE_CHECK) : null;
+    /** Off unless {@code -Dquadrature.rays.bench=true}: rays traced through the scene's buffers and timed. */
+    private final cc.orthrus.quadrature.rays.RayBench rayBench = cc.orthrus.quadrature.rays.RayBench.create();
     /** Cubature's threads for building, which this terrain hands every mesh to. */
     private final IClientBuildWork work;
     /** Meshers not building now; a build takes one, or makes one, and gives it back. */
@@ -1255,6 +1257,9 @@ public final class Terrain
         if (sceneBuffers != null) {
             sceneBuffers.update(mainView.originCubeX(), mainView.originCubeY(), mainView.originCubeZ(), mainView.across(),
                 mainView.upward());
+        }
+        if (rayBench != null) {
+            rayBench.frame(mainView, partialTicks, caughtUp());
         }
         lastPlaceNanos = placeNanosThisFrame;
         if (placeNanosThisFrame > mostPlaceNanos) {
