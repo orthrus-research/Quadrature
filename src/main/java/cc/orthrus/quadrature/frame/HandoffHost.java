@@ -16,6 +16,7 @@ import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 
 /**
@@ -60,8 +61,8 @@ public final class HandoffHost {
             return;
         }
         if (world != minecraft.world) {
-            if (world != null) {
-                handoff.worldChanged();
+            if (world != null && !contain("a world change", handoff::worldChanged)) {
+                return;
             }
             world = minecraft.world;
         }
@@ -71,22 +72,35 @@ public final class HandoffHost {
             stop();
             return;
         }
-        try {
-            handoff.frame(new Handoff.Frame(frames++, framebuffer.framebufferObject, framebuffer.framebufferTexture,
-                framebuffer.depthBuffer, framebuffer.framebufferWidth, framebuffer.framebufferHeight));
-        } catch (RuntimeException e) {
-            Quadrature.LOGGER.error("The handoff failed and is turned off; the frame goes on without it.", e);
-            stop();
-            return;
+        Handoff.Frame frame = new Handoff.Frame(frames++, framebuffer.framebufferObject, framebuffer.framebufferTexture,
+            framebuffer.depthBuffer, framebuffer.framebufferWidth, framebuffer.framebufferHeight);
+        if (contain("a frame", () -> handoff.frame(frame))) {
+            resizeFault(minecraft);
         }
-        resizeFault(minecraft);
+    }
+
+    /**
+     * Runs a call into the handoff, turning the handoff off when it throws. Errors are kept in too: the game
+     * answers an {@link OutOfMemoryError}, which is also how LWJGL reports a full thread stack, by dropping the
+     * world, and a {@link LinkageError} from a module built against something else would end the client.
+     * Returns whether the handoff is still on.
+     */
+    private static boolean contain(String what, Runnable call) {
+        try {
+            call.run();
+            return true;
+        } catch (RuntimeException | LinkageError | OutOfMemoryError e) {
+            Quadrature.LOGGER.error("The handoff failed in {} and is turned off; the frame goes on without it.", what, e);
+            stop();
+            return false;
+        }
     }
 
     /** The client's world goes; a handoff that keeps images across worlds is told before the next one comes. */
     @SubscribeEvent
     public static void worldUnloaded(WorldEvent.Unload event) {
         if (handoff != null && !stopped && event.getWorld() == world) {
-            handoff.worldChanged();
+            contain("a world change", handoff::worldChanged);
             world = null;
         }
     }
@@ -105,7 +119,25 @@ public final class HandoffHost {
             Quadrature.LOGGER.error("The handoff's folder {} could not be made; it is turned off.", folder, e);
             return false;
         }
-        String reason = found.open(new Handoff.Host() {
+        String reason;
+        try {
+            reason = found.open(host(folder));
+        } catch (RuntimeException | LinkageError | OutOfMemoryError e) {
+            Quadrature.LOGGER.error("The {} failed to open; the frame goes on without it.", found.name(), e);
+            return false;
+        }
+        if (reason != null) {
+            Quadrature.LOGGER.warn("The {} cannot run, so the frame goes on without it: {}", found.name(), reason);
+            return false;
+        }
+        handoff = found;
+        resizeAt = Long.getLong(SWITCH + ".resizeAt", -1L);
+        MinecraftForge.EVENT_BUS.register(HandoffHost.class);
+        return true;
+    }
+
+    private static Handoff.Host host(Path folder) {
+        return new Handoff.Host() {
             @Override
             public void info(String message) {
                 Quadrature.LOGGER.info(message);
@@ -125,15 +157,7 @@ public final class HandoffHost {
             public Path outputDirectory() {
                 return folder;
             }
-        });
-        if (reason != null) {
-            Quadrature.LOGGER.warn("The {} cannot run, so the frame goes on without it: {}", found.name(), reason);
-            return false;
-        }
-        handoff = found;
-        resizeAt = Long.getLong(SWITCH + ".resizeAt", -1L);
-        MinecraftForge.EVENT_BUS.register(HandoffHost.class);
-        return true;
+        };
     }
 
     /**
@@ -162,8 +186,13 @@ public final class HandoffHost {
     }
 
     private static Handoff first(ServiceLoader<Handoff> services) {
-        Iterator<Handoff> iterator = services.iterator();
-        return iterator.hasNext() ? iterator.next() : null;
+        try {
+            Iterator<Handoff> iterator = services.iterator();
+            return iterator.hasNext() ? iterator.next() : null;
+        } catch (ServiceConfigurationError | LinkageError e) {
+            Quadrature.LOGGER.error("The handoff's module could not be loaded.", e);
+            return null;
+        }
     }
 
     /** Changes the window and changes it back, at the frames the settings name. */
@@ -200,7 +229,7 @@ public final class HandoffHost {
         if (handoff != null) {
             try {
                 handoff.close();
-            } catch (RuntimeException e) {
+            } catch (RuntimeException | LinkageError | OutOfMemoryError e) {
                 Quadrature.LOGGER.error("The handoff failed while closing.", e);
             }
             handoff = null;

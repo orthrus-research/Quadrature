@@ -24,6 +24,18 @@ dependencies {
     compileOnly "org.lwjgl:lwjgl:${lwjgl}"
     compileOnly "org.lwjgl:lwjgl-opengl:${lwjgl}"
     embedded "org.lwjgl:lwjgl-vulkan:${lwjgl}"
+    // The module's tests need no GPU, but LWJGL's memory functions need its native library; the module is
+    // Windows-only, as its Win32 handles are.
+    testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation "org.lwjgl:lwjgl:${lwjgl}"
+    testRuntimeOnly "org.lwjgl:lwjgl:${lwjgl}:natives-windows"
+}
+
+test {
+    useJUnitPlatform()
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+    testLogging { events 'failed', 'skipped'; exceptionFormat = 'full' }
 }
 
 // The LWJGL release the binding was built against, compared at run time with the core LWJGL the game

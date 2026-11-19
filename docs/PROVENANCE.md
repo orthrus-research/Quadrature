@@ -639,8 +639,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 
 ### Images and semaphores shared between OpenGL and Vulkan
 - Code: `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/SharedImage.java`,
-  `SharedSemaphores.java`, `StandIn.java`, `Win32.java`, `Gl.java`, and the round trip in
-  `VulkanHandoff.java`
+  `SharedSemaphores.java`, `StandIn.java`, `Win32.java`, `Gl.java`, `Enumerations.java`, and the
+  round trip in `VulkanHandoff.java`; `core/src/main/java/cc/orthrus/quadrature/core/handoff/SharedImageSizes.java`
 - Source: Khronos, `EXT_external_objects` (memory objects, textures from memory, tiling, the
   dedicated parameter, semaphore signal and wait with layouts, issues 9, 13, 17 to 19),
   `EXT_external_objects_win32` (handle import, ownership), `NV_timeline_semaphore` (type,

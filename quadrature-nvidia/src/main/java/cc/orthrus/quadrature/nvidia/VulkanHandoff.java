@@ -10,6 +10,7 @@ import cc.orthrus.quadrature.core.handoff.HandoffSchedule;
 import cc.orthrus.quadrature.core.handoff.HandoffSchedule.Phase;
 import cc.orthrus.quadrature.core.handoff.RenderSize;
 import cc.orthrus.quadrature.core.handoff.Samples;
+import cc.orthrus.quadrature.core.handoff.SharedImageSizes;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.EXTMemoryObject;
@@ -213,9 +214,15 @@ public final class VulkanHandoff implements Handoff {
                 recreateOnWorldChange ? "images made again" : "images kept", availableAtOpenKiB / 1024,
                 availableWithDeviceKiB / 1024));
             return null;
-        } catch (RuntimeException | IOException e) {
-            String reason = e.getMessage() == null ? e.toString() : e.getMessage();
-            close();
+        } catch (RuntimeException | IOException | OutOfMemoryError | LinkageError e) {
+            // No error leaves open(): the game answers an OutOfMemoryError, which is also how LWJGL reports a full
+            // thread stack, by dropping the world, and a LinkageError would end the client.
+            String reason = e.toString();
+            try {
+                close();
+            } catch (RuntimeException | OutOfMemoryError | LinkageError cleanup) {
+                reason += " (and closing failed: " + cleanup + ")";
+            }
             return reason;
         }
     }
@@ -452,16 +459,22 @@ public final class VulkanHandoff implements Handoff {
             // A texture's storage takes a sized format; the unsized one is taken as 24 bits on both sides.
             depthFormat = 0x81A6;
         }
-        RenderSize render = RenderSize.of(frame.width(), frame.height(), scale);
+        // Every size is checked before anything is allocated, so a wrong one is refused with its numbers.
+        SharedImageSizes sizes = SharedImageSizes.of(frame.width(), frame.height(), scale, depthFormats[2]);
+        String refusal = sizes.refusal();
+        if (refusal != null) {
+            throw new IllegalStateException(refusal);
+        }
+        RenderSize render = sizes.render();
         try {
             color = new SharedImage(vulkan, SharedImage.Role.COLOR, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, GL30.GL_RGBA16F,
-                render.width(), render.height(), false, false);
+                render.width(), render.height(), SharedImageSizes.COLOR_TEXEL, false, false);
             depth = new SharedImage(vulkan, SharedImage.Role.DEPTH, depthFormats[0], depthFormat, render.width(),
-                render.height(), true, depthFormats[1] != 0);
+                render.height(), depthFormats[2], true, depthFormats[1] != 0);
             motion = new SharedImage(vulkan, SharedImage.Role.MOTION, VK10.VK_FORMAT_R16G16_SFLOAT, GL30.GL_RG16F,
-                render.width(), render.height(), false, false);
+                render.width(), render.height(), SharedImageSizes.MOTION_TEXEL, false, false);
             output = new SharedImage(vulkan, SharedImage.Role.OUTPUT, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, GL30.GL_RGBA16F,
-                frame.width(), frame.height(), false, false);
+                frame.width(), frame.height(), SharedImageSizes.OUTPUT_TEXEL, false, false);
         } catch (RuntimeException e) {
             releaseImages();
             throw e;
@@ -472,9 +485,9 @@ public final class VulkanHandoff implements Handoff {
         long elapsed = System.nanoTime() - start;
         long availableAfter = availableKiB();
         long total = color.size() + depth.size() + motion.size() + output.size();
-        imageReport = String.format(Locale.ROOT, "render %s, output %dx%d; %s; %s; %s; %s; %.2f MiB in all", render,
-            frame.width(), frame.height(), color.describe(), depth.describe(), motion.describe(), output.describe(),
-            total / 1048576.0);
+        imageReport = String.format(Locale.ROOT, "render %s, output %dx%d; %s; %s; %s; %s; %.2f MiB in all (texels %.2f MiB)",
+            render, frame.width(), frame.height(), color.describe(), depth.describe(), motion.describe(), output.describe(),
+            total / 1048576.0, sizes.total() / 1048576.0);
         recreations++;
         checkDue = true;
         event(String.format(Locale.ROOT, "Images %s in %.2f ms: %s. GPU memory available %d to %d MiB; Vulkan reports %s of "
@@ -482,15 +495,15 @@ public final class VulkanHandoff implements Handoff {
             availableBefore / 1024, availableAfter / 1024, mib(vulkan.deviceLocalUsage())));
     }
 
-    /** The Vulkan format matching the game's depth renderbuffer, and whether it has stencil. */
+    /** The Vulkan format matching the game's depth renderbuffer, whether it has stencil, and its texel's bytes. */
     private static int[] depthFormats(int glFormat) {
         return switch (glFormat) {
-            case GL30.GL_DEPTH24_STENCIL8 -> new int[]{VK10.VK_FORMAT_D24_UNORM_S8_UINT, 1};
-            case GL30.GL_DEPTH32F_STENCIL8 -> new int[]{VK10.VK_FORMAT_D32_SFLOAT_S8_UINT, 1};
+            case GL30.GL_DEPTH24_STENCIL8 -> new int[]{VK10.VK_FORMAT_D24_UNORM_S8_UINT, 1, 4};
+            case GL30.GL_DEPTH32F_STENCIL8 -> new int[]{VK10.VK_FORMAT_D32_SFLOAT_S8_UINT, 1, 8};
             case GL11.GL_DEPTH_COMPONENT /* unsized: taken as 24 bits */, 0x81A6 /* GL_DEPTH_COMPONENT24 */ ->
-                new int[]{VK10.VK_FORMAT_X8_D24_UNORM_PACK32, 0};
-            case GL30.GL_DEPTH_COMPONENT32F -> new int[]{VK10.VK_FORMAT_D32_SFLOAT, 0};
-            case 0x81A5 /* GL_DEPTH_COMPONENT16 */ -> new int[]{VK10.VK_FORMAT_D16_UNORM, 0};
+                new int[]{VK10.VK_FORMAT_X8_D24_UNORM_PACK32, 0, 4};
+            case GL30.GL_DEPTH_COMPONENT32F -> new int[]{VK10.VK_FORMAT_D32_SFLOAT, 0, 4};
+            case 0x81A5 /* GL_DEPTH_COMPONENT16 */ -> new int[]{VK10.VK_FORMAT_D16_UNORM, 0, 2};
             default -> throw new IllegalStateException("The game's depth buffer has format 0x" + Integer.toHexString(glFormat)
                 + ", which the handoff does not map to Vulkan.");
         };

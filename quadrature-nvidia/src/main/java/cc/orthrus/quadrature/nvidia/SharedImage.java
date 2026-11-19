@@ -11,6 +11,8 @@ import static org.lwjgl.vulkan.VK11.VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
 import static org.lwjgl.vulkan.VK11.vkGetImageMemoryRequirements2;
 import static org.lwjgl.vulkan.VK11.vkGetPhysicalDeviceImageFormatProperties2;
 
+import cc.orthrus.quadrature.core.handoff.SharedImageSizes;
+
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.opengl.EXTMemoryObject;
 import org.lwjgl.opengl.EXTMemoryObjectWin32;
@@ -69,7 +71,8 @@ final class SharedImage implements AutoCloseable {
     int glTexture;
     int glFramebuffer;
 
-    SharedImage(VulkanDevice vulkan, Role role, int vkFormat, int glFormat, int width, int height, boolean depth,
+    /** @param texel bytes a texel of the format takes, which bounds the allocation the driver may ask for */
+    SharedImage(VulkanDevice vulkan, Role role, int vkFormat, int glFormat, int width, int height, int texel, boolean depth,
                 boolean stencil) {
         this.vulkan = vulkan;
         this.role = role;
@@ -79,6 +82,7 @@ final class SharedImage implements AutoCloseable {
         this.height = height;
         this.depth = depth;
         this.stencil = stencil;
+        this.texelBytes = (long) width * height * texel;
         try (MemoryStack stack = stackPush()) {
             create(stack);
         } catch (RuntimeException e) {
@@ -88,6 +92,7 @@ final class SharedImage implements AutoCloseable {
         }
     }
 
+    private final long texelBytes;
     private int usage;
     private long size;
     private boolean dedicatedRequired;
@@ -120,6 +125,10 @@ final class SharedImage implements AutoCloseable {
         vkGetImageMemoryRequirements2(vulkan.device,
             VkImageMemoryRequirementsInfo2.calloc(stack).sType$Default().image(image), requirements);
         size = requirements.memoryRequirements().size();
+        String refusal = SharedImageSizes.allocationRefusal(role.name().toLowerCase(java.util.Locale.ROOT), size, texelBytes);
+        if (refusal != null) {
+            throw new IllegalStateException(refusal);
+        }
         dedicatedRequired = dedicated.requiresDedicatedAllocation();
         dedicatedPreferred = dedicated.prefersDedicatedAllocation();
 

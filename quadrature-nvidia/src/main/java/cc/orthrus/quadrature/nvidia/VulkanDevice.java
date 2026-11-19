@@ -18,6 +18,7 @@ import org.lwjgl.vulkan.EXTMemoryBudget;
 import org.lwjgl.vulkan.KHRCalibratedTimestamps;
 import org.lwjgl.vulkan.KHRExternalMemoryWin32;
 import org.lwjgl.vulkan.KHRExternalSemaphoreWin32;
+import org.lwjgl.vulkan.VK10;
 import org.lwjgl.vulkan.VK13;
 import org.lwjgl.vulkan.VkApplicationInfo;
 import org.lwjgl.vulkan.VkCalibratedTimestampInfoKHR;
@@ -27,10 +28,8 @@ import org.lwjgl.vulkan.VkDebugUtilsMessengerCreateInfoEXT;
 import org.lwjgl.vulkan.VkDevice;
 import org.lwjgl.vulkan.VkDeviceCreateInfo;
 import org.lwjgl.vulkan.VkDeviceQueueCreateInfo;
-import org.lwjgl.vulkan.VkExtensionProperties;
 import org.lwjgl.vulkan.VkInstance;
 import org.lwjgl.vulkan.VkInstanceCreateInfo;
-import org.lwjgl.vulkan.VkLayerProperties;
 import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkPhysicalDeviceFeatures2;
 import org.lwjgl.vulkan.VkPhysicalDeviceIDProperties;
@@ -45,7 +44,6 @@ import org.lwjgl.vulkan.VkQueueFamilyProperties;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -105,8 +103,10 @@ final class VulkanDevice implements AutoCloseable {
     VulkanDevice(Handoff.Host host, List<DeviceIdentity> glDevices, String policy, String queueKind,
                  boolean wantValidation) {
         try (MemoryStack stack = stackPush()) {
-            Set<String> layers = instanceLayers(stack);
-            Set<String> instanceExtensions = instanceExtensions(stack);
+            Set<String> layers = Enumerations.layerNames("vkEnumerateInstanceLayerProperties",
+                VK10::vkEnumerateInstanceLayerProperties);
+            Set<String> instanceExtensions = Enumerations.extensionNames("vkEnumerateInstanceExtensionProperties",
+                (count, properties) -> vkEnumerateInstanceExtensionProperties((java.nio.ByteBuffer) null, count, properties));
             validation = wantValidation && layers.contains(VALIDATION)
                 && instanceExtensions.contains(EXTDebugUtils.VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             if (wantValidation && !validation) {
@@ -155,7 +155,9 @@ final class VulkanDevice implements AutoCloseable {
             physical = pick.device();
             queueFamily = queueFamily(physical, queueKind);
             try (MemoryStack stack = stackPush()) {
-                Set<String> available = deviceExtensions(stack, physical);
+                Set<String> available = Enumerations.extensionNames("vkEnumerateDeviceExtensionProperties",
+                    (count, properties) -> vkEnumerateDeviceExtensionProperties(physical, (java.nio.ByteBuffer) null, count,
+                        properties));
                 List<String> wanted = new ArrayList<>(List.of(
                     KHRExternalMemoryWin32.VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
                     KHRExternalSemaphoreWin32.VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME));
@@ -230,44 +232,65 @@ final class VulkanDevice implements AutoCloseable {
     }
 
     private List<Candidate> candidates(List<DeviceIdentity> glDevices) {
+        PointerBuffer handles = null;
         try (MemoryStack stack = stackPush()) {
             IntBuffer count = stack.mallocInt(1);
             check(vkEnumeratePhysicalDevices(instance, count, null), "vkEnumeratePhysicalDevices");
-            PointerBuffer handles = stack.mallocPointer(count.get(0));
+            int devices = Enumerations.bounded("vkEnumeratePhysicalDevices", count.get(0));
+            handles = org.lwjgl.system.MemoryUtil.memAllocPointer(devices);
             check(vkEnumeratePhysicalDevices(instance, count, handles), "vkEnumeratePhysicalDevices");
             List<Candidate> found = new ArrayList<>();
-            for (int i = 0; i < count.get(0); i++) {
-                VkPhysicalDevice physicalDevice = new VkPhysicalDevice(handles.get(i), instance);
-                VkPhysicalDeviceIDProperties ids = VkPhysicalDeviceIDProperties.calloc(stack).sType$Default();
-                VkPhysicalDeviceProperties2 properties = VkPhysicalDeviceProperties2.calloc(stack).sType$Default()
-                    .pNext(ids.address());
-                vkGetPhysicalDeviceProperties2(physicalDevice, properties);
-                byte[] deviceUuid = new byte[VK_UUID_SIZE];
-                byte[] driverUuid = new byte[VK_UUID_SIZE];
-                ids.deviceUUID().get(0, deviceUuid);
-                ids.driverUUID().get(0, driverUuid);
-                byte[] luid = null;
-                if (ids.deviceLUIDValid()) {
-                    luid = new byte[VK_LUID_SIZE];
-                    ids.deviceLUID().get(0, luid);
-                }
-                DeviceIdentity identity = new DeviceIdentity(deviceUuid, driverUuid, luid,
-                    ids.deviceLUIDValid() ? ids.deviceNodeMask() : 0);
-                found.add(new Candidate(physicalDevice, properties.properties().deviceNameString(),
-                    properties.properties().deviceType(), properties.properties().apiVersion(),
-                    properties.properties().driverVersion(), identity, DeviceIdentity.mismatch(glDevices, identity)));
+            for (int i = 0; i < Math.min(devices, count.get(0)); i++) {
+                found.add(candidate(new VkPhysicalDevice(handles.get(i), instance), glDevices));
             }
             return found;
+        } finally {
+            if (handles != null) {
+                org.lwjgl.system.MemoryUtil.memFree(handles);
+            }
+        }
+    }
+
+    /** One device's identity and properties, each read in a stack frame of its own. */
+    private static Candidate candidate(VkPhysicalDevice physicalDevice, List<DeviceIdentity> glDevices) {
+        try (MemoryStack stack = stackPush()) {
+            VkPhysicalDeviceIDProperties ids = VkPhysicalDeviceIDProperties.calloc(stack).sType$Default();
+            VkPhysicalDeviceProperties2 properties = VkPhysicalDeviceProperties2.calloc(stack).sType$Default()
+                .pNext(ids.address());
+            vkGetPhysicalDeviceProperties2(physicalDevice, properties);
+            byte[] deviceUuid = new byte[VK_UUID_SIZE];
+            byte[] driverUuid = new byte[VK_UUID_SIZE];
+            ids.deviceUUID().get(0, deviceUuid);
+            ids.driverUUID().get(0, driverUuid);
+            byte[] luid = null;
+            if (ids.deviceLUIDValid()) {
+                luid = new byte[VK_LUID_SIZE];
+                ids.deviceLUID().get(0, luid);
+            }
+            DeviceIdentity identity = new DeviceIdentity(deviceUuid, driverUuid, luid,
+                ids.deviceLUIDValid() ? ids.deviceNodeMask() : 0);
+            return new Candidate(physicalDevice, properties.properties().deviceNameString(),
+                properties.properties().deviceType(), properties.properties().apiVersion(),
+                properties.properties().driverVersion(), identity, DeviceIdentity.mismatch(glDevices, identity));
+        }
+    }
+
+    /** The device's queue families, in memory the caller frees. */
+    private static VkQueueFamilyProperties.Buffer families(VkPhysicalDevice physical) {
+        try (MemoryStack stack = stackPush()) {
+            IntBuffer count = stack.mallocInt(1);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, count, null);
+            VkQueueFamilyProperties.Buffer families = VkQueueFamilyProperties.malloc(
+                Enumerations.bounded("vkGetPhysicalDeviceQueueFamilyProperties", count.get(0)));
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, count, families);
+            return families.limit(Math.min(families.capacity(), count.get(0)));
         }
     }
 
     private static int queueFamily(VkPhysicalDevice physical, String kind) {
-        try (MemoryStack stack = stackPush()) {
-            IntBuffer count = stack.mallocInt(1);
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, count, null);
-            VkQueueFamilyProperties.Buffer families = VkQueueFamilyProperties.malloc(count.get(0), stack);
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, count, families);
-            for (int i = 0; i < families.capacity(); i++) {
+        VkQueueFamilyProperties.Buffer families = families(physical);
+        try {
+            for (int i = 0; i < families.limit(); i++) {
                 int flags = families.get(i).queueFlags();
                 boolean compute = (flags & VK_QUEUE_COMPUTE_BIT) != 0;
                 boolean graphics = (flags & VK_QUEUE_GRAPHICS_BIT) != 0;
@@ -276,17 +299,18 @@ final class VulkanDevice implements AutoCloseable {
                 }
             }
             throw new IllegalStateException("The Vulkan device has no " + kind + " queue family with timestamps.");
+        } finally {
+            families.free();
         }
     }
 
     private static long timestampMask(VkPhysicalDevice physical, int family) {
-        try (MemoryStack stack = stackPush()) {
-            IntBuffer count = stack.mallocInt(1);
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, count, null);
-            VkQueueFamilyProperties.Buffer families = VkQueueFamilyProperties.malloc(count.get(0), stack);
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, count, families);
+        VkQueueFamilyProperties.Buffer families = families(physical);
+        try {
             int bits = families.get(family).timestampValidBits();
             return bits >= 64 ? -1L : (1L << bits) - 1;
+        } finally {
+            families.free();
         }
     }
 
@@ -343,40 +367,6 @@ final class VulkanDevice implements AutoCloseable {
             }
             return used;
         }
-    }
-
-    private static Set<String> instanceLayers(MemoryStack stack) {
-        IntBuffer count = stack.mallocInt(1);
-        check(vkEnumerateInstanceLayerProperties(count, null), "vkEnumerateInstanceLayerProperties");
-        VkLayerProperties.Buffer layers = VkLayerProperties.malloc(count.get(0), stack);
-        check(vkEnumerateInstanceLayerProperties(count, layers), "vkEnumerateInstanceLayerProperties");
-        Set<String> names = new HashSet<>();
-        layers.forEach(layer -> names.add(layer.layerNameString()));
-        return names;
-    }
-
-    private static Set<String> instanceExtensions(MemoryStack stack) {
-        IntBuffer count = stack.mallocInt(1);
-        check(vkEnumerateInstanceExtensionProperties((java.nio.ByteBuffer) null, count, null),
-            "vkEnumerateInstanceExtensionProperties");
-        VkExtensionProperties.Buffer extensions = VkExtensionProperties.malloc(count.get(0), stack);
-        check(vkEnumerateInstanceExtensionProperties((java.nio.ByteBuffer) null, count, extensions),
-            "vkEnumerateInstanceExtensionProperties");
-        Set<String> names = new HashSet<>();
-        extensions.forEach(extension -> names.add(extension.extensionNameString()));
-        return names;
-    }
-
-    private static Set<String> deviceExtensions(MemoryStack stack, VkPhysicalDevice physical) {
-        IntBuffer count = stack.mallocInt(1);
-        check(vkEnumerateDeviceExtensionProperties(physical, (java.nio.ByteBuffer) null, count, null),
-            "vkEnumerateDeviceExtensionProperties");
-        VkExtensionProperties.Buffer extensions = VkExtensionProperties.malloc(count.get(0), stack);
-        check(vkEnumerateDeviceExtensionProperties(physical, (java.nio.ByteBuffer) null, count, extensions),
-            "vkEnumerateDeviceExtensionProperties");
-        Set<String> names = new HashSet<>();
-        extensions.forEach(extension -> names.add(extension.extensionNameString()));
-        return names;
     }
 
     static String typeName(int type) {
