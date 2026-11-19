@@ -31,6 +31,7 @@ import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSource;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSourceListener;
 
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ShortOpenHashMap;
@@ -313,6 +314,33 @@ public final class Terrain
     /** Cubes found empty from what the source knows, with no snapshot. */
     private long emptyUnread;
     private long leftForNeighbor;
+
+    /**
+     * {@code -Dquadrature.terrain.causes=true}: why each cube was handed in to be built, and whether a rebuild drew
+     * anything other than the mesh it replaced. Events since a cube's last hand-in are kept as bits; a hand-in is
+     * counted under the first of load, resend, blocks, light, biomes and neighbor it carries.
+     */
+    private static final boolean CAUSES = Boolean.getBoolean("quadrature.terrain.causes");
+    private static final String[] CAUSE_NAMES = {"load", "resend", "blocks", "light", "biomes", "neighbor"};
+    private final Long2ByteOpenHashMap causes = new Long2ByteOpenHashMap();
+    private final Long2ByteOpenHashMap buildCauses = new Long2ByteOpenHashMap();
+    /** Events by cause, as the cube source reported them. */
+    private final long[] causeEvents = new long[CAUSE_NAMES.length];
+    /** Hand-ins by their first cause, and those with none recorded (a build given again its place in the order). */
+    private final long[] handedInBy = new long[CAUSE_NAMES.length];
+    private long handedInWithout;
+    /** Builds of a cube built before, by first cause, and of them those that draw the same as what they replaced. */
+    private final long[] rebuiltBy = new long[CAUSE_NAMES.length];
+    private final long[] sameBy = new long[CAUSE_NAMES.length];
+
+    private void note(long key, int cause) {
+        causeEvents[cause]++;
+        causes.put(key, (byte) (causes.get(key) | 1 << cause));
+    }
+
+    private static int firstCause(byte bits) {
+        return bits == 0 ? -1 : Integer.numberOfTrailingZeros(bits & 0xFF);
+    }
     private long submitted;
     private long buildFailures;
     /** Builds that came back after a newer one or a decision had been put in place. */
@@ -427,6 +455,9 @@ public final class Terrain
     public void cubeLoaded(int x, int y, int z) {
         long key = CubeKey.of(x, y, z);
         touch(key);
+        if (CAUSES) {
+            note(key, links.containsKey(key) ? 1 : 0);
+        }
         dirty.add(key);
         // Until it is meshed nothing is known of it, so it hides nothing.
         if (!links.containsKey(key)) {
@@ -451,6 +482,10 @@ public final class Terrain
             task.cancel();
         }
         decided.remove(key);
+        if (CAUSES) {
+            causes.remove(key);
+            buildCauses.remove(key);
+        }
         release(meshes.remove(key));
         links.remove(key);
         slots.release(key);
@@ -478,6 +513,15 @@ public final class Terrain
     public void cubeChanged(int x, int y, int z, int kinds, int minX, int minY, int minZ, int maxX, int maxY,
         int maxZ) {
         touch(CubeKey.of(x, y, z));
+        if (CAUSES) {
+            long key = CubeKey.of(x, y, z);
+            for (int kind = 0; kind < 4; kind++) {
+                // BLOCKS, LIGHT, BIOMES and NEIGHBOR are the source's bits 0 to 3, causes 2 to 5 here.
+                if ((kinds & 1 << kind) != 0) {
+                    note(key, kind + 2);
+                }
+            }
+        }
         dirty.add(CubeKey.of(x, y, z));
         unsettle(CubeKey.of(x, y, z));
     }
@@ -494,6 +538,8 @@ public final class Terrain
         }
         tasks.clear();
         decided.clear();
+        causes.clear();
+        buildCauses.clear();
         settled.clear();
         settledVersion++;
         if (scene != null) {
@@ -616,6 +662,10 @@ public final class Terrain
                 task.cancel();
             }
             emptyUnread++;
+            if (CAUSES) {
+                // Settled without a build: what brought it here is spent.
+                causes.remove(key);
+            }
             empty(key, x, y, z, ++sequence);
             return;
         }
@@ -629,6 +679,16 @@ public final class Terrain
         }
         long order = ++sequence;
         long priority = priority(x, y, z);
+        if (CAUSES) {
+            byte bits = causes.remove(key);
+            int cause = firstCause(bits);
+            if (cause < 0) {
+                handedInWithout++;
+            } else {
+                handedInBy[cause]++;
+            }
+            buildCauses.put(key, bits);
+        }
         long began = System.nanoTime();
         tasks.put(key, work.submit(priority, x, y, z, false, IClientBuildWork.STALE_ON_CENTER,
             (snapshot, task) -> build(snapshot, x, y, z, order, task)));
@@ -644,7 +704,12 @@ public final class Terrain
             mesher = new CubeMesher(scene != null, materials, rectangles);
         }
         try {
-            return mesher.build(snapshot, x, y, z, order, task);
+            BuiltCube built = mesher.build(snapshot, x, y, z, order, task);
+            if (CAUSES && built != null) {
+                // Hashed here, on the build's thread, so the client thread only compares.
+                built.content();
+            }
+            return built;
         } finally {
             idleMeshers.offer(mesher);
         }
@@ -760,6 +825,7 @@ public final class Terrain
         int x = built.x;
         int y = built.y;
         int z = built.z;
+        boolean builtBefore = decided.containsKey(key);
         decided.put(key, built.sequence);
         setLinks(key, built.links);
         if (built.census != null) {
@@ -805,6 +871,16 @@ public final class Terrain
             }
         }
         CubeMesh old = meshes.remove(key);
+        if (CAUSES) {
+            int cause = firstCause(buildCauses.remove(key));
+            if (builtBefore && cause >= 0) {
+                rebuiltBy[cause]++;
+                boolean same = old == null ? !built.any : built.any && old.content == built.content();
+                if (same) {
+                    sameBy[cause]++;
+                }
+            }
+        }
         // A mesh of the same shape leaves the light's depth as it was: only its light moved.
         boolean kept = SHADOW && built.any && old != null && old.geometry == built.geometry;
         release(old, !kept);
@@ -869,6 +945,9 @@ public final class Terrain
             }
             mesh.placedAt = meshVersion;
             mesh.geometry = built.geometry;
+            if (CAUSES) {
+                mesh.content = built.content();
+            }
             meshes.put(key, mesh);
             vertices += mesh.vertices();
             bytes += mesh.bytes();
@@ -2108,6 +2187,21 @@ public final class Terrain
             superseded, emptyUnread, sameShape, dirty.size(), lastSubmitNanos / 1e6,
             frames == 0 ? 0.0 : submitNanos / 1e6 / frames, mostSubmitNanos / 1e6, reprioritized, poolNanosThisFrame / 1e6,
             frames == 0 ? 0.0 : poolNanos / 1e6 / frames, mostPoolNanos / 1e6);
+        if (CAUSES) {
+            StringBuilder causeLine = new StringBuilder("; build causes: events");
+            for (int i = 0; i < CAUSE_NAMES.length; i++) {
+                causeLine.append(' ').append(CAUSE_NAMES[i]).append(' ').append(causeEvents[i]);
+            }
+            causeLine.append("; handed in by first cause");
+            for (int i = 0; i < CAUSE_NAMES.length; i++) {
+                causeLine.append(' ').append(CAUSE_NAMES[i]).append(' ').append(handedInBy[i]);
+            }
+            causeLine.append(" none ").append(handedInWithout).append("; rebuilt, and of them drawing the same as before:");
+            for (int i = 0; i < CAUSE_NAMES.length; i++) {
+                causeLine.append(' ').append(CAUSE_NAMES[i]).append(' ').append(rebuiltBy[i]).append('/').append(sameBy[i]);
+            }
+            line += causeLine;
+        }
         if (arena == null) {
             return line + String.format("; own buffers; placing %.3f ms each, %.3f ms last frame, %.3f ms most",
                 placed == 0 ? 0.0 : placeNanos / 1e6 / placed, lastPlaceNanos / 1e6, mostPlaceNanos / 1e6);

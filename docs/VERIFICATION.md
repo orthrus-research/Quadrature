@@ -1031,6 +1031,55 @@ is the median over the run's reports of each report's median, by power state.
   narrowed barrier; each part ran above, the programs in DLSS taking the scaler's picture and the
   barrier here.
 
+### The light scene's slots by place
+
+Measured 2026-11-19 with a jar built from commit e341eb5, own terrain and the scene's buffers
+(`quadrature.scene=true`, `quadrature.scene.gpu=true`) at reach twelve, a box of 15,625 cubes, on
+fresh instances without distant terrain: seed 8675309 at the default scale for Riven's own tours
+of caves (24 views from a chasm down to a lava river) and of water (reef, kelp and waterweed
+underwater, three shallows), and seed 101 for its rock forms (fin arches, tower karst, tsingy,
+hoodoos, basalt), standing in for a built-up area. The most slots in use over each run, against
+6,406 over the forest tour:
+
+| Run | Most slots in use | Held at the captures |
+|---|---|---|
+| Caves | 11,632 | 3,246 above the chasm to 11,632 in the ink-cap cave at y -52; 8,656 to 10,304 at every view from y -150 down to a lava river at -466 |
+| Water | 9,262 | 2,405 to 9,262 |
+| Rock forms | 5,377 | 529 to 5,377, most at the tsingy |
+
+- **A cave system holds most of the box as bricks**, three quarters of it at the worst view: what
+  lies around a deep view is mixed cubes in every direction. One and a half times 11,632 is
+  17,448, more than the box, so the buffers keep room for every cube (ARCHITECTURE 5.1).
+- **The copy kept up**: at the end of each run no cube or entry waited, and the most one frame's
+  copy took on the client thread was 19.7 ms in the caves and 13.2 ms over water.
+### Why cubes are built
+
+Measured 2026-11-19 with a jar built from tree 915d399b (commit e341eb5 and the build causes) on one
+fresh instance of seed 8675309 without distant terrain, own terrain at reach twelve, with
+`quadrature.terrain.causes=true`: eight views of Riven's underground tour at falling depth (the chasm
+from above to a lava river 466 blocks down), then nine of its standard surface views. Each hand-in is
+counted under the first of the events since the cube's last one: its arrival, a resend, a change of
+blocks, light or biomes, or a change of a cube touching it alone (the source's NEIGHBOR, raised when a
+touching cube arrives, leaves or changes at their boundary, and carrying the whole cube). Each
+rebuild's vertices and records are hashed and compared with the mesh it replaced.
+
+| Hand-ins | Underground, 8 views | Surface, 9 views |
+|---|---|---|
+| In all | 156,085 | 136,579 |
+| First builds, the cube's arrival | 68,036 | 53,431 |
+| A touching cube alone | 86,851 | 82,203 |
+| Light | 1,336 | 1,527 |
+| Resends, blocks, biomes | 0 | 0 |
+| Rebuilds after a touching cube that drew the same as before | 76,129 of 83,203 | 71,648 of 78,485 |
+| Rebuilds after light that drew the same | 485 of 1,156 | 628 of 1,262 |
+
+- **About half of all building is redone for nothing.** A touching cube alone brings 56% of the
+  hand-ins underground and 60% at the surface, and 91% of those rebuilds draw exactly what they
+  replace: 49% and 52% of every build, at 1.2 ms each on Cubature's threads.
+- **The source raised 8.3 and 7.8 NEIGHBOR events a cube's arrival** (872,309 and 1,151,114 events
+  for 105,266 and 147,817 arrivals), merged into a cube's pending hand-in where several come before it.
+- **Underground costs more by its volume:** 19,500 hand-ins a view against 15,200 at the surface,
+  as more of the cubes around a cave view are mixed.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1526,6 +1575,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 | `quadrature.rays.bench=true` | With the scene's buffers: at a settled view, traces probe and shadow rays at three lengths in each tier's batch, from the scene's buffers and from a copy on the GPU, and logs GPU times, how the rays ended and the driver's moves of each buffer per set. `quadrature.rays.bench.settle`, `.every` and `.warm` set its seconds (3, 20, 2) |
 | `quadrature.rays.check=true` | With the benchmark: traces a sample of each batch's rays again on the CPU over the buffers read back through staging copies, and logs `RAYS CHECK FAILED` where any word differs |
+| `quadrature.terrain.causes=true` | Counts each cube's hand-in to be built by the first of its causes (arrival, resend, blocks, light, biomes, a touching cube alone) and whether each rebuild drew the same as the mesh it replaced, by a hash of its vertices made on the build's thread; appended to the terrain's summary |
 | `quadrature.rays.fetch=texture` | The trace reads the lookup and bricks through their buffer textures instead of storage blocks |
 
 An out-of-memory error from the game loop is one the game catches itself: it frees what it can,

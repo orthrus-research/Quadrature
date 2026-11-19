@@ -67,6 +67,34 @@ final class BuiltCube {
         this.nanos = nanos;
     }
 
+    /** What the cube draws, hashed; 0 for a cube that draws nothing. Computed once, where it is first asked. */
+    private long content;
+    private boolean contentKnown;
+
+    /**
+     * A hash of every layer's vertices and records with their counts: two builds of a cube that draw the same
+     * have the same value. Asked on the build thread where the diagnostics want it, so the client thread only
+     * compares.
+     */
+    long content() {
+        if (!contentKnown) {
+            long hash = 17;
+            if (any && vertices != null) {
+                for (int layer = 0; layer < vertices.length; layer++) {
+                    hash = hash * 31 + vertexCounts[layer];
+                    hash = hash * 1_000_003 + java.util.Arrays.hashCode(vertices[layer]);
+                    hash = hash * 31 + recordCount(layer);
+                    hash = hash * 1_000_003 + java.util.Arrays.hashCode(records(layer));
+                }
+            } else {
+                hash = 0;
+            }
+            content = hash;
+            contentKnown = true;
+        }
+        return content;
+    }
+
     /** A layer's kept vertices, exactly their bytes; empty where it has none. */
     byte[] vertices(int layer) {
         return vertices[layer];

@@ -38,6 +38,8 @@ final class CubeMesh {
     long placedAt = -1;
     /** What the cube's shape was built from, as {@link BuiltCube#geometry} gives it. */
     long geometry = BuiltCube.NO_GEOMETRY;
+    /** What the mesh draws, hashed ({@link BuiltCube#content}), where the build causes are counted; 0 otherwise. */
+    long content;
 
     CubeMesh(int x, int y, int z) {
         this.x = x;

@@ -575,12 +575,15 @@ the driver and never mapped, each also the store of a buffer texture read with
   numbers: the first holds what the state does to light and three are kept for color.
   Room is taken for every cube of the box: 61.0 MiB of cells, 7.6 MiB of lists and
   0.5 MiB for the table.
-- **Room for every cube is more than is used.** With the lookup and occupancy bricks the
-  buffers take 77.8 MiB, inside the 128 MiB the shading work allows for materials and
-  visibility. The buffers are to be sized to about one and a half times the most slots
-  seen in use, once that has been measured in different places: forest, a cave system, a
-  built-up area, ocean. Only the forest tour has been measured: 6,406 slots at most. The
-  most slots in use is published and logged.
+- **Room for every cube stays.** With the lookup and occupancy bricks the buffers take
+  77.8 MiB, inside the 128 MiB the shading work allows for materials and visibility. The
+  most slots in use at reach twelve (VERIFICATION, the light scene's slots by place): 6,406
+  in forest, 9,262 over reef, kelp and shallows, 5,377 among fins, tower karst and tsingy
+  standing in for a built-up area, and 11,632 in a cave system, where every view from 150
+  blocks below the sea down to a lava river holds 8,656 to 10,304 of the box's 15,625 cubes
+  as bricks. One and a half times the caves' figure is
+  more than the box, so the buffers keep room for every cube. The most slots in use is
+  published and logged.
 - **Copying is bounded:** at most 64 bricks a frame, with their cells and lists, bricks
   before the entries that name them, and the whole lookup in one call when many entries
   change. Cubes are taken from the scene 512 a frame, so that a jump of the box's origin,
