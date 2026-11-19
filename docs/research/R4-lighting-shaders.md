@@ -129,9 +129,12 @@ origin rather than accumulating it, so that its results can be checked against a
 reference to the bit (ARCHITECTURE 5.2). Probe rays and shadow rays are measured apart,
 since the published ratio between incoherent and coherent rays is about two.
 
-*Measured on the RTX 3060 (VERIFICATION, rays through the scene),* with the earlier walk
-that also passed blocks by the coarser bits: at P0 clocks, settled views and radius 20,
-2.1 million rays took 0.92 ms at 16 blocks, 3.9 ms at 64 and 9.3 ms
+*Measured on the RTX 3060 (VERIFICATION, rays through the scene).* The walk as shipped, at
+settled views and radius 20: 2.1 million probe rays took 1.1, 4.9 and 12.2 ms at 16, 64 and
+256 blocks (1,985, 429 and 172 million a second), and rays toward a sun 20 degrees up 1.4,
+3.6 and 5.4 ms (1,550, 591 and 386 million); at 256 blocks they visit 34 and 41 nodes, 5.9
+against 15.6 billion nodes a second. The earlier walk, which also passed blocks by the
+coarser bits, at P0 clocks, settled views and radius 20: 2.1 million rays took 0.92 ms at 16 blocks, 3.9 ms at 64 and 9.3 ms
 at 256 for probe rays (2,290, 534 and 224 million a second), and 1.3, 3.2 and 4.8 ms for
 coherent rays toward a sun 20 degrees up (1,580, 657 and 438 million). At 256 blocks the
 probe rays visit 24 nodes and the coherent ones 26, so the published ratio holds here too:
@@ -250,6 +253,9 @@ level of occupancy bits is the cells'.
 *Decision, 2026-11-19:* the user chose the walk that reads no coarser bit. It replaces the
 walk with coarser bits on the branch in a later commit, history kept: the trace and its CPU
 reference no longer read the bricks' coarser bits, which main line's scene still builds.
+Measured on the GPU afterwards, it visits 1.3 to 1.7 times the nodes and takes 1.07 to 1.30
+times as long for probe rays and 0.79 to 1.22 times for rays toward the sun (VERIFICATION,
+rays through the scene).
 
 ## 8. Shader system
 

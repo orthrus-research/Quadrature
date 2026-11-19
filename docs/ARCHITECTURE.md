@@ -435,14 +435,13 @@ the occupancy bricks of 5.1, the operation indirect light and far shadows both r
   take about 115 MiB, the lookup and bricks besides. MAX keeps the states within radius 12
   and the bricks alone out to 20: 69 MiB, or 39 MiB sized to the bricks seen, and 23 MiB of
   bricks. The trace needs no state at all. **Default;** only forest has been measured.
-- **What a batch costs** on an RTX 3060 at P0 clocks: two million probe rays, whose
-  directions spread over the sphere, take 0.9, 3.9 and 9.3 ms at lengths of 16, 64 and 256
-  blocks; two million rays toward a low sun, side by side and parallel, 1.3, 3.2 and 4.8 ms.
-  Incoherent rays pass half as many nodes a second as coherent ones. Batches of 65,536 rays
-  leave the card partly idle. These figures, and the tiers' below, are the earlier walk's,
-  which also passed blocks by the coarser bits; the walk as it now is reaches the same
-  cells at the same distances visiting about one and a half times the nodes in the unit
-  tests' scenes, and is measured anew.
+- **What a batch costs** on an RTX 3060: two million probe rays, whose directions spread
+  over the sphere, take 1.1, 4.9 and 12.2 ms at lengths of 16, 64 and 256 blocks; two
+  million rays toward a low sun, side by side and parallel, 1.4, 3.6 and 5.4 ms. Incoherent
+  rays pass well under half as many nodes a second as coherent ones. Batches of 65,536 rays
+  leave the card partly idle. The earlier walk, which also passed blocks of two cells a side
+  by the coarser bits, visited 57 to 75% of the nodes; probe rays took 0.77 to 0.93 times as
+  long with it, rays toward the sun 0.82 to 1.27 times (VERIFICATION, rays through the scene).
 - **The CPU never reads a buffer a trace reads.** A buffer read back is kept by the driver
   in host memory for a while, and probe rays traced from it took three to twelve times as
   long, coherent rays barely longer. The benchmark reads back only staging buffers filled by
@@ -454,11 +453,12 @@ the occupancy bricks of 5.1, the operation indirect light and far shadows both r
 | Tier | Indirect light | Its cost, whole update | Far shadows |
 |---|---|---|---|
 | LOW | An ambient term | | None |
-| MEDIUM | 16x8x16 probes, 32 rays of 64 blocks, all every frame | 0.18 ms | None |
-| HIGH | 32x8x32 probes, 64 rays of 64 blocks, a quarter of the probes a frame | 1.19 ms, 0.30 ms a frame | None |
-| MAX | Two cascades of 32x8x32 probes, 128 rays: 64 blocks for the one 4 blocks apart, 256 for the one 16 apart, a quarter a frame | about 6.6 ms, 1.7 ms a frame | A march toward the light from pixels the near layer of the light's depth does not cover, inside the box: 2.3 ms a million rays at a low sun |
+| MEDIUM | 16x8x16 probes, 32 rays of 64 blocks, all every frame | 0.22 ms | None |
+| HIGH | 32x8x32 probes, 64 rays of 64 blocks, a quarter of the probes a frame | 1.45 ms, 0.36 ms a frame | None |
+| MAX | Two cascades of 32x8x32 probes, 128 rays: 64 blocks for the one 4 blocks apart, 256 for the one 16 apart, a quarter a frame | about 8.5 ms, 2.1 ms a frame | A march toward the light from pixels the near layer of the light's depth does not cover, inside the box: 2.6 ms a million rays at a low sun |
 
-Rays of 256 blocks cost 2.1 to 2.4 times those of 64 for probes. The bricks reach only the
+MEDIUM's cost was measured at radius 16. Rays of 256 blocks cost 2.4 to 2.5 times those of
+64 for probes. The bricks reach only the
 near box, 320 blocks at radius 20, so far shadows past it need distant terrain's own data
 (section 8). **Default;** the tier benchmark (D22) places each card and scales these.
 
@@ -1010,8 +1010,8 @@ The values below are starting points for the groups that dominate cost, at 1440p
 | Fog and clouds | Height fog; a cloud layer | 160x90x64 fog cells; volumetric clouds at quarter resolution, 32 to 64 steps | 160x90x128; 64 to 128 steps | 8-pixel cells by 128; half resolution, 96 to 160 steps |
 
 The rays indirect light and far shadows share were measured through the occupancy bricks
-(5.2): on an RTX 3060 MEDIUM's probe update takes 0.18 ms whole, HIGH's 1.19 ms, MAX's two
-cascades about 6.6 ms, and MAX's far shadows 2.3 ms a million rays toward a low sun; HIGH and
+(5.2): on an RTX 3060 MEDIUM's probe update takes 0.22 ms whole, HIGH's 1.45 ms, MAX's two
+cascades about 8.5 ms, and MAX's far shadows 2.6 ms a million rays toward a low sun; HIGH and
 MAX spread their updates over frames.
 
 Some work is a precondition of a tier rather than a setting in it. Every tier needs the

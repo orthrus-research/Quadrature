@@ -827,10 +827,14 @@ results were read back and traced again on the CPU over the buffers the trace re
 | Radius 12, dwell tour, again | 20 | 552,960 | 552,960 | 0 | 0 |
 | Radius 16, dwell tour | 17 | 470,016 | 470,016 | 0 | 0 |
 | Radius 20, dwell tour, again | 12 | 317,952 | 317,952 | 0 | 13,824 |
+| Radius 16, dwell tour, the walk as shipped | 17 | 470,016 | 470,016 | 0 | 0 |
+| Radius 20, dwell tour, the walk as shipped | 12 | 317,952 | 317,952 | 0 | 13,824 |
 
-Every compared word was equal, 3,193,344 rays in all: the distance's bits, the cell, the outcome
+Every compared word was equal, 3,981,312 rays in all: the distance's bits, the cell, the outcome
 and the nodes visited, through storage blocks and through buffer textures in the first four runs,
-from the scene's buffers and from a copy of them on the GPU in the last two. The rays passed over
+from the scene's buffers and from a copy of them on the GPU in the last four. The first six traced
+the earlier walk, which also passed blocks of two cells a side by the bricks' coarser bits; the last
+two, from 71e966d, the walk as shipped, which reads no coarser bit (ARCHITECTURE 5.2). The rays passed over
 were traced while a cube arrived, under another generation than the copy read back. The light scene
 checks of the first four runs found no difference between the scene and its buffers.
 
@@ -877,49 +881,61 @@ further apart fell either way, the copy faster in 30 and slower in 40. The scene
 fast to trace as a copy the CPU never touches, so long as the CPU does not read them. The light scene check (`-Dquadrature.scene.check=true`) reads them back every 600
 frames, so a trace timed with it on may be slowed.
 
-**Speed.** GPU time of a batch at radius 20, P0 clocks, the median over 12 sets of each set's
-median of five, from the scene's own buffers; in brackets million rays a second.
+**Speed.** GPU time of a batch at radius 20, the median over 12 sets of each set's median of five,
+from the scene's own buffers: the walk as shipped (from 71e966d, 2026-11-19); in brackets the earlier
+walk with coarser bits, at P0 clocks (from 19df819). The walk as shipped was run without clock
+samples, the sampler not having been started for those tours; the five repeats of each of its sets
+agreed as closely as the earlier walk's did at P0: the most less the least, over the median, was
+0.6 to 0.7% at its median over the measurements, against 0.8 to 1.6%.
 
-| Class, length in blocks | 65,536 rays (MEDIUM) | 524,288 (HIGH) | 2,097,152 (MAX) |
-|---|---|---|---|
-| Probes, 16 | 0.057 ms (1,160) | 0.308 ms (1,699) | 0.917 ms (2,286) |
-| Probes, 64 | 0.176 ms (372) | 1.183 ms (443) | 3.928 ms (534) |
-| Probes, 256 | 0.409 ms (160) | 2.676 ms (196) | 9.344 ms (224) |
-| Low sun, 16 | 0.072 ms (910) | 0.385 ms (1,362) | 1.328 ms (1,579) |
-| Low sun, 64 | 0.190 ms (345) | 0.948 ms (553) | 3.192 ms (657) |
-| Low sun, 256 | 0.285 ms (230) | 1.476 ms (355) | 4.784 ms (438) |
-| Noon, 16 | 0.055 ms (1,192) | 0.276 ms (1,900) | 1.054 ms (1,989) |
-| Noon, 64 | 0.081 ms (809) | 0.426 ms (1,231) | 1.604 ms (1,307) |
-| Noon, 256 | 0.114 ms (575) | 0.653 ms (802) | 2.502 ms (838) |
+| Class, length in blocks | 65,536 rays (MEDIUM) | 524,288 (HIGH) | 2,097,152 (MAX) | Nodes a ray, MAX's batch |
+|---|---|---|---|---|
+| Probes, 16 | 0.062 ms (0.057) | 0.339 ms (0.308) | 1.056 ms (0.917) | 5.8 (4.0) |
+| Probes, 64 | 0.220 ms (0.176) | 1.413 ms (1.183) | 4.892 ms (3.928) | 17.3 (11.3) |
+| Probes, 256 | 0.528 ms (0.409) | 3.340 ms (2.676) | 12.170 ms (9.344) | 34.1 (23.6) |
+| Low sun, 16 | 0.058 ms (0.072) | 0.359 ms (0.385) | 1.353 ms (1.328) | 15.1 (9.3) |
+| Low sun, 64 | 0.197 ms (0.190) | 1.038 ms (0.948) | 3.550 ms (3.192) | 31.5 (18.3) |
+| Low sun, 256 | 0.336 ms (0.285) | 1.615 ms (1.476) | 5.438 ms (4.784) | 40.5 (25.6) |
+| Noon, 16 | 0.051 ms (0.055) | 0.294 ms (0.276) | 1.179 ms (1.054) | 14.6 (8.4) |
+| Noon, 64 | 0.097 ms (0.081) | 0.514 ms (0.426) | 1.952 ms (1.604) | 21.3 (13.2) |
+| Noon, 256 | 0.137 ms (0.114) | 0.781 ms (0.653) | 2.955 ms (2.502) | 32.1 (24.0) |
 
-- **Probe rays run at half the rate of coherent ones per node.** At 256 blocks a probe ray visits
-  23.6 nodes and a ray toward the low sun 25.6, but the MAX batch takes 9.3 against 4.8 ms: 5.3
-  against 11.2 billion nodes a second.
-- **The radius barely matters.** Probe rays at 256 blocks in MAX's batch: 7.40, 9.08 and 9.34 ms at
-  radii 12, 16 and 20 (283, 231 and 224 million a second); 43% of them left the box at radius 12,
-  18% at 16 and 13% at 20. Coherent rays toward the low sun: 4.26, 5.04 and 4.78 ms.
-- **Small batches leave the card idle:** 65,536 rays run at 51 to 71% of the rate of two million.
+In million rays a second, MAX's batch as shipped: probes 1,985, 429 and 172 at 16, 64 and 256
+blocks; toward the low sun 1,550, 591 and 386; at noon 1,780, 1,075 and 710.
+
+- **Without the coarser bits** the walk visits 1.3 to 1.7 times the nodes and takes 1.07 to 1.30
+  times as long for probe rays and 0.79 to 1.22 times as long for rays toward the sun: a cell's step
+  costs less than a block's, so the time grows more slowly than the nodes. It ends every ray in the
+  same cell at the same distance.
+- **Probe rays run at well under half the rate of coherent ones per node.** In MAX's batch at 256
+  blocks a probe ray visits 34.1 nodes and a ray toward the low sun 40.5, but the batch takes 12.2
+  against 5.4 ms: 5.9 against 15.6 billion nodes a second (with coarser bits, 5.3 against 11.2).
+- **The radius barely matters.** Probe rays at 256 blocks in MAX's batch, as shipped: 11.44 and
+  12.17 ms at radii 16 and 20; with coarser bits 7.40, 9.08 and 9.34 ms at 12, 16 and 20, where 43%
+  of them left the box at radius 12, 18% at 16 and 13% at 20.
+- **Small batches leave the card idle:** 65,536 rays run at 50 to 74% of the rate of two million.
 - **Noon is the easy case.** The tour holds the sun overhead; rays toward it climb out of the box,
   97 to 100% leaving it, so far shadows are priced from the low sun.
 - **Where each ends, probes:** at 256 blocks in the MEDIUM and HIGH batches 54 to 60% hit; in every
   batch 9 to 23% began in a cell that blocks (probes are not moved out of terrain), and 0.2 to 5% met a
   cube not known; in HIGH's batch 11 to 27% left the box.
-- **Underground**, at y 22 and 30 inside rock, 97% of probes begin in a cell that blocks and every
-  probe batch takes under 0.6 ms (the shadow classes start from the surface and cost what they do
-  above); the tour's capture never fires inside rock, so only this one place was measured, and no
-  open cave was found for this seed.
+- **Underground**, at y 22 and 30 inside rock, with the earlier walk, 97% of probes begin in a cell
+  that blocks and every probe batch takes under 0.6 ms (the shadow classes start from the surface and
+  cost what they do above); the tour's capture never fires inside rock, so only this one place was
+  measured, and no open cave was found for this seed.
 
-**Each tier's batch as it would run**, at its own radius (MEDIUM 12, from the radius-12 sets that
-the moves did not slow; HIGH 16; MAX 20), and spread over frames:
+**Each tier's batch as it would run**, the walk as shipped, at its own radius (HIGH 16, MAX 20;
+MEDIUM at 16 as well, radius 12 not being measured again: with coarser bits it took 0.18 and 0.37 ms
+there against 0.18 and 0.41 at 16), and spread over frames; in brackets the earlier walk:
 
 | Tier | Batch | Whole update | A quarter a frame |
 |---|---|---|---|
-| MEDIUM | 16x8x16 probes, 32 rays: 65,536 rays at 64 blocks; at 256 | 0.18 ms; 0.37 ms | 0.04 ms; 0.09 ms |
-| HIGH | 32x8x32 probes, 64 rays: 524,288 rays at 64 blocks; at 256 | 1.19 ms; 2.66 ms | 0.30 ms; 0.67 ms |
-| MAX | two cascades of 32x8x32 probes, 128 rays: the near one (4 blocks apart) at 64 blocks and the far one (16 apart) at 256 | about 6.6 ms | about 1.7 ms |
-| MAX far shadows | a ray toward the low sun at 256 blocks, a million of them | 2.28 ms | 0.57 ms |
+| MEDIUM | 16x8x16 probes, 32 rays: 65,536 rays at 64 blocks; at 256 | 0.22 ms; 0.53 ms (0.18; 0.41) | 0.06 ms; 0.13 ms |
+| HIGH | 32x8x32 probes, 64 rays: 524,288 rays at 64 blocks; at 256 | 1.45 ms; 3.47 ms (1.19; 2.66) | 0.36 ms; 0.87 ms |
+| MAX | two cascades of 32x8x32 probes, 128 rays: the near one (4 blocks apart) at 64 blocks and the far one (16 apart) at 256 | about 8.5 ms (6.6) | about 2.1 ms |
+| MAX far shadows | a ray toward the low sun at 256 blocks, a million of them | 2.59 ms (2.28) | 0.65 ms |
 
-MAX's two cascades were measured together at one length (3.93 ms at 64, 9.34 ms at 256); the line
+MAX's two cascades were measured together at one length (4.89 ms at 64, 12.17 ms at 256); the line
 above takes half of each. The far-shadow line is per million rays: a whole 2560 by 1440 picture is
 3.7 million.
 
