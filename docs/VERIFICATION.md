@@ -800,6 +800,97 @@ above, from builds on the client thread within 4 ms a frame.
   with no allocation stalls; places settle in the same 24 and 27 s, client CPU is the same,
   and the worst frame in the build pool's calls falls from 32.8 to 9.1 ms.
 
+### Own temporal anti-aliasing and scaler
+
+Measured 2026-11-19 at 2560 by 1440 on one fresh instance, with a jar built from
+commit e8e15dd, whose mod code is this branch's, on the RTX 3060 with driver 610.88 and
+`quadrature.exitOnOutOfMemory=true` on every run. The short tour has seven views: six of the
+forest tour, three places far and near, and one of a glowing iron golem on a red team. Quality
+is scored against own terrain at the output's size with both switches off, by `tools/frames.py
+quality`: PSNR, structural similarity, and edge detail, the frame's mean luma gradient over the
+native frame's.
+
+- **A first design failed**, on an instance before this one. It shrank every viewport of the
+  display's size inside the world pass. GTCEu Reloaded's bloom copies the game's picture into
+  framebuffers of its own and draws it back through viewports of the display's size every
+  frame, so the scene came out shrunk twice, 1151 by 649 in a corner. The framebuffer and
+  display size that stand in for the pass replaced it (ARCHITECTURE 4.8).
+- **Both switches off.** Own terrain against a game-drawn run of the same instance over the
+  full forest tour: 16 of 17 views pass `near.json`. View 07 differs in 0.2046% of its pixels,
+  within the 0.2131% by which the game-drawn run differs from its own settling run there (the
+  river in view 07).
+- **Motion from depth.** With `quadrature.taa.check=true`, every reading of the motion target
+  at the still views, 29 or 30 a run, had a mean of at most 0.00005 px and a greatest of
+  0.0001 px.
+- **Where the picture lands.** The global shift of each scaled view against the native one
+  (`tools/frames.py shift`), with the edge kernel, is 0.00 px in six of the seven views at
+  0.67 and at 0.77, and 0.20 px down in the last, a near view, at both (and 0.05 px left at
+  0.67). The measure finds a real frame moved by a known fraction of a pixel to the twentieth
+  of a pixel it resolves.
+- **Glowing entities.** The golem's outline is laid on at the output's size in place: in frames
+  captured at the end of the game's frame, after the outlines, the native run and the run at
+  0.67 show the same 3,064 red pixels with the same bounds. Tour captures are taken in the last
+  world drawing, before the game lays outlines on, so they show none at any scale; there the
+  golem itself stands at centroid (1280.5, 645.6) native and (1279.9, 647.5) at 0.77, its masks'
+  intersection over their union 0.87.
+- **Framebuffers.** 29 are made at startup with the scaler on and none afterward, counted in
+  each timing report.
+
+The scaler's passes at the median of the short tour's views, GPU ms. The `scaler` stage holds
+the composite, passes from the depth copy on; the terrain depth is copied at the entities
+boundary. The rest of the stage, 0.1 to 0.4 ms, is the work between the timed passes.
+
+| Pass | 0.67, edge | 0.67, plain | 0.77, edge | 0.77, plain |
+|---|---|---|---|---|
+| Terrain depth copy | 0.033 | 0.035 | 0.040 | 0.040 |
+| Depth copy | 0.033 | 0.035 | 0.040 | 0.040 |
+| Motion | 0.056 | 0.059 | 0.061 | 0.061 |
+| Temporal | 0.287 | 0.313 | 0.293 | 0.294 |
+| Scale | 0.613 | 0.385 | 0.475 | 0.274 |
+| Depth stretch | 0.088 | 0.096 | 0.071 | 0.072 |
+| The `scaler` stage | 1.386 | 1.000 | 1.328 | 1.072 |
+
+- **What the frame saves.** Opaque and translucent terrain take 2.03 and 2.00 ms native on
+  the two native runs, and 1.08 (0.67, edge), 1.24 (0.67, plain), 1.26 (0.77, edge) and 1.44
+  ms (0.77, plain) scaled. Opaque terrain differs by 0.13 ms between the edge and the plain
+  run at each scale, though the kernel runs after it: these stage times vary between runs by
+  about that much. The frame's GPU sum rises from 2.11 ms native to 2.45, 2.39, 2.64 and 2.58
+  ms: on this tour the world is too light for the composite to pay for itself.
+- **Break-even.** The composite pays for itself once the world's stages that scale with the
+  drawn size take more at the output's size than the figures below. Scaling with the pixel
+  count is the best case; this tour's terrain saved less, since part of its cost is per vertex.
+
+| World time at the output's size to break even, ms | 0.67, edge | 0.67, plain | 0.77, edge | 0.77, plain |
+|---|---|---|---|---|
+| If the stages scale with the pixel count | 2.5 | 1.8 | 3.3 | 2.6 |
+| At the share this tour's terrain saved | 3.0 | 2.6 | 3.6 | 3.9 |
+
+| Against native, short tour | PSNR, dB | SSIM | Edge detail |
+|---|---|---|---|
+| 0.67, edge | 28.22 | 0.808 | 0.500 |
+| 0.67, plain | 28.30 | 0.811 | 0.512 |
+| 0.77, edge | 28.83 | 0.835 | 0.548 |
+| 0.77, plain | 28.89 | 0.837 | 0.559 |
+
+- **Edge against plain.** The plain kernel scores at least as well at both scales, and over the
+  six views both 0.67 runs share with one native run (28.50 against 28.44 dB, 0.805 against
+  0.802, 0.508 against 0.497); its scale pass costs 0.23 ms less at 0.67 and 0.20 ms less at
+  0.77. Plain against edge at 0.77 is 47.2 dB and SSIM 0.997.
+- **Under motion**, from frames captured at the end of the game's frame along one scripted
+  path, native against 0.67 with the temporal pass and the edge kernel, from the same pose.
+  While the camera holds still the structural similarity is 0.677, and a frame changes from
+  the last by 0.37 levels of 255 against 0.16 native: the offset leaves 0.2 levels of
+  flicker. After a cut the similarity recovers in four frames, 0.624, 0.654, 0.668, 0.673,
+  then 0.675 to 0.678; a resize drops the history and recovers the same way. Panning 0.23
+  degrees a tick, about 4 px at the center for the default field of view, the scaled frame
+  lies 0.41 px behind the native frame of the same tick on average; the two runs captured at
+  different points within the tick, and the poses' difference accounts for 0.54 px, which
+  leaves -0.12 px, from -0.34 to +0.15: no trailing beyond a third of a pixel. The similarity
+  while panning, 0.610, carries the same difference in pose and does not measure ghosting by
+  itself.
+- **Not measured:** variance clipping's gain over the minimum and maximum box (D23), and the
+  picture with a mod's post-processing that keeps the game's framebuffer from before the pass.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
