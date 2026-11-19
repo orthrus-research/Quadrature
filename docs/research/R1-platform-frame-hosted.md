@@ -92,6 +92,105 @@ cascade lookups can use `textureLod` on array shadow textures through
 include files through the driver; and a sparse light layer or texture array commits in
 64 KiB pages.
 
+**1.9 The handoff from OpenGL to Vulkan, and DLSS's cost. [V; measured costs in VERIFICATION]**
+Read 2026-11-18 for PLAN item 7, before the bridge of D21 is built. The rules come from the
+Khronos specifications of `EXT_external_objects` (revision 15, 2022-07-15),
+`EXT_external_objects_win32` (revision 10, 2023-08-29) and `NV_timeline_semaphore`
+(revision 1, 2020-07-10), and from the Vulkan specification's reference pages; DLSS's
+requirements and costs from NVIDIA's DLSS Super Resolution Programming Guide (revision
+310.6.0, March 2026) and DLSS-RR Integration Guide (August 2026), read as published
+documents. No SDK was downloaded and no license accepted.
+
+- *Matching the device.* Memory and semaphores exported as opaque Win32 handles may be
+  imported only where the device UUID and the driver UUID both match (Vulkan's compatibility
+  tables for `OPAQUE_WIN32` and `OPAQUE_WIN32_KMT`; `EXT_external_objects` 4.2.1 and issue
+  20). OpenGL reports one device UUID per device of its device group, one driver UUID, and,
+  through the Win32 extension, the adapter's LUID and a node mask. Vulkan reports the same in
+  `VkPhysicalDeviceIDProperties`; where `deviceLUIDValid` is set on Windows, the LUID equals
+  the DXGI adapter's. The LUID is not in Vulkan's tables. Neither specification says what an
+  import from a mismatched device does: the OpenGL extension's error list is empty.
+  *Implication:* the Vulkan device is chosen by comparing both UUIDs, and the LUID where both
+  sides report one, against the context's, never by name or vendor; a machine with an
+  integrated GPU beside the card has two candidates.
+- *Handles.* An `OPAQUE_WIN32` handle is an NT handle that holds a reference to its payload
+  and belongs to the application, which closes it; a KMT handle holds none and dies with the
+  last Vulkan object using it. Neither OpenGL nor Vulkan takes ownership of a Win32 handle it
+  imports (`EXT_external_objects_win32` 6.1; `vkGetMemoryWin32HandleKHR`). *Implication:*
+  each handle is exported, imported and closed at once; one left open per image leaks a
+  kernel object at every resize.
+- *Memory and images.* OpenGL imports a memory object with its size and handle type; its
+  `DEDICATED_MEMORY_OBJECT_EXT` parameter must be true exactly when the exporter allocated
+  the memory as a dedicated allocation (6.2, issue 19), and Vulkan requires a dedicated
+  allocation for the same image when it imports memory it exported as dedicated. A texture
+  is made over the memory with `glTextureStorageMem2DEXT` at an offset, with the levels,
+  format and size the exporter's image has, after its `TEXTURE_TILING_EXT` parameter is set
+  to the exporter's tiling (issue 18, with a query for supported tilings). The Vulkan image
+  is created for external memory (`VkExternalMemoryImageCreateInfo`), with every usage its
+  format supports (issue 13), and with the mutable-format bit wherever OpenGL can make
+  texture views, which 4.6 can (issue 17). No issue restricts which formats may be imported,
+  and none mentions depth or stencil. *Implication:* every shared image is created with all
+  supported usages, mutable format and a dedicated, exported allocation; which formats this
+  driver imports, depth among them, is measured.
+- *Layouts and ownership.* `glSignalSemaphoreEXT` transitions the listed textures to the
+  given layouts before it signals; `glWaitSemaphoreEXT` takes the layouts the other API left
+  them in. Nine layout tokens map one to one to Vulkan image layouts (table 4.4). Issue 9
+  settles that ownership transfer and barriers are needed, with the application naming only
+  the source side when moving from the other API to OpenGL and only the destination side the
+  other way, and leaves open how much of Vulkan's barrier is exposed.
+  `VK_QUEUE_FAMILY_EXTERNAL` names queues outside the instance on the same device and driver;
+  a barrier with it as destination releases an image, with it as source acquires one.
+  *Implication:* Vulkan acquires each image from the external family in the layout OpenGL's
+  signal named, and releases it to the external family in the layout OpenGL's wait names.
+- *Semaphores.* A signal flushes as if `glFlush` followed it. A wait blocks the GL server,
+  never the client. A binary semaphore's wait needs a signal already flushed or submitted.
+  With `NV_timeline_semaphore`, a semaphore's type is set before the import, the value to
+  signal or wait for is set with `glSemaphoreParameterui64vEXT` before each operation, and a
+  wait may be issued before its signal. Vulkan 1.2 has timeline semaphores in core; one
+  exported as `OPAQUE_WIN32` transfers by reference and may be imported only permanently.
+  *Implication:* one timeline semaphore carries both directions of a frame's round trip with
+  rising values, and the client thread never blocks on it.
+- *Clocks.* `vkGetCalibratedTimestampsKHR` reads the device's timestamp counter and the
+  Windows performance counter together, and Java's `System.nanoTime` counts the performance
+  counter on Windows; OpenGL's `GL_TIMESTAMP` query reads the GPU's time without waiting for
+  work. *Implication:* OpenGL's and Vulkan's timestamps of a round trip can be put on one
+  clock, so the time from OpenGL's signal to Vulkan's start and from Vulkan's end to OpenGL's
+  resumption can be measured apart from Vulkan's own work.
+- *What DLSS requires.* An NVIDIA RTX GPU and a driver issued after 2022-03-03; D3D11, D3D12 or
+  Vulkan 1.1 or later; OpenGL is not mentioned anywhere in the guide, which states that
+  interoperation between APIs is the application's to handle (5.2). Each evaluation takes the
+  color at render resolution (HDR or LDR), screen-space motion vectors at 16 or 32 bits a
+  pixel (`RG16F` or `RG32F`), depth in any one-channel or depth-stencil format, an exposure
+  value in HDR, and sub-pixel jitter of at least 16 phases; it writes the output at output
+  resolution (3.3, 2.2). Inputs are sampled images and the output a storage image, created
+  with `VK_IMAGE_USAGE_SAMPLED_BIT` and `VK_IMAGE_USAGE_STORAGE_BIT` (3.4). It runs early in
+  post-processing, before tone mapping (3.1). Its Vulkan instance and device extensions come
+  from a query against the SDK, not from a list in the guide (2.3.1). Render size per mode
+  comes from a query, not a fixed table (5.2.8).
+- *What DLSS costs.* NVIDIA ran the library from a command-line utility without a renderer,
+  in Performance mode, where the input has a quarter of the output's pixels. On an RTX 3060,
+  at 1920x1080 / 2560x1440 output: presets E and F 0.60 / 0.98 ms, J and K 1.45 / 2.39 ms,
+  L 3.96 / 6.53 ms, M 2.81 / 5.05 ms. As of 310.6.0, presets E and F are deprecated, K is the
+  default for Quality, Balanced and DLAA, M for Performance and L for Ultra Performance. The
+  memory DLSS allocates on RTX 20 and 30 cards is 85.8 / 143.5 MB for J and K and 119.3 /
+  207.4 MB for M (pages 5 to 7). D21 cites the span from presets J and K to preset M,
+  which first read "about 1.45 to 2.8 ms at 1080p": right as published, but a Performance-mode
+  figure taken without a renderer, not a Quality-mode one taken inside a frame. Ray
+  Reconstruction on the RTX 3060 in Performance mode takes 5.83 / 10.27 ms and 159.6 / 273.9
+  MB with its default preset.
+- *What an evaluation needs.* The NGX API is linked from static libraries,
+  `nvsdk_ngx_s.lib` for the static C runtime or `nvsdk_ngx_d.lib` for the dynamic one, with
+  the `nvsdk_ngx*.h` headers and their Vulkan variants (5.1); the runtime library
+  `nvngx_dlss.dll` (Super Resolution) or `nvngx_dlssd.dll` (Ray Reconstruction) ships beside
+  the program from the release folder, signed by NVIDIA, never the development build (4.2).
+  A program initializes NGX with a GUID-like project ID, an engine type and version, or with
+  an application ID NVIDIA assigns (5.2.1). The latest release in NVIDIA's repository is
+  310.9.16, of October 2026. NVIDIA's RTX SDK license (v. 2024-03-14) is accepted by using the
+  SDK. NVIDIA's Streamline (2.14.16) wraps DLSS behind dynamically loaded libraries under a
+  permissive license of its own, but its interface is C++ headers and its binaries come only in
+  release archives. *Implication:* a Java module reaches NGX through a small native library of its own,
+  compiled against the SDK the builder supplies, since static libraries cannot be loaded from
+  Java; what the evaluation needs is listed for the user in PLAN item 7's report.
+
 ## 2. Pass graph and frame
 
 **2.1 Frame graph design. [V]**
@@ -486,6 +585,9 @@ its place in the frame expects, through the cache.
 1. Prototype the distant terrain composite and its transition band, in Phase 4 (2.2).
 2. Run the state audit on more views and with a larger pack installed (9.3).
 3. Test parallel compile and program binary caching on a current driver (1.5).
+4. Evaluate DLSS itself on the measured handoff once an SDK is supplied and its license
+   accepted (1.9), and ask NVIDIA whether an OpenGL frame handing images to a Vulkan
+   evaluation is supported (D19).
 
 ## Sources
 
@@ -521,3 +623,24 @@ its place in the frame expects, through the cache.
   sections 13.7, 13.8, 17.3.2 and 21.4: https://registry.khronos.org/OpenGL/specs/gl/glspec46.compatibility.pdf
 - OpenGL Shading Language 4.60 specification, sections 7.2 and 7.4:
   https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.4.60.pdf
+- Khronos, `EXT_external_objects` (revision 15, 2022-07-15), sections 4.2, 6 and issues 9 to 23:
+  https://registry.khronos.org/OpenGL/extensions/EXT/EXT_external_objects.txt, read 2026-11-18
+- Khronos, `EXT_external_objects_win32` (revision 10, 2023-08-29):
+  https://registry.khronos.org/OpenGL/extensions/EXT/EXT_external_objects_win32.txt, read 2026-11-18
+- Khronos, `NV_timeline_semaphore` (revision 1, 2020-07-10):
+  https://registry.khronos.org/OpenGL/extensions/NV/NV_timeline_semaphore.txt, read 2026-11-18
+- Vulkan reference pages, read 2026-11-18: `VkPhysicalDeviceIDProperties`,
+  `VkExternalMemoryHandleTypeFlagBits`, `VkExternalSemaphoreHandleTypeFlagBits`,
+  `vkGetMemoryWin32HandleKHR`, `VkMemoryDedicatedAllocateInfo`, `VkExternalMemoryFeatureFlagBits`,
+  `VK_QUEUE_FAMILY_EXTERNAL`, `VkImageMemoryBarrier`, `VkSemaphoreTypeCreateInfo`,
+  `vkGetSemaphoreWin32HandleKHR`, `vkGetCalibratedTimestampsKHR`, `VkTimeDomainKHR`,
+  `VkPhysicalDeviceMemoryBudgetPropertiesEXT`: https://docs.vulkan.org/refpages/latest/refpages/source/ ;
+  synchronization chapter (semaphore waits, timelines, payload import):
+  https://docs.vulkan.org/spec/latest/chapters/synchronization.html
+- NVIDIA, DLSS Super Resolution Programming Guide, revision 310.6.0 (March 2026), sections 2 to 5:
+  https://github.com/NVIDIA/DLSS/blob/main/doc/DLSS_Programming_Guide_Release.pdf, read 2026-11-18
+- NVIDIA, DLSS-RR Integration Guide, SWE-DLSS-001-PGRF (August 2026), section 2.2:
+  https://github.com/NVIDIA/DLSS/blob/main/doc/DLSS-RR%20Integration%20Guide.pdf, read 2026-11-18
+- NVIDIA, DLSS SDK repository and releases (310.9.16, October 2026) and its license file,
+  "NVIDIA RTX SDKs LICENSE" (v. March 14, 2024): https://github.com/NVIDIA/DLSS, read 2026-11-18
+- NVIDIA, Streamline 2.14.16, README and license: https://github.com/NVIDIA-RTX/Streamline, read 2026-11-18
