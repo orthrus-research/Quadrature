@@ -917,7 +917,8 @@ For orientation, the current stack uses about 0.55 GiB of GPU memory in flight a
 LOW, MEDIUM, HIGH and MAX are presets of per-group settings, chosen on two axes (D22). A
 versioned startup benchmark sets the speed tier and the GPU memory the driver reports,
 scaled by output pixels, sets the memory tier; groups that hold memory take the
-lower of the two, and the player can override any group. **Decided; not built.**
+lower of the two, and the player can override any group. **Decided; built behind a switch and
+calibrated on one card** (12.1.1); no group's settings follow the tiers yet.
 
 On game benchmarks the supported cards fall into four clusters against an RTX 2060 Super at
 1440p: about 0.8 to 1.3 times (37% of qualifying Steam players in October 2026), 1.3 to 2.0
@@ -954,6 +955,134 @@ HIGH and MAX now is filling a new place: until builds run on Cubature's executor
 settles in 10 to 18 seconds at radius 12, 30 to 43 at 16 and 70 to 88 at 20. The vertical
 radii are not measured; the runs held 12, or 8 at radius 8.
 
+#### 12.1.1 The tier benchmark
+
+Built (`core.tier`, `platform/TierBench`); the first-launch path is behind a switch, off by
+default, until a second card has been measured against this calibration.
+
+**When it runs.** Where nothing is stored under the key, a digest of the GPU (the context's
+vendor and renderer strings and interop's device identifier), the driver (the context's
+version string and interop's driver identifier) and the benchmark's version, it runs once at
+the first settled moment: the view still for 240 frames with nothing waiting to be meshed, no
+mesh coming or going, and the view's search meeting no cube that is not loaded, since a place
+still arriving can hold its meshes for seconds between batches. A run takes about 75 frames, one
+probe repetition a frame after near terrain's last opaque layer, so no frame is held for long;
+it is abandoned and begun again later if the view moves or terrain changes, and a run whose
+terrain drew fewer than 200,000 primitives, too few to measure the card, chooses nothing. Times are taken by pairs of timestamps, never by a time-elapsed query, since
+the frame's own stage timer holds one open around opaque terrain. Every result is read only
+once the driver reports it ready.
+
+**What it measures.** First a settling load, every frame, until its own times agree within 5%
+(an arithmetic pass and a pass over 256 MiB, with two arithmetic passes untimed; 13 to 40 frames
+on the RTX 3060), since the card's clock follows its load. Then two warm-up repetitions and seven
+kept ones of each, medians kept, the GPU kept loaded between them:
+
+- a bandwidth kernel: a compute program reading a buffer of 8 MiB and one of 256 MiB through,
+  512 MiB between each pair of timestamps. It runs first, which also brings the clocks up;
+- opaque terrain at each tier's render scale of the window: the frame's own commands issued
+  again into a target of the probe's own, each layer under the game's state for it, with the
+  primitives drawn and the samples passed counted by queries, the sizes taken in a new order
+  each round;
+- the light view's wide box, drawn whole into its scratch as its check draws it (4,096
+  texels a side), with its primitives and samples counted;
+- the indirect trace at each render resolution, through `TraceProbe`, which the indirect
+  light's trace supplies; without one the run goes on, and the groups it stands for are
+  scaled by the other probes.
+
+**How a tier is chosen.** Each probe gives a ratio against the reference card: bandwidth as
+the geometric mean of the two sets; terrain as what the reference card's model, a line a
+resolution by primitives drawn, says it would have taken at the run's sizes, summed, over what
+this card took, which leaves a view's own make-up out; the light's box the same by primitives
+and fragments; the trace held within a factor of two of the others, since its rate follows what
+its rays meet. A tier's cost on the
+card is the reference card's cost of each of its groups at the window's output, over the
+ratio of the probe standing for that group; its fit is the budget over that cost. The speed
+tier is the highest tier that fits, with a band at each boundary: from the tier chosen last
+on the same GPU, a higher one is taken only once it fits by the band, and the last one is
+left only once it misses by it (`TierSelection`). The memory tier is chosen the same way from
+the memory each tier holds at the output against the memory free at the first screen, less
+512 MiB for the world's own textures and buffers, under an enforced budget where
+`quadrature.tier.memoryLimitMiB` is set. A group that holds memory (near terrain, distant
+reach, the light's depth) takes the lower of the two; every other group the speed tier
+(`TierChoice`). A player's tier for a group, an `override` line of the stored file or
+`-Dquadrature.tier.<group>`, stands over both. At run time two-second windows of frames are
+watched: where the driver's eviction count rose in two windows running and the 1% low fell
+a fifth below the best quiet window's, the memory tier goes down a step (`EvictionWatch`).
+
+The result, the tiers and the figures they came from are stored in the client's
+`quadrature-tiers.txt`, the GPU and the driver as digests only.
+
+**The calibration** (`TierCalibrationTable`), measured on the RTX 3060 12 GB, driver 610.88, at
+settled clocks ([VERIFICATION.md](VERIFICATION.md), the tier benchmark). The reference card's
+figures are fitted over 128 runs on three fresh instances, at the forest tour's 17 places at
+radius 12 and at seven of them at 16 and 20: bandwidth 348 and 350 GB/s; opaque terrain 0.062 +
+0.263 ms a million primitives at 1280 by 720, 0.097 + 0.289 at 1920 by 1080, 0.135 + 0.330 at
+2560 by 1440 and 0.187 + 0.867 at 3840 by 2160; the light's box -0.249 ms + 0.126 ms a million
+primitives + 0.053 ms a million fragments; the trace 376 million rays a second for MEDIUM's
+probes. A tier's cost on the reference card, in ms at 2560 by 1440 output, against a budget of 7
+ms (85% of a frame at 120 frames a second), and the speed against this card a machine needs:
+
+| Group, and where its figure comes from | LOW | MEDIUM | HIGH | MAX |
+|---|---|---|---|---|
+| Opaque terrain drawn forward at the tier's radius and render scale, the median place (radii 12, 16, 20 measured; 8 scaled) | 0.27 | 0.54 | 0.94 | 1.18 |
+| The targets for shading, half the forward draw (the near radius's table) | 0.14 | 0.27 | 0.47 | 0.59 |
+| The light's depth a frame that draws it: one layer, both layers (PLAN, capability work, item 2) | 0.17 | 0.17 | 0.49 | 0.49 |
+| Indirect light's rays as item 4 schedules them: MEDIUM every probe a frame, HIGH and MAX a quarter; MAX's far shadows, an upper bound | | 0.37 | 0.67 | 1.70 + 4.78 |
+| Shading, 0.19 ms a render megapixel (the stage handed over in a folder) | 0.31 | 0.42 | 0.70 | 0.70 |
+| The game's other drawing, 0.33 ms a render megapixel (the stage reports) | 0.55 | 0.72 | 1.22 | 1.22 |
+| Own temporal anti-aliasing, with the scaler below the output's resolution, at 0.67 and 0.77 (item 6): 0.28 ms between its passes held fixed, the passes by output megapixel | 1.39 | 1.26 | 0.41 | 0.41 |
+| **In all, 2560 by 1440** | **2.82** | **3.75** | **4.89** | **11.07** |
+| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.28 / 0.40 / 0.78 | 0.39 / 0.54 / 0.99 | 0.52 / 0.70 / 1.38 | 1.40 / 1.58 / 2.29 |
+
+- Opaque terrain at radius 12, the median place, takes 0.476, 0.571, 0.670 and 1.778 ms from
+  1280 by 720 to 3840 by 2160. At the same views radius 16 takes 1.46, 1.39, 1.37 and 1.24 times
+  as long and radius 20 about 1.95, 1.83, 1.72 and 1.44 times (two views); radius 8 is taken as
+  0.53 of 12 from the near radius's table. Each radius is held as a + b MP + c MP². The vertical
+  radii are those of the runs, 12.
+- Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
+  shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
+  when measured, which can only raise the speeds needed.
+- **Rendering below the output costs time at today's frame.** The scaler stage takes 1.39 ms at
+  2560 by 1440 output from 0.67 and 1.26 from 0.77, and 0.67 of the resolution saves 0.98 ms of
+  the world's drawing (item 6):
+  a render below the output pays only once a tier's resolution-dependent work passes about
+  2.5 ms. Render scale stays a preset of each tier, never a lever the selection turns; whether
+  LOW and MEDIUM keep 67% and 77% is D23's to decide. At 3840 by 2160 output LOW and MEDIUM pay
+  about 2.8 and 2.5 ms for a scaler that a render at 100% would not need. The stage's passes
+  are carried in proportion to the output's megapixels from 2560 by 1440, the one output
+  measured, and the 0.28 ms between them, barriers and program changes, is held fixed: MEDIUM
+  takes 6.91 ms of the 7 at 3840 by 2160, and this card MEDIUM there, with a fit of about 1.01.
+  Were the gaps to follow the pixels too, MEDIUM would take 7.26 ms and this card LOW. **This card
+  at 3840 by 2160 is a boundary case**, open until the scaler is measured at that output; the
+  band keeps whichever tier is stored first. The scaler's cost is that of its edge-adaptive
+  kernel: if the plain kernel ships, its cost replaces it, and the test of this card's tiers is
+  run again.
+- The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's
+  arenas 128 to 704 MiB, distant terrain's reach about 40 to 250 MiB by DISTANT's survey, the
+  light's layers with their scratch 32 to 256 MiB, the light scene's lookup and bricks 8.6, 15.0
+  and 23.1 MiB with MAX's states within radius 12, 39 MiB, and 30.5 MiB a render megapixel and
+  15.3 an output megapixel for targets and history).
+- DLSS is offered where the speed tier leaves room for it (D21): at NVIDIA's published 1.45 ms
+  at 1920 by 1080 for this card, preset K in Performance mode, 0.70 ms an output megapixel,
+  scaled by the probes' combined ratio; the handoff to Vulkan is added once measured.
+- The trace probe times MEDIUM's own batch, 65,536 rays: a small batch runs at about half to
+  seven tenths of a large one's rate, so the probe gives a card's ratio to the reference, and
+  HIGH's and MAX's costs are item 4's own timings of their batches.
+
+**What this card scores.** 0.96 at the median against its own calibration (0.85 to 1.14 over
+128 runs), so it takes HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440 and MEDIUM at 3840 by
+2160, on the boundary with LOW (above); DLSS has room above HIGH at 1920 by 1080 and not at 2560
+by 1440. Its memory admits MAX at every output.
+
+**Against the four clusters.** Published game comparisons put the RTX 3060 within about 9%
+of the RTX 2060 Super (research R1, 1.9), so the clusters' bounds stand at about the same
+values against this card. At 2560 by 1440 the first cluster (0.8 to 1.3) reaches HIGH, the
+second (1.3 to 2.0) HIGH up to 1.58 and MAX above, the upper two MAX. At 3840 by 2160 the first
+reaches LOW up to 0.99 and MEDIUM above, the second MEDIUM up to 1.38 and HIGH above, the third
+(2.0 to 2.8) HIGH up to 2.29 and MAX above, the fourth MAX. The table's tiers above were meant to
+put the first cluster at LOW: at 2560 by 1440 it is the groups not yet counted, not the ones
+measured, that will separate them.
+
 ## 13. What is decided, and what is not
 
 | Area | Status | Settled by |
@@ -978,7 +1107,7 @@ radii are not measured; the runs held 12, or 8 at radius 8.
 | Far shadows, indirect light | Candidate | Phase 5 prototypes |
 | Shader format | Candidate | Two concrete shaders |
 | Driver floor R580, a warning below the production branch | Decided (D20); not built | |
-| Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); not built | PLAN.md, capability and tier work |
+| Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); built behind a switch, calibrated on the RTX 3060 (12.1.1) | The groups not yet counted; a second card; a driver update |
 | Own temporal anti-aliasing and spatial scaler; DLSS through a Vulkan bridge as an option | Decided (D21, D23); not built | The handoff's cost; motion vectors for hosted draws |
 
 ## Sources

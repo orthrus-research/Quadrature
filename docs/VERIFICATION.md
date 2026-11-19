@@ -740,6 +740,10 @@ the seven measured views: the median of the views' medians, and the worst view.
 - The terrain summary's vertices are only the kept vertices, about 8% of quads; records
   are not counted. The line gives no figure for the geometry a frame draws.
 - Radius 8 ran on its own instance: its views compare with the others by place.
+- These runs were measured before the card's clock was found to follow its load (the tier
+  benchmark, below), and record no clock state: under the game alone the card runs at 1.3 to
+  1.4 GHz or lower, and its times read up to a quarter above a settled card's. For
+  calibration the tier benchmark's table at settled clocks supersedes this one.
 
 ### Meshes built on Cubature's build pool
 
@@ -799,6 +803,150 @@ above, from builds on the client thread within 4 ms a frame.
   pause is 0.07 ms on the client and 0.03 ms on the server, against 179 and 140 ms on G1,
   with no allocation stalls; places settle in the same 24 and 27 s, client CPU is the same,
   and the worst frame in the build pool's calls falls from 32.8 to 9.1 ms.
+
+### The tier benchmark
+
+Measured 2026-11-18 and 19 on an RTX 3060 12 GB, driver 610.88, window 1280 by 720, with
+`-Dquadrature.tierBench=calibrate`, which runs the benchmark wherever the player holds still with
+near terrain caught up, three times a place, and appends each run to the client's
+`quadrature-tier-runs.jsonl`. The card's clocks were sampled beside every tour by `nvidia-smi`,
+as evidence only. Instances are fresh, seed 2485331, scale 4, without distant terrain;
+`quadrature-tier-02` ran an exploratory build without the settling load, `quadrature-tier-03`
+and `-04` a build of the committed branch (b110221), and `quadrature-tier-05` the calibrated
+build (bd0d324).
+
+**The picture is unchanged with the benchmark on.** Own terrain with the benchmark running
+(54 runs over the tour) against the game's terrain in the same instance, forest tour at radius
+12: 17 of 17 views pass `near.json`, the worst view 07 at 0.024%. The reference was checked
+against its settling run; no view was captured facing elsewhere. The captures fall seconds
+after each place's runs, so they also show that the probes leave no state behind. No driver
+error came during the tour.
+
+**The card's clock decides what a probe reads.** One place, one build, the view held still, a
+radius of 20, six runs: the first three timed while the card sat in a low state, the last three
+once it had reached its top one.
+
+| Runs | Bandwidth, 256 MiB | Opaque terrain at 1280 by 720 | At 2560 by 1440 | At 3840 by 2160 | The light's box |
+|---|---|---|---|---|---|
+| 1 to 3 | 137 to 193 GB/s | 2.51 to 2.64 ms | 2.96 to 4.25 ms | 5.36 to 7.50 ms | 7.27 to 9.11 ms |
+| 4 to 6 | 348 to 351 GB/s | 1.305 to 1.309 ms | 1.714 to 1.726 ms | 3.11 to 3.13 ms | 4.04 to 4.11 ms |
+
+- Under the game alone the card moves among P5, P3 and P0, graphics 510 to 1,440 MHz and
+  memory 810, 5,001 or 7,501 MHz, and reaches about 1,950 MHz and 7,501 MHz only under added
+  load. A whole run left in P3 reads the bandwidth kernel at two thirds, the ratio of the
+  memory clocks.
+- At one place and one state the runs agree to a tenth of a percent: over the forest tour's
+  places, the median spread of a figure over a place's runs was 0.03 to 0.07%.
+- Without a settling load the first run at each place was the slow one; the benchmark now runs
+  one until two series of its own times agree (ARCHITECTURE 12.1.1).
+- **A place whose cubes have not arrived** reads as caught up, since nothing waits to be
+  meshed: 13 of the first tour's 65 runs drew no terrain. A run now also needs the count of
+  meshes held to stay the same, and above none, while the view stands still.
+
+**Repeatability, with the settling load.** The committed branch at b110221 on two fresh
+instances, the forest tour at radius 12, own terrain drawn forward with both layers of the
+light's depth and the light scene on the GPU: 100 runs, three a place, 93 of them settled and
+drawn. The other 7 never met the 2% agreement then asked of the settling load, with times at
+the top state's; the rule now asks 5%. The settling load agreed after 13 to 15 frames in most
+runs and within 40 in nearly all. A place's first run now reads as its later ones: 0.841 ms at
+1280 by 720 at the first place, where an instance's settled runs before read 0.838.
+
+| The score's spread, (max - min) / median | Median | Worst |
+|---|---|---|
+| The runs at one still view, one instance | 0.46% | 18.3% |
+| One place, two fresh instances, each place's median | 0.48% | 15.2% |
+| The 17 places, each place's median | 26.3% | standard deviation 6.8% |
+
+- By probe, across places: terrain a standard deviation of 8.6%, the light's box 7.1%,
+  bandwidth 1.9%, the trace 26.5%. The trace's rate follows what its rays meet: at one place
+  they leave the scene at once and read 4,267 million rays a second, against 290 to 460 at the
+  rest, so its ratio is held within a factor of two of the others'.
+- **The band exceeds the spread.** At 15% of the budget it is thirty times the spread at one
+  place and on two instances, and 2.2 standard deviations of the spread between places. A card
+  that sits exactly on a boundary changes tier on a run at another place about once in seventy
+  runs; elsewhere, less.
+- The worst cases at one place came from interference that recurs every few frames landing on
+  one resolution, since each round took the sizes in one order: 1280 by 720 read 1.39 ms where
+  1920 by 1080 read 1.23. The order now turns each round.
+- The card's score against the calibration fitted on these runs (bd0d324): 0.97 at the median,
+  0.86 to 1.17 over the 93 runs; against the one refitted over three radii (ddd8c29), 0.96, 0.85
+  to 1.14 over 128.
+
+**Radii 16 and 20, and the calibrated choice.** The calibrated build (bd0d324) on a fresh
+instance, the short dwell tour (two waits a place, 13 views) at radius 20 and then 16, with the
+light's depth, the scene on the GPU and the trace probe. Opaque terrain at the views where the
+dwell tour and the forest tour stand alike, against radius 12 on the two instances above:
+
+| Against radius 12, the same views | 1280 by 720 | 1920 by 1080 | 2560 by 1440 | 3840 by 2160 |
+|---|---|---|---|---|
+| Radius 16, seven views, median | 1.46 | 1.39 | 1.37 | 1.24 |
+| Radius 20, two views (this tour's one sound view and the exploratory build's) | 1.95 | 1.83 | 1.72 | 1.44 |
+
+- The step falls with the resolution: a farther radius adds primitives, and their share of the
+  time falls as the pixels rise. The table holds a curve for each radius.
+- **At 1280 by 720, the window, every counted run chose HIGH** for speed and MAX for memory,
+  8,637 MiB being free at the first screen; the scores ran 0.78 to 1.06, 0.98 to 1.06 at most
+  places. DLSS had room above HIGH there.
+- **At radius 20 four runs measured a place still arriving.** The count of meshes held still for
+  the 240 frames between batches while the view's search passed through about 9,600 cubes not
+  loaded; the probe drew about 5,000 primitives, read the card at 3.6 times the reference and
+  chose MAX, which the band does not stop, before the place's later runs chose HIGH again. A run
+  now needs the search to meet no cube that is not loaded, or that count to stand still for 15
+  seconds, and one whose terrain drew under 200,000 primitives chooses nothing (below).
+- **The calibration was then refitted** over 128 runs at the three radii, with item 4's trace
+  costs and item 6's costs of own temporal anti-aliasing and the scaler priced in. That commit
+  changes no code path: this tour's choices were made with bd0d324's table, and a unit test
+  feeds the new table this card's measured run (radius 16, the rainforest's high view) at four
+  outputs. It takes HIGH at 1280 by 720, 1920 by 1080 and 2560 by 1440, as bd0d324's table did,
+  and MEDIUM at 3840 by 2160 as bd0d324's did, with MEDIUM's fit about 1.0 there once the scaler is
+  priced: held fixed, the 0.28 ms between the scaler's passes leaves MEDIUM 6.91 ms of the 7;
+  following the pixels, it would take 7.26 ms and the card LOW. A boundary case, open until the
+  scaler is measured at that output.
+
+**The final code on the GPU.** The branch at 6067440, its settle rule and its floor of
+primitives with ddd8c29's table (d4940d2 since changes the scaler's cost alone, under the test
+above), on a fresh instance: the dwell tour at radius 20, five waits a place, then the forest
+tour at radius 12.
+
+| Tour | Runs | Caught up, after the view came to rest | Meshes held then | Primitives drawn | Tier at 1280 by 720 |
+|---|---|---|---|---|---|
+| Dwell, radius 20 | 14 at 5 views | 6 to 19 s, every one with no cube of the box not loaded | 12,668 to 18,456 | 1.22 to 7.76 million | HIGH in all, memory MAX |
+| Forest, radius 12 | 50 at all 17 places | 0 to 13 s, every one with no cube of the box not loaded | 2,609 to 4,651 | 0.27 to 3.53 million | HIGH in all, memory MAX |
+
+- No run settled by the count standing still, so no run of a place partly arrived; no run drew
+  fewer than 200,000 primitives, and none was turned away. At radius 20 the rainforest's place
+  caught up only at its last view: its earlier views had cubes still to come when they ended.
+- The scores ran 0.91 to 1.05 at radius 20 and 0.88 to 1.13 at 12, the window's choices those
+  the test asserts. No driver error, no out-of-memory notice.
+- 8 of the 50 forest runs reached the settling load's 300 frames without its times agreeing
+  within 5%, at the top state's times all the same (the arithmetic pass 2.01 to 2.23 ms against
+  2.03 at the median of the rest); one late reading off by more kept the agreement from holding,
+  and the cap let them go on.
+
+**A driver update, left to be run.** Every run so far is on driver 610.88. A driver is the
+user's to install, so the repeat across one is a step left:
+
+1. With the new driver installed, confirm its version (`nvidia-smi --query-gpu=driver_version
+   --format=csv`) and that the capability dump's driver fingerprint has changed.
+2. Play one tour on an instance that holds a stored result from 610.88, with
+   `-Dquadrature.tierBench.firstLaunch=true` and the light's and the scene's switches: the log
+   must say the first-launch path runs because the stored result is under another key, the
+   same GPU and another driver, and that the band holds to the stored tiers.
+3. Play the forest tour with `-Dquadrature.tierBench=calibrate` on that instance and on a
+   freshly prepared one, and set the scores beside 610.88's at the same places: the driver's
+   effect is the difference of the medians against the spread at one place, and a tier may move
+   only where a fit lies past the band.
+
+The same path was run without a driver change, on the calibrated build (bd0d324) on a fresh
+instance, by replacing the stored result's driver and key between two tours. The second tour's
+gate said: "the first-launch path runs the benchmark: the stored result is under another key,
+the same GPU, another driver; the band holds to speed HIGH and memory MAX". Its 33 runs chose
+HIGH, and the result was stored again under the true key.
+
+**Switches.** `-Dquadrature.tierBench=calibrate` (every still place, `.repeat` runs a place,
+3; `.stillFrames`, 240; `.heights`, 720,1080,1440,2160) or `once`;
+`-Dquadrature.tierBench.firstLaunch=true`, the player's path; `-Dquadrature.tier.memoryLimitMiB`
+takes the card to have that much memory; `-Dquadrature.tier.<group>=<tier>` overrides a group.
 
 ### Diagnostics
 
