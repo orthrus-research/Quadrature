@@ -206,4 +206,6 @@ Quadrature's own temporal anti-aliasing and an edge-adaptive spatial scaler, wri
 published descriptions (D2), serve every tier that renders below output resolution. NVIDIA
 Image Scaling is a comparison reference only and is never shipped: its license would allow
 it, but no published timing shows an advantage worth an exception to D2. DLSS is the option
-above it (D21).
+above it (D21). The history is rectified by clipping to the neighborhood's minimum and
+maximum; variance clipping, which NVIDIA patents describe, is not used (the user's decision of
+2026-11-18, to be revisited with its measured quality gain).

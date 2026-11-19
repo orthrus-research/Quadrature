@@ -309,7 +309,92 @@ with it on.
   holding them alone, which a sampler compares against as well, taking the nearer.
 
 Not covered yet: entities and block entities in a light's view, which reaches into hosted
-drawing; jitter in the frame's contract.
+drawing.
+
+### 4.8 Rendering below output resolution
+
+Built behind two switches, both off unless set: `-Dquadrature.scale=<0.5 to 1>` draws the world
+at that fraction of the output's resolution, and `-Dquadrature.taa=true` turns on the temporal
+pass and the sub-pixel offset. LOW is `scale=0.67` with the temporal pass, MEDIUM `0.77` with it,
+HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D23; research R4,
+7b). `TemporalScaler`, `ScalerShaders`, and `RenderScale`, `Jitter` and `Reprojection` in
+`core`.
+
+- **Where the world is drawn.** In a framebuffer of the game's own kind and formats,
+  `round(side * scale)` pixels each way, that stands in for the game's from the start of the
+  world pass to the composite: `Minecraft.getFramebuffer()` returns it (`MinecraftScaleAccess`)
+  and `displayWidth` and `displayHeight` report its size. The game and every hosted draw then
+  work on one consistent smaller picture, a mod's own post-processing through framebuffers of
+  the game's size included, and so do Quadrature's own stages and targets; no viewport is
+  rewritten. The world's projections keep the output's shape (`MixinEntityRendererScale`), so
+  rounding the drawn size to whole pixels stretches nothing once scaled back. Rewriting the
+  viewports of display size inside the pass was built first and failed on the lab's own pack:
+  GTCEu Reloaded's bloom copies the game's picture into framebuffers of its own and draws it
+  back every frame, and each of those display-sized draws was shrunk again (VERIFICATION, own
+  temporal anti-aliasing and scaler).
+- **The offset.** Each frame the projection of every world view the game builds is moved by a
+  sub-pixel offset of the drawn picture, from the Halton sequence in bases 2 and 3, 8 offsets a cycle
+  (`quadrature.taa.phases`). The clip-space translation is multiplied in just before each
+  `gluPerspective` call of the world, the sky and the clouds (`MixinEntityRendererScale`), so it
+  stands on the left of the perspective, inside reversed depth's reversal, with which it
+  commutes. Entities, particles, block entities, weather and own terrain draw under it. The
+  hand's projection is never offset.
+- **The view.** Where the frame enters opaque terrain, the driver's projection and model-view
+  are read, the offset is taken out of the projection, and the viewer's interpolated position
+  is kept in double precision as the frame's origin. Before entities draw, the depth of what
+  opaque terrain left is copied (`glCopyImageSubData`, renderbuffer to a texture of its format).
+- **The composite** runs as a stage of its own, `scaler`, at the boundary in front of the mods'
+  last world drawing (`render last`): the game's framebuffer and display size are put back, and
+  the picture is made whole at the output's size before anything there reads it, the lab's
+  capture included. Every pass is a compute program writing images, so blending, the alpha test,
+  culling and the masks hosted code leaves set do not touch it:
+  1. the drawn depth is copied to a texture;
+  2. *motion*, at the drawn size, into a target of two 16-bit floats a pixel: one matrix,
+     composed in double precision from the two frames' views and the origin's movement, takes
+     this frame's clip space to the previous frame's, and each pixel's depth gives where its
+     point stood, minus where it stands now, in pixels without the offset. Whether that is the
+     convention DLSS reads, so the Vulkan bridge (D21) can take the target as it is, is for PLAN
+     item 7 to confirm against NVIDIA's programming guide. A point behind the previous eye gets a
+     motion past any picture;
+  3. *temporal*, at the drawn size, into one of two 16-bit float histories: this frame's
+     color filtered at the pixel's center from its 3 by 3 neighborhood by each sample's distance
+     after its offset (a Gaussian of half a pixel's deviation); the history read where the
+     nearest point of the neighborhood stood, by a Catmull-Rom spline in nine bilinear reads;
+     moved toward the center of the box of the neighborhood's minimum and maximum in YCoCg until
+     it lies inside it (variance clipping is not used, D23; research R4, 7b.1); and blended
+     with at least `quadrature.taa.blend` (0.1) of this frame, rising
+     toward a third with motion (`quadrature.taa.moving`, a sixteenth a pixel of motion) and to
+     `quadrature.taa.reactive` (0.5) where the depth changed after opaque terrain, both weighted
+     by the inverse of their luma. History is dropped after a teleport (8 blocks in a frame),
+     another dimension, new targets, or a frame without a composite;
+  4. *scale*, at the output's size, into the game's picture: the 4 by 4 texels around each
+     output pixel's source point under two Keys cubic kernels, the separable one and a round one
+     lengthened along the edge (`quadrature.scale.stretch`, 1: twice as long), blended by how
+     coherent and strong the edge is in the structure tensor of the four central texels' luma
+     gradients (`quadrature.scale.edge`); a boost of `quadrature.scale.sharpness` (0.2) of the
+     difference from a bilinear read; held inside the four central texels' range.
+     `-Dquadrature.scale.kernel=plain` puts the separable kernel alone in its place, with the same
+     boost and hold and no edge steering (research R4, 7b.2). At scale 1 a copy takes its place;
+  5. the drawn depth stretched over the game's whole depth buffer by a nearest blit, for what
+     mods draw last against the world;
+  6. the offset taken out of the projection on the stack, so what is drawn after it, the hand
+     and the interface are drawn at the output's size without it.
+- **State.** Read on units 4 to 8 through sampler objects and written through image unit 0;
+  uniforms at fixed locations set with `glProgramUniform`. On the way out the units, the image
+  unit and the program are emptied and the game's framebuffer and viewport put back; nothing is
+  read back from the driver to find what to restore. `-Dquadrature.taa.check=true` reads the
+  motion target back every 600 composites and logs its mean and greatest length.
+- **Memory**, at 2560 by 1440 and scale 0.67: the drawn framebuffer, two histories, motion and
+  two depth copies at the drawn size, 1715 by 965, 36 bytes a pixel, 56.8 MiB, in the reserve's
+  pool (12).
+- **What has no motion** is held by the box: entities, particles, falling weather, the clouds'
+  drift, animated textures and translucent surfaces, whose pixels keep the depth behind them.
+  Motion vectors for hosted draws from each draw's previous transform are not built; D21 needs
+  them before DLSS.
+- **Not covered:** a mod that keeps the game's framebuffer from before the pass and draws into
+  it there; the outline shader of glowing entities, whose shader group holds the game's own
+  framebuffer from its creation; anaglyph, which is drawn at the output's size.
+
 ## 5. Scene sources
 
 | Source | Owner | Gives Quadrature |
@@ -979,7 +1064,7 @@ radii are not measured; the runs held 12, or 8 at radius 8.
 | Shader format | Candidate | Two concrete shaders |
 | Driver floor R580, a warning below the production branch | Decided (D20); not built | |
 | Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); not built | PLAN.md, capability and tier work |
-| Own temporal anti-aliasing and spatial scaler; DLSS through a Vulkan bridge as an option | Decided (D21, D23); not built | The handoff's cost; motion vectors for hosted draws |
+| Own temporal anti-aliasing and spatial scaler; DLSS through a Vulkan bridge as an option | Decided (D21, D23); own temporal pass and scaler built behind switches (4.8) | The handoff's cost; motion vectors for hosted draws; ghosting under motion |
 
 ## Sources
 

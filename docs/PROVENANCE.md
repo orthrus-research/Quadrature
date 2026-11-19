@@ -614,6 +614,66 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
 - Added: 2026-11-17
 
+### Rendering below output resolution: the drawn framebuffer, the offset and motion from depth
+- Code: `src/main/java/cc/orthrus/quadrature/frame/TemporalScaler.java` (the drawn framebuffer
+  standing in for the game's, the view, the composite's order and state), `ScalerShaders.java`
+  (`MOTION_COMPUTE`), `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererScale.java`,
+  `MinecraftScaleAccess.java`, `core/src/main/java/cc/orthrus/quadrature/core/scale/`
+  (`RenderScale`, `Jitter`, `Reprojection`); hooks in `FrameHost` and `BaselineGraph`
+- Source: original in its placement. Ideas used: a sub-pixel offset of the projection each frame
+  from a low-discrepancy sequence, and motion for what stands still from depth and the previous
+  camera, as published for temporal anti-aliasing (Karis, "High Quality Temporal Supersampling",
+  SIGGRAPH 2014; Pedersen, "Temporal Reprojection Anti-Aliasing in INSIDE", GDC 2016); the
+  Halton sequence (Halton, 1960). Facts used: the game's world pass read from its public classes
+  (where the viewport is set, which calls build each world projection, where Forge's last world
+  drawing runs, where the game's framebuffer and display size are read) and the lab's capture in
+  that event; what GTCEu Reloaded's bloom does inside the pass, from its classes' calls; the
+  OpenGL 4.6 specification (clip-space
+  translation, `glCopyImageSubData` between a renderbuffer and a texture of one depth format,
+  nearest depth blits, `glMatrixLoadfEXT` from `EXT_direct_state_access`).
+- Taken: that the offset belongs on the left of the perspective, and that a point's depth and
+  two cameras give its motion.
+- Not taken: any engine's code or constants; motion for moving hosted draws, which D21 still
+  needs.
+- Added: 2026-11-18
+
+### Temporal pass
+- Code: `src/main/java/cc/orthrus/quadrature/frame/ScalerShaders.java` (`TEMPORAL_COMPUTE`),
+  `TemporalScaler.composite`
+- Source: Salvi, "An Excursion in Temporal Supersampling", GDC 2016 (an exponential moving
+  average of resolved color with about a tenth of the current frame; clipping the history
+  toward the current neighborhood's box; bicubic reads of the history);
+  Karis, SIGGRAPH 2014 as above (YCoCg, the motion of the nearest depth in the neighborhood,
+  filtering the current frame by each sample's distance after its offset, luma weighting
+  against flicker, a raised current weight where motion is unreliable); Malan, 2012, as Salvi
+  credits him for neighborhood clipping; Catmull and Rom, "A class of local interpolating
+  splines", 1974, for the history spline.
+- Taken: the structure of accumulation and rectification and the ideas above, written anew. The
+  nine-read spline is derived here from the cubic's weights; the Gaussian of half a pixel, the
+  motion term, the depth-change test for a raised weight and every constant are Quadrature's.
+- Not taken: variance clipping, the box from the neighborhood's mean and deviation (D23;
+  research R4, 7b.1).
+- Added: 2026-11-18
+
+### Edge-adaptive spatial scaler
+- Code: `src/main/java/cc/orthrus/quadrature/frame/ScalerShaders.java` (`scale`, giving
+  `SCALE_COMPUTE` and the plain `SCALE_PLAIN_COMPUTE`, and `COPY_COMPUTE`)
+- Source: Keys, "Cubic convolution interpolation for digital image processing", IEEE
+  Transactions on Acoustics, Speech and Signal Processing 29(6), 1981 (the kernel, a = -1/2); the
+  idea of interpolating along an edge rather than across it from Li and Orchard, "New
+  edge-directed interpolation" (2001), Zhou, Shen and Dong, "Image zooming using directional
+  cubic convolution interpolation" (2012), and Takeda, Farsiu and Milanfar, "Kernel Regression
+  for Image Processing and Reconstruction" (2007), whose kernels follow the local dominant
+  orientation; the structure tensor of image gradients as the measure of that orientation
+  (Bigün and Granlund, 1987; Kass and Witkin, 1987; its coherence as in Weickert, 1999).
+- Taken: Keys' kernel as published; that a kernel lengthened along an edge removes stairs while
+  keeping the edge. The blend of a separable and an elliptical kernel by the tensor's coherence
+  and strength, the hold to the central texels' range and the sharpening boost are Quadrature's.
+- Not taken: steering kernel regression's iterative estimation or any part of its procedure; any
+  code or constant of NVIDIA Image Scaling or AMD FidelityFX Super Resolution, neither of which
+  was opened. NVIDIA Image Scaling is a comparison reference only (D23).
+- Added: 2026-11-18
+
 ### Picture quality measures
 - Code: `tools/frames.py` (`ssim`, `psnr`, `edge_detail`, `quality`)
 - Source: Wang, Bovik, Sheikh and Simoncelli, "Image quality assessment: from error visibility to

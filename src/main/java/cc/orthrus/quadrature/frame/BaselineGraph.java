@@ -64,6 +64,9 @@ public final class BaselineGraph {
                     graph.add(new StageDefinition(StageHost.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME),
                         true));
                 }
+                if (TemporalScaler.REQUESTED && section[1].equals(TemporalScaler.BEFORE)) {
+                    graph.add(new StageDefinition(TemporalScaler.STAGE, StageKind.PIPELINE, Set.of(FRAME), Set.of(FRAME), true));
+                }
                 graph.add(StageDefinition.hosted(section[1], FRAME));
                 previous = section[1];
             }
