@@ -66,8 +66,9 @@ public final class RayTracer implements RayTrace {
             failed = !built(path);
             blockingBuffer = GL45.glCreateBuffers();
             GL45.glNamedBufferStorage(blockingBuffer, (long) LightScene.STATES / 8, GL44.GL_DYNAMIC_STORAGE_BIT);
-            Quadrature.LOGGER.info("Ray trace {}: work groups of {}, the lookup and bricks read {}.", failed ? "failed"
-                : "ready", TraceProgram.GROUP, TEXTURES ? "through buffer textures" : "from storage blocks");
+            Quadrature.LOGGER.info("Ray trace {}: work groups of {}, the lookup and bricks read {}; the blocking states in "
+                    + "buffer {}.", failed ? "failed" : "ready", TraceProgram.GROUP,
+                TEXTURES ? "through buffer textures" : "from storage blocks", blockingBuffer);
         }
         return !failed;
     }

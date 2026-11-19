@@ -18,8 +18,9 @@ import java.util.List;
  * A diagnostic of the ray benchmark, {@code -Dquadrature.rays.check=true}: after each measurement two
  * runs of {@value #RUN} rays and their results are read back, with the scene's generation and box; at
  * the end of the set the copy of the scene's buffers the benchmark made on the GPU at the set's start is
- * read back once, never the scene's own buffers, and each sampled ray traced again by {@link BrickTrace}
- * over it. The results must be the same, word for word: the distance's bits, the cell, the outcome and
+ * read back once, and each sampled ray traced again by {@link BrickTrace} over it. Every read goes
+ * through a {@link Staging} buffer filled by a copy on the GPU: the CPU reads no buffer a trace reads
+ * or writes. The results must be the same, word for word: the distance's bits, the cell, the outcome and
  * the nodes visited. A sample traced under another generation than the copy's is passed over and
  * counted, since what it was traced against is not what was copied.
  */
@@ -59,10 +60,21 @@ final class RayCheck {
     private IntBuffer lookupBack;
     private IntBuffer brickBack;
     private final BrickTrace reference = new BrickTrace();
+    private final Staging small = new Staging("the check's samples and the blocking states");
+    private final Staging large = new Staging("the check's copy of the lookup and bricks");
     private int set;
     private long checkedRays;
     private long differences;
     private long passedOver;
+
+    /** The staging buffers' GL names, 0 before their first read. */
+    int smallStaging() {
+        return small.buffer();
+    }
+
+    int largeStaging() {
+        return large.buffer();
+    }
 
     void begin(int set) {
         this.set = set;
@@ -82,10 +94,10 @@ final class RayCheck {
             int first = (int) Math.floorMod(mixed >>> 7, (long) Math.max(1, count - RUN));
             sample.first[run] = first;
             rayBack.clear();
-            GL45.glGetNamedBufferSubData(rayBuffer, (long) first * TraceFormat.RAY_BYTES, rayBack);
+            small.read(rayBuffer, (long) first * TraceFormat.RAY_BYTES, rayBack);
             rayBack.get(sample.rays, run * RUN * TraceFormat.RAY_FLOATS, RUN * TraceFormat.RAY_FLOATS);
             resultBack.clear();
-            GL45.glGetNamedBufferSubData(resultBuffer, (long) first * TraceFormat.RESULT_BYTES, resultBack);
+            small.read(resultBuffer, (long) first * TraceFormat.RESULT_BYTES, resultBack);
             resultBack.get(sample.results, run * RUN * TraceFormat.RESULT_INTS, RUN * TraceFormat.RESULT_INTS);
         }
         samples.add(sample);
@@ -111,11 +123,11 @@ final class RayCheck {
             brickBack = BufferUtils.createIntBuffer(brickInts);
         }
         lookupBack.clear().limit(lookupInts);
-        GL45.glGetNamedBufferSubData(lookupBuffer, 0, lookupBack);
+        large.read(lookupBuffer, 0, lookupBack);
         brickBack.clear().limit(brickInts);
-        GL45.glGetNamedBufferSubData(brickBuffer, 0, brickBack);
+        large.read(brickBuffer, 0, brickBack);
         blockingBack.clear();
-        GL45.glGetNamedBufferSubData(blockingBuffer, 0, blockingBack);
+        small.read(blockingBuffer, 0, blockingBack);
         int[] lookup = new int[lookupInts];
         lookupBack.get(lookup);
         int[] bricks = new int[brickInts];

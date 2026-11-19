@@ -146,6 +146,7 @@ public final class RayBench {
     private final ComputeState state = new ComputeState();
     private final RayCheck check = CHECK ? new RayCheck() : null;
     private final IntBuffer censusBack = BufferUtils.createIntBuffer(BenchPrograms.CENSUS_WORDS);
+    private final Staging censusStaging = new Staging("the census");
     private boolean prepared;
     private boolean failed;
     private boolean warned;
@@ -189,6 +190,10 @@ public final class RayBench {
     private RayTrace.Timed timing;
     private long fence;
     private final double[] toward = new double[3];
+    /** For each buffer the set watches, the driver's moves of it when the set began: to any memory, to host, to DMA cached. */
+    private long[][] movesAtBegin;
+    private String[] watched = new String[0];
+    private int[] watchedBuffers = new int[0];
     private final double[] lowSun = new double[3];
 
     /** The benchmark where it is asked for, or null. */
@@ -268,8 +273,9 @@ public final class RayBench {
             GL45.glNamedBufferStorage(resultBuffer, (long) MOST_RAYS * TraceFormat.RESULT_BYTES, 0);
             censusBuffer = GL45.glCreateBuffers();
             GL45.glNamedBufferStorage(censusBuffer, BenchPrograms.CENSUS_WORDS * 4L, 0);
-            Quadrature.LOGGER.info("Ray benchmark buffers: room for {} rays, {} MiB, and a copy of the scene's lookup and bricks.",
-                String.format("%,d", MOST_RAYS), String.format("%.1f", benchBytes() / 1048576.0));
+            Quadrature.LOGGER.info("Ray benchmark buffers: room for {} rays, {} MiB, and a copy of the scene's lookup and "
+                    + "bricks; rays in buffer {}, results {}, census {}.", String.format("%,d", MOST_RAYS),
+                String.format("%.1f", benchBytes() / 1048576.0), rayBuffer, resultBuffer, censusBuffer);
         }
         return !failed;
     }
@@ -290,6 +296,7 @@ public final class RayBench {
         round = 0;
         index = 0;
         copy(scene);
+        movesAtBegin = moves(scene);
         for (int rayClass = 0; rayClass < CLASSES.length; rayClass++) {
             for (int length : LENGTHS) {
                 for (Tier tier : TIERS) {
@@ -313,6 +320,51 @@ public final class RayBench {
         step(scene, view, partialTicks);
     }
 
+    /** The driver's moves of each buffer a set reads or writes, by name, with {@code -Dquadrature.glDebug=true}. */
+    private long[][] moves(PublishedScene scene) {
+        watched = new String[] {"the scene's lookup", "the scene's bricks", "the copy's lookup", "the copy's bricks",
+            "the blocking states", "rays", "results", "census", "the census's staging", "the check's small staging",
+            "the check's large staging"};
+        watchedBuffers = new int[] {scene.lookupBuffer(), scene.brickBuffer(), lookupCopy, brickCopy, tracer.blockingBuffer(),
+            rayBuffer, resultBuffer, censusBuffer, censusStaging.buffer(), check == null ? 0 : check.smallStaging(),
+            check == null ? 0 : check.largeStaging()};
+        long[][] counts = new long[watchedBuffers.length][3];
+        for (int i = 0; i < watchedBuffers.length; i++) {
+            if (watchedBuffers[i] != 0) {
+                counts[i][0] = cc.orthrus.quadrature.terrain.TerrainHook.driverMoves(watchedBuffers[i], null);
+                counts[i][1] = cc.orthrus.quadrature.terrain.TerrainHook.driverMoves(watchedBuffers[i], "HOST");
+                counts[i][2] = cc.orthrus.quadrature.terrain.TerrainHook.driverMoves(watchedBuffers[i], "DMA CACHED");
+            }
+        }
+        return counts;
+    }
+
+    /** Logs how many times the driver said it moved each watched buffer during the set. */
+    private void reportMoves(PublishedScene scene, String how) {
+        if (movesAtBegin == null || scene == null) {
+            return;
+        }
+        String[] names = watched;
+        int[] buffers = watchedBuffers;
+        long[][] before = movesAtBegin;
+        long[][] after = moves(scene);
+        StringBuilder line = new StringBuilder();
+        for (int i = 0; i < Math.min(before.length, after.length); i++) {
+            if (buffers[i] == 0) {
+                continue;
+            }
+            line.append(line.length() == 0 ? "" : "; ").append(names[i]).append(" (buffer ").append(buffers[i]).append(") ")
+                .append(after[i][0] - before[i][0]);
+            if (after[i][0] != before[i][0]) {
+                line.append(" (to host ").append(after[i][1] - before[i][1]).append(", to DMA cached ")
+                    .append(after[i][2] - before[i][2]).append(')');
+            }
+        }
+        Quadrature.LOGGER.info("Ray benchmark set {} {}: the driver's moves of each buffer while it ran, as it told them: {}.",
+            sets, how, line);
+        movesAtBegin = null;
+    }
+
     /** Copies the scene's lookup and bricks on the GPU into the set's own buffers, made anew when their size changes. */
     private void copy(PublishedScene scene) {
         long lookupBytes = GL45.glGetNamedBufferParameteri(scene.lookupBuffer(), org.lwjgl.opengl.GL15.GL_BUFFER_SIZE);
@@ -328,8 +380,9 @@ public final class RayBench {
             GL45.glNamedBufferStorage(brickCopy, brickBytes, 0);
             lookupCopyBytes = lookupBytes;
             brickCopyBytes = brickBytes;
-            Quadrature.LOGGER.info("Ray benchmark copy of the scene: {} KiB of lookup and {} MiB of bricks.", lookupBytes >> 10,
-                String.format("%.1f", brickBytes / 1048576.0));
+            Quadrature.LOGGER.info("Ray benchmark copy of the scene: {} KiB of lookup in buffer {} and {} MiB of bricks in "
+                    + "buffer {}, copied from the scene's buffers {} and {}.", lookupBytes >> 10, lookupCopy,
+                String.format("%.1f", brickBytes / 1048576.0), brickCopy, scene.lookupBuffer(), scene.brickBuffer());
         }
         GL45.glCopyNamedBufferSubData(scene.lookupBuffer(), lookupCopy, 0, 0, lookupBytes);
         GL45.glCopyNamedBufferSubData(scene.brickBuffer(), brickCopy, 0, 0, brickBytes);
@@ -374,7 +427,7 @@ public final class RayBench {
                 }
                 if (repeat == runs() - 1) {
                     censusBack.clear();
-                    GL45.glGetNamedBufferSubData(censusBuffer, 0, censusBack);
+                    censusStaging.read(censusBuffer, 0, censusBack);
                     running.census = new int[BenchPrograms.CENSUS_WORDS];
                     censusBack.get(running.census);
                 }
@@ -555,9 +608,13 @@ public final class RayBench {
             if (check != null) {
                 check.compare(tracer.blockingBuffer(), lookupCopy, brickCopy, copyGeneration, copySizeX, copySizeY, copySizeZ);
             }
-        } else if (fence != 0) {
-            GL32.glDeleteSync(fence);
-            fence = 0;
+            reportMoves(tracer.scene(), "done");
+        } else {
+            if (fence != 0) {
+                GL32.glDeleteSync(fence);
+                fence = 0;
+            }
+            reportMoves(tracer.scene(), "stopped");
         }
         if (running != null && timing != null) {
             // Let its queries be read and freed.
