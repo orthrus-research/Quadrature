@@ -18,12 +18,13 @@ import java.util.List;
 final class TierCalibrationTable {
 
     /**
-     * NVIDIA's published cost on the RTX 3060 (DLSS Super Resolution Programming Guide 310.6.0, March 2026,
-     * measured by NVIDIA's command-line tool without a renderer): presets J and K in Performance mode, 1.45 ms
-     * at 1920 by 1080 output. The handoff to Vulkan and back is not yet measured.
+     * DLSS taking the scaler's picture on the reference card, preset K in Performance mode, the whole step at P0
+     * (VERIFICATION, DLSS taking the scaler's picture, and the scaler's costs): 2.653 ms at 2560 by 1440 output and
+     * 5.482 ms at 3840 by 2160, the copies in, the round trip with NGX's work and the copy out. A line through the two:
+     * 0.614 ms a million output pixels, NGX's work and the copies, and 0.390 ms fixed, the round trip's latency.
      */
     static final TierCalibration.Dlss DLSS = new TierCalibration.Dlss("Super Resolution, preset K, Performance",
-        1.45 / (1920 * 1080 / 1e6), Double.NaN);
+        (5.482 - 2.653) / (8.2944 - 3.6864), 2.653 - (5.482 - 2.653) / (8.2944 - 3.6864) * 3.6864);
 
     /**
      * Opaque terrain drawn forward at each tier's radius, the median place: ms = a + b MP + c MP squared. Radius 12
@@ -80,18 +81,29 @@ final class TierCalibrationTable {
     }
 
     /**
-     * Own temporal anti-aliasing and the scaler at 2560 by 1440 output (the scaler's F4 and F6, its plain kernel, the
-     * one it ships): at LOW's 0.67 two depth copies of 0.033 ms, motion 0.056, the temporal pass 0.313, the scale
-     * 0.385 and the depth's stretch 0.096; at MEDIUM's 0.77 copies of 0.040, motion 0.061, temporal 0.294, scale
-     * 0.274 and stretch 0.072. About 0.28 ms more lies between the passes, barriers and program changes, held fixed,
-     * and the passes follow the output's megapixels. At the output resolution its temporal pass, motion and depth
-     * copies, 0.41 ms.
+     * Own temporal anti-aliasing and the scaler on the reference card at P0, measured at 2560 by 1440 and 3840 by
+     * 2160 output on one instance (VERIFICATION, the scaler's costs): its two depth copies, motion, the temporal
+     * pass, the scale (at the output's size, the copy), the barrier and the depth's stretch, and the 0.01 ms
+     * between them. LOW at 0.67 takes 0.982 and 1.520 ms, MEDIUM at 0.77 0.972 and 1.781 ms, and the temporal pass
+     * alone at the output's size, HIGH and MAX, 0.957 and 2.010 ms. For two and a quarter times the pixels they take
+     * 1.55, 1.83 and 2.10 times as long, not in proportion, so each is a line through its two points: a fixed part and
+     * one a million output pixels.
      */
-    private static final double SCALER_GAPS_MS = 0.28;
-    private static final double[] SCALER_MS_A_MEGAPIXEL = {
-        (2 * 0.033 + 0.056 + 0.313 + 0.385 + 0.096) / 3.6864,
-        (2 * 0.040 + 0.061 + 0.294 + 0.274 + 0.072) / 3.6864};
-    private static final double TEMPORAL_MS_A_MEGAPIXEL = 0.41 / 3.6864;
+    private static final double[][] SCALER_POINTS_MS = {{0.982, 1.520}, {0.972, 1.781}};
+    private static final double[] TEMPORAL_POINTS_MS = {0.957, 2.010};
+    private static final double MEASURED_LOW_MP = 3.6864;
+    private static final double MEASURED_HIGH_MP = 8.2944;
+
+    /** A line through a cost's two measured points: {fixed ms, ms a million output pixels}. */
+    static double[] line(double[] points) {
+        double slope = (points[1] - points[0]) / (MEASURED_HIGH_MP - MEASURED_LOW_MP);
+        return new double[]{points[0] - slope * MEASURED_LOW_MP, slope};
+    }
+
+    private static Cost scaled(String name, double[] points) {
+        double[] line = line(points);
+        return new Cost(name, Probe.BANDWIDTH, line[0], 0, 0, line[1]);
+    }
 
     private static List<Cost> tier(Tier tier) {
         int t = tier.ordinal();
@@ -103,9 +115,8 @@ final class TierCalibrationTable {
             new Cost("shading", Probe.BANDWIDTH, 0, 0.19, 0),
             new Cost("the game's other drawing", Probe.BANDWIDTH, 0, 0.33, 0),
             TierBenchmark.renderScale(tier) < 1
-                ? new Cost("own temporal anti-aliasing and the scaler", Probe.BANDWIDTH, SCALER_GAPS_MS, 0, 0,
-                    SCALER_MS_A_MEGAPIXEL[t])
-                : new Cost("own temporal anti-aliasing", Probe.BANDWIDTH, 0, 0, TEMPORAL_MS_A_MEGAPIXEL)));
+                ? scaled("own temporal anti-aliasing and the scaler", SCALER_POINTS_MS[t])
+                : scaled("own temporal anti-aliasing", TEMPORAL_POINTS_MS)));
         if (INDIRECT_MS[t] > 0) {
             costs.add(new Cost("indirect light's rays", Probe.TRACE, INDIRECT_MS[t], 0, 0));
         }

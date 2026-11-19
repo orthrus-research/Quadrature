@@ -470,8 +470,9 @@ public final class TemporalScaler {
                     (outputHeight + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP, 1);
                 clock.end(4);
             }
-            // What follows draws into the picture, reads it as a texture or copies it out.
-            GL42.glMemoryBarrier(GL42.GL_ALL_BARRIER_BITS);
+            // What follows draws into the picture (framebuffer), reads it as a texture (texture fetch) or copies it out
+            // (texture update); nothing reads it through an image or a buffer.
+            GL42.glMemoryBarrier(GL42.GL_FRAMEBUFFER_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT | GL42.GL_TEXTURE_UPDATE_BARRIER_BIT);
 
             // The drawn depth over the game's whole depth buffer, for what mods draw last against the world.
             clock.begin(5);

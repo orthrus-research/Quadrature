@@ -387,7 +387,8 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
      `quadrature.scale.sharpness` (0.2) of the difference from a bilinear read; held inside the
      four central texels' range. No kernel is steered along edges (D23; research R4, 7b.2). A
      work group of 8 by 8 output pixels reads the 12 by 12 source texels it reaches once into
-     shared memory. At scale 1 a copy takes its place;
+     shared memory. At scale 1 a copy takes its place. A barrier for framebuffer access, texture
+     fetches and texture updates, what follows, makes the picture's writes visible;
   5. the drawn depth stretched over the game's whole depth buffer by a nearest blit, for what
      mods draw last against the world;
   6. the offset taken out of the projection on the stack, so what is drawn after it, the hand
@@ -1316,9 +1317,9 @@ again. A tier's cost on the reference card, in ms at 2560 by 1440 output, agains
 | Indirect light's rays as item 4 schedules them, on the walk as shipped: MEDIUM every probe a frame, HIGH and MAX a quarter; MAX's far shadows, an upper bound | | 0.53 | 0.87 | 2.13 + 5.43 |
 | Shading, 0.19 ms a render megapixel (the stage handed over in a folder) | 0.31 | 0.42 | 0.70 | 0.70 |
 | The game's other drawing, 0.33 ms a render megapixel (the stage reports) | 0.55 | 0.72 | 1.22 | 1.22 |
-| Own temporal anti-aliasing, with the scaler below the output's resolution, at 0.67 and 0.77 (item 6, its plain kernel): 0.28 ms between its passes held fixed, the passes by output megapixel | 1.20 | 1.06 | 0.41 | 0.41 |
-| **In all, 2560 by 1440** | **2.63** | **3.71** | **5.09** | **12.15** |
-| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.26 / 0.38 / 0.71 | 0.40 / 0.53 / 0.95 | 0.54 / 0.73 / 1.41 | 1.55 / 1.74 / 2.45 |
+| Own temporal anti-aliasing, with the scaler below the output's resolution at 0.67 and 0.77, its passes measured at 2560 by 1440 and 3840 by 2160 and carried as a line between (the scaler's costs) | 0.98 | 0.97 | 0.96 | 0.96 |
+| **In all, 2560 by 1440** | **2.42** | **3.62** | **5.64** | **12.70** |
+| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.26 / 0.35 / 0.60 | 0.40 / 0.52 / 0.91 | 0.59 / 0.81 / 1.57 | 1.60 / 1.81 / 2.60 |
 
 The rays' figures are item 4's last measurement, of the walk that reads no coarser bits
 ([VERIFICATION.md](VERIFICATION.md), rays through the scene). That run sampled no clocks; its
@@ -1332,28 +1333,31 @@ figures are taken as the top state's, as the other items' settled runs are.
 - Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
   shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
   when measured, which can only raise the speeds needed.
-- **Rendering below the output costs time at today's frame.** The scaler stage, its plain
-  kernel, takes 1.20 ms at 2560 by 1440 output from 0.67 and 1.06 from 0.77, and 0.67 of the
-  resolution saves 0.98 ms of the world's drawing (item 6): a render below the output pays only
-  once a tier's resolution-dependent work passes about 2.2 ms at 0.67 and 2.6 ms at 0.77. Render
-  scale stays a preset of each tier, never a lever the selection turns; whether LOW and MEDIUM
-  keep 67% and 77% is D23's to decide. At 3840 by 2160 output LOW and MEDIUM pay about 2.3 and
-  2.0 ms for a scaler that a render at 100% would not need. The stage's passes are carried in
-  proportion to the output's megapixels from 2560 by 1440, the one output measured, and the
-  0.28 ms between them, barriers and program changes, is held fixed: MEDIUM takes 6.62 ms of the
-  7 at 3840 by 2160, and this card MEDIUM there, with a fit of 1.07 on the run the unit test
-  holds. Were the gaps to follow the pixels too, MEDIUM would take 6.97 ms and this card MEDIUM
-  still, with a fit of 1.01. **This card at 3840 by 2160 is a boundary case**, open until
-  the scaler is measured at that output: its score runs 0.85 to 1.14 between places, and a place
-  low in that range takes LOW there. The band keeps whichever tier is stored first.
+- **Rendering below the output costs time at today's frame.** The scaler's passes take, at P0,
+  0.98 ms at 2560 by 1440 output from 0.67, 0.97 from 0.77 and 0.96 for the temporal pass alone
+  at the output's size (HIGH and MAX), and 1.52, 1.78 and 2.01 ms at 3840 by 2160, with about
+  0.01 ms between the passes (VERIFICATION, the scaler's costs). For two and a quarter times the
+  pixels they take 1.55, 1.83 and 2.10 times as long, not in proportion, so each tier's is
+  carried as a line through its two outputs. A render below the output pays only once a tier's resolution-dependent work passes
+  about 1.8 ms at 0.67 and 2.4 ms at 0.77 at 2560 by 1440, and 2.8 and 4.4 ms at 3840 by 2160,
+  were all of it to follow the pixels; on the short tour at 3840 by 2160 the world's terrain
+  took 2.36 ms at the output's size, and 2.81 and 3.29 ms with the scaler at 0.67 and 0.77.
+  Render scale stays a preset of each tier, never a lever the selection turns; whether LOW and
+  MEDIUM keep 67% and 77% is D23's to decide. On the run the unit test holds, this card takes
+  HIGH at 2560 by 1440 (5.65 ms of the 7, a fit of 1.24) and MEDIUM at 3840 by 2160 (6.31 ms, a
+  fit of 1.11). Its score runs 0.85 to 1.14 between places, so at the slowest places MEDIUM's
+  fit at 3840 by 2160 falls below one; the band keeps whichever tier is stored first.
 - The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's
   arenas 128 to 704 MiB, distant terrain's reach about 40 to 250 MiB by DISTANT's survey, the
   light's layers with their scratch 32 to 256 MiB, the light scene's lookup and bricks 8.6, 15.0
   and 23.1 MiB with MAX's states within radius 12, 39 MiB, and 30.5 MiB a render megapixel and
   15.3 an output megapixel for targets and history).
-- DLSS is offered where the speed tier leaves room for it (D21): at NVIDIA's published 1.45 ms
-  at 1920 by 1080 for this card, preset K in Performance mode, 0.70 ms an output megapixel,
-  scaled by the probes' combined ratio; the handoff to Vulkan is added once measured.
+- DLSS is offered where the speed tier leaves room for it (D21), at its cost measured taking
+  the scaler's picture through the handoff on this card, preset K in Performance mode: 2.65 ms
+  at 2560 by 1440 and 5.48 ms at 3840 by 2160, the copies, the round trip and NGX's work, carried
+  as 0.39 ms fixed and 0.61 ms an output megapixel and scaled by the probes' combined ratio. It
+  is counted above the tier's cost, although it takes the place of the scaler's temporal and
+  scale passes.
 - The trace probe times MEDIUM's own batch, 65,536 rays: a small batch runs at about half to
   seven tenths of a large one's rate, so the probe gives a card's ratio to the reference, and
   HIGH's and MAX's costs are item 4's own timings of their batches.

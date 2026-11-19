@@ -981,6 +981,56 @@ and both DLSS runs in P0 for every frame, at 1,927 MHz.
 - **Not measured.** The views are still; a picture in motion is not scored, and the scaler's
   motion is the camera's, so entities and particles carry none (D21). No texture LOD bias is
   applied for the scale, which DLSS's guide recommends.
+### The scaler's costs
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, on one fresh instance with own terrain
+over the scaler's short tour, at 2560x1440 and 3840x2160 (the window ran at the full size). The
+jar, built from tree d06c9696, carried three cuts to the scaler's cost, and with
+`quadrature.scale.compare=true` ran every other 120 composites with the programs and barrier as
+they had been, so both were timed in the same seconds: the temporal pass's nine neighborhood
+weights computed once a frame on the CPU against nine exponentials a pixel, the scale pass's 16
+taps read straight from its shared tile against copied into registers first, and a barrier for
+framebuffer access, texture fetches and texture updates against one for everything. A pass's time
+is the median over the run's reports of each report's median, by power state.
+
+| Median GPU time at P0, ms, with the cut / without | Temporal | Scale (at 1, the copy) | Barrier |
+|---|---|---|---|
+| LOW, 0.67 of 2560x1440 | 0.317 / 0.317 | 0.385 / 0.386 | 0.002 / 0.002 |
+| MEDIUM, 0.77 of 2560x1440 | 0.361 / 0.360 | 0.335 / 0.334 | 0.002 / 0.002 |
+| HIGH, the temporal pass alone at 2560x1440 | 0.493 / 0.493 | 0.095 / 0.095 | 0.001 / 0.001 |
+| LOW, 0.67 of 3840x2160 | 0.483 / 0.484 | 0.607 / 0.609 | 0.001 / 0.001 |
+| MEDIUM, 0.77 of 3840x2160 | 0.643 / 0.646 | 0.617 / 0.617 | 0.001 / 0.001 |
+| HIGH at 3840x2160 | 1.081 / 1.086 | 0.182 / 0.182 | 0.001 / 0.001 |
+
+- **None of the three cuts saves time**: with and without, the passes agree within 0.005 ms at
+  P0 and within 0.011 ms either way at P3. The programs stay as they were; the barrier is
+  narrowed to what follows. With all three cuts the picture at 0.67 of 2560x1440 scored 28.31 dB,
+  SSIM 0.811 and edge detail 0.513 against own terrain at the output's size in the same instance,
+  as the programs before them did on another (DLSS taking the scaler's picture).
+- **The scaler's whole cost** at P0, its two depth copies, motion, the temporal pass, the scale or
+  copy, the barrier, the depth's stretch and what lies between them: LOW 0.982 ms at 2560x1440 and
+  1.520 at 3840x2160, MEDIUM 0.972 and 1.781, HIGH 0.957 and 2.010. The scaler stage takes 0.008
+  to 0.014 ms more than its passes; the 0.28 ms counted between them before came from medians
+  over different mixes of clock states. For two and a quarter times the pixels the passes take
+  1.55 times as long at LOW, 1.83 at MEDIUM and 2.10 at HIGH.
+- **At 3840x2160 the scaler does not pay on today's frame.** Over the short tour's seven views,
+  opaque and translucent terrain took 2.357 ms at the output's size; with the scaler, terrain and
+  the scaler stage took 2.807 ms at 0.67 and 3.293 ms at 0.77. Opaque terrain, mostly a cost per
+  vertex, fell only from 1.189 to 0.949 and 1.104 ms; translucent terrain, the water filling
+  pixels, from 1.168 to 0.424 and 0.521 ms.
+- **DLSS at 3840x2160**, taking the scaler's picture at 0.5 in Performance mode: NGX's own work
+  4.820 ms (NVIDIA gives 5.05), the round trip 5.095 ms, the whole step 5.482 ms, all at P0; the
+  frame held the cap.
+- **The tier model** (ARCHITECTURE 12.1.1) now carries each tier's scaler as a line through its
+  two outputs, and DLSS as 0.39 ms fixed and 0.61 ms an output megapixel from its two steps. On
+  the stored run its unit test holds, this card's choices stand: HIGH to 2560x1440, at 5.65 ms of
+  the 7 there (a fit of 1.24, before 1.37, as HIGH's temporal pass at the output's size had been
+  carried at 0.41 ms), and MEDIUM at 3840x2160, at 6.31 ms (a fit of 1.11, before 1.07). DLSS fits
+  above HIGH at 1920x1080 (1.19) and not at 2560x1440 (0.84).
+- **Not run on its own:** the jar committed, which is the programs before the cuts with the
+  narrowed barrier; each part ran above, the programs in DLSS taking the scaler's picture and the
+  barrier here.
+
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
