@@ -51,7 +51,8 @@ import java.util.Map;
  * The measurement form of the GL to Vulkan handoff (D21): a Vulkan device beside the game's context on
  * the same GPU, color, depth and motion images at render resolution and an output image at output
  * resolution, all allocated by Vulkan and imported by OpenGL, and a round trip each frame in which OpenGL
- * signals, Vulkan runs a stand-in where DLSS would evaluate, and OpenGL waits for it and finishes.
+ * signals, Vulkan evaluates, and OpenGL waits for it and finishes. The evaluation is a stand-in where DLSS would
+ * evaluate, or, with {@code evaluate=dlss}, DLSS Super Resolution itself through NGX and the shim the builder makes.
  *
  * <p>The parts of the handoff take turns by {@link HandoffSchedule}, so each is measured over the same run.
  * Every frame records OpenGL timestamps around its parts and, with a round trip, Vulkan timestamps around
@@ -74,6 +75,10 @@ public final class VulkanHandoff implements Handoff {
     private VulkanDevice vulkan;
     private SharedSemaphores semaphores;
     private StandIn standIn;
+    /** DLSS through NGX, or null when the stand-in evaluates. */
+    private Ngx ngx;
+    private int dlssQuality;
+    private String evaluation = "stand-in";
     private SharedImage color;
     private SharedImage depth;
     private SharedImage motion;
@@ -175,17 +180,49 @@ public final class VulkanHandoff implements Handoff {
             recreateOnWorldChange = host.option("world", "keep").equals("recreate");
             checkEvery = Integer.parseInt(host.option("check", "600"));
             reportEvery = Integer.parseInt(host.option("report", "6000"));
+            String evaluate = host.option("evaluate", "standin");
+            int dlssPreset = 0;
+            int dlssFlags = 0;
+            if (evaluate.equals("dlss")) {
+                String shim = host.option("shim", "");
+                if (shim.isEmpty()) {
+                    throw new IllegalStateException("evaluate=dlss needs the NGX shim's path in the shim option.");
+                }
+                Path shimPath = Path.of(shim).toAbsolutePath();
+                String folder = host.option("dlssPath", "");
+                dlssQuality = Ngx.quality(host.option("quality", "performance"));
+                dlssPreset = Ngx.preset(host.option("preset", "default"));
+                boolean inverted = Boolean.parseBoolean(host.option("depthInverted", "false"));
+                dlssFlags = Ngx.MOTION_LOW_RESOLUTION | (inverted ? Ngx.DEPTH_INVERTED : 0);
+                ngx = new Ngx(shimPath, host.outputDirectory(), folder.isEmpty() ? shimPath.getParent() : Path.of(folder));
+                evaluation = String.format(Locale.ROOT, "DLSS Super Resolution (quality %s, preset %s, depth %s)",
+                    host.option("quality", "performance"), host.option("preset", "default"), inverted ? "inverted" : "not inverted");
+            } else if (!evaluate.equals("standin")) {
+                throw new IllegalArgumentException("evaluate=" + evaluate + " is not one of standin, dlss.");
+            }
             List<DeviceIdentity> glDevices = glIdentity();
             for (DeviceIdentity identity : glDevices) {
                 host.info("OpenGL device " + identity.describe());
             }
             Gl.clearErrors();
             availableAtOpenKiB = availableKiB();
+            Ngx dlss = ngx;
             vulkan = new VulkanDevice(host, glDevices, host.option("device", "match"), host.option("queue", "graphics"),
-                Boolean.parseBoolean(host.option("validation", "false")));
+                Boolean.parseBoolean(host.option("validation", "false")),
+                dlss == null ? List.of() : dlss.instanceExtensions(),
+                (instance, physical) -> dlss == null ? List.of() : dlss.deviceExtensions(instance.address(), physical.address()),
+                dlss != null);
+            if (dlss != null) {
+                dlss.init(vulkan.instance.address(), vulkan.physical.address(), vulkan.device.address(),
+                    VulkanDevice.getInstanceProcAddr(), vulkan.getDeviceProcAddr());
+                String unavailable = dlss.unavailable();
+                if (unavailable != null) {
+                    throw new IllegalStateException(unavailable + ".");
+                }
+            }
             availableWithDeviceKiB = availableKiB();
             semaphores = new SharedSemaphores(vulkan, timelineWanted);
-            standIn = new StandIn(vulkan, semaphores);
+            standIn = new StandIn(vulkan, semaphores, dlss, dlssQuality, dlssPreset, dlssFlags);
             for (int[] row : glQueries) {
                 GL15.glGenQueries(row);
             }
@@ -215,9 +252,9 @@ public final class VulkanHandoff implements Handoff {
             csv.write(FrameRecord.HEADER);
             csv.newLine();
             Gl.check("opening the handoff");
-            host.info(String.format(Locale.ROOT, "Handoff opened (run %s): %s semaphores, phases %s in turns of %d frames "
-                    + "(first %d not measured), render scale %.4f, output %s, check every %d frames, world change: %s. "
-                    + "GPU memory available %d MiB before the device, %d MiB with it.", run,
+            host.info(String.format(Locale.ROOT, "Handoff opened (run %s): evaluation %s, %s semaphores, phases %s in turns "
+                    + "of %d frames (first %d not measured), render scale %.4f, output %s, check every %d frames, world change: "
+                    + "%s. GPU memory available %d MiB before the device, %d MiB with it.", run, evaluation,
                 semaphores.timeline ? "timeline" : "binary", schedule.order(), schedule.segment(), schedule.settle(), scale,
                 present ? "written into the frame" : "not written into the frame", checkEvery,
                 recreateOnWorldChange ? "images made again" : "images kept", availableAtOpenKiB / 1024,
@@ -533,6 +570,11 @@ public final class VulkanHandoff implements Handoff {
         }
         textures.put(0, color.glTexture).put(1, depth.glTexture).put(2, motion.glTexture).put(3, output.glTexture);
         standIn.bind(color, depth, motion, output);
+        if (ngx != null) {
+            int[] asked = ngx.optimal(frame.width(), frame.height(), dlssQuality);
+            event(String.format(Locale.ROOT, "DLSS feature made for render %s to output %dx%d; its optimal settings ask for "
+                + "render %dx%d at this quality", render, frame.width(), frame.height(), asked[0], asked[1]));
+        }
         Gl.check("making the shared images");
         long elapsed = System.nanoTime() - start;
         long availableAfter = availableKiB();
@@ -624,7 +666,7 @@ public final class VulkanHandoff implements Handoff {
         }
         long[] vk = null;
         if (record.vkSlot >= 0) {
-            long[] ticks = new long[2];
+            long[] ticks = new long[4];
             if (standIn.timestamps(record.vkSlot, ticks)) {
                 vk = ticks;
             } else {
@@ -656,6 +698,9 @@ public final class VulkanHandoff implements Handoff {
         }
         if (vk != null) {
             record.vkWork = Math.round((vk[1] - vk[0]) * vulkan.timestampPeriod);
+            if (vk[2] >= 0 && vk[3] >= 0) {
+                record.ngxWork = Math.round((vk[3] - vk[2]) * vulkan.timestampPeriod);
+            }
             if (record.vkCalibrated) {
                 long vkStart = record.vkNanos0 + Math.round((vk[0] - record.vkTicks0) * vulkan.timestampPeriod);
                 long vkEnd = record.vkNanos0 + Math.round((vk[1] - record.vkTicks0) * vulkan.timestampPeriod);
@@ -681,6 +726,10 @@ public final class VulkanHandoff implements Handoff {
     public void worldChanged() {
         worldChanges++;
         checkDue = true;
+        if (standIn != null) {
+            // DLSS's history belongs to the world it was built in.
+            standIn.resetHistory();
+        }
         if (recreateOnWorldChange && color != null) {
             long start = System.nanoTime();
             releaseImages();
@@ -703,6 +752,7 @@ public final class VulkanHandoff implements Handoff {
         List<String> lines = new ArrayList<>();
         lines.add("Handoff measurement, run " + run + ", " + when + ": " + frames + " frames");
         lines.add("  device: " + vulkan.chosen.describe());
+        lines.add("  evaluation: " + evaluation);
         lines.add(String.format(Locale.ROOT, "  semaphores %s, queue family %d, render scale %.4f, output %s",
             semaphores.timeline ? "timeline" : "binary", vulkan.queueFamily, scale, present ? "presented" : "not presented"));
         lines.add("  images: " + imageReport);
@@ -743,6 +793,14 @@ public final class VulkanHandoff implements Handoff {
             if (standIn != null) {
                 standIn.close();
             }
+            if (ngx != null) {
+                // After the queue is idle and before the device goes: NGX releases its features on the device.
+                try {
+                    ngx.close();
+                } catch (RuntimeException e) {
+                    host.warn("NGX did not shut down cleanly: " + e.getMessage());
+                }
+            }
             if (semaphores != null) {
                 semaphores.close();
             }
@@ -771,6 +829,7 @@ public final class VulkanHandoff implements Handoff {
             host.warn("The handoff's frame file could not be closed: " + e);
         } finally {
             standIn = null;
+            ngx = null;
             semaphores = null;
             vulkan = null;
             noBuffers = textures = signalLayouts = waitLayouts = null;
@@ -782,7 +841,7 @@ public final class VulkanHandoff implements Handoff {
     /** What one frame recorded, until its timestamps are read. Times in nanoseconds; -1 where not measured. */
     private static final class FrameRecord {
         static final String HEADER = "frame,phase,cpu_since_previous,gpu_since_previous,copy_in,round_trip,copy_out,total,"
-            + "vk_work,inbound,outbound,cpu_handoff,cpu_round_trip,cpu_submit,cpu_gl,cpu_fence,wall_ms";
+            + "vk_work,inbound,outbound,cpu_handoff,cpu_round_trip,cpu_submit,cpu_gl,cpu_fence,wall_ms,ngx_work";
 
         long frame = -1;
         /** The wall clock at the frame's start, to match it with a sampler of the GPU's clocks and power state. */
@@ -803,6 +862,8 @@ public final class VulkanHandoff implements Handoff {
         long copyOut;
         long total;
         long vkWork;
+        /** NGX's own commands within the Vulkan batch, where DLSS evaluated. */
+        long ngxWork;
         long inbound;
         long outbound;
         long cpuHandoff;
@@ -815,7 +876,8 @@ public final class VulkanHandoff implements Handoff {
             this.frame = frame;
             vkSlot = -1;
             hasClocks = false;
-            cpuSincePrevious = gpuSincePrevious = copyIn = roundTrip = copyOut = total = vkWork = inbound = outbound = -1;
+            cpuSincePrevious = gpuSincePrevious = copyIn = roundTrip = copyOut = total = vkWork = ngxWork = inbound = outbound
+                = -1;
             cpuHandoff = cpuRoundTrip = cpuSubmit = cpuGl = cpuFence = -1;
         }
 
@@ -823,7 +885,8 @@ public final class VulkanHandoff implements Handoff {
             return frame + "," + phase + "," + cell(cpuSincePrevious) + "," + cell(gpuSincePrevious) + "," + cell(copyIn) + ","
                 + cell(roundTrip) + "," + cell(copyOut) + "," + cell(total) + "," + cell(vkWork) + ","
                 + (hasClocks ? inbound : "") + "," + (hasClocks ? outbound : "") + "," + cell(cpuHandoff) + ","
-                + cell(cpuRoundTrip) + "," + cell(cpuSubmit) + "," + cell(cpuGl) + "," + cell(cpuFence) + "," + wall;
+                + cell(cpuRoundTrip) + "," + cell(cpuSubmit) + "," + cell(cpuGl) + "," + cell(cpuFence) + "," + wall + ","
+                + cell(ngxWork);
         }
 
         private static String cell(long value) {
@@ -840,6 +903,7 @@ public final class VulkanHandoff implements Handoff {
         final Samples copyOut = new Samples();
         final Samples total = new Samples();
         final Samples vkWork = new Samples();
+        final Samples ngxWork = new Samples();
         final Samples inbound = new Samples();
         final Samples outbound = new Samples();
         final Samples cpuHandoff = new Samples();
@@ -857,6 +921,7 @@ public final class VulkanHandoff implements Handoff {
                 addIf(total, record.total);
             }
             addIf(vkWork, record.vkWork);
+            addIf(ngxWork, record.ngxWork);
             if (record.hasClocks) {
                 inbound.add(record.inbound);
                 outbound.add(record.outbound);
@@ -882,6 +947,7 @@ public final class VulkanHandoff implements Handoff {
             line(lines, "GPU copy out", copyOut);
             line(lines, "GPU handoff in all", total);
             line(lines, "Vulkan batch", vkWork);
+            line(lines, "NGX evaluation (within the batch)", ngxWork);
             line(lines, "signal to Vulkan start", inbound);
             line(lines, "Vulkan end to resume", outbound);
             line(lines, "client time in the handoff", cpuHandoff);

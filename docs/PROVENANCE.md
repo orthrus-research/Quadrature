@@ -678,6 +678,21 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: nothing beyond the interfaces named.
 - Added: 2026-11-18
 
+### DLSS Super Resolution through NGX and the shim
+- Code: `quadrature-nvidia/src/main/native/ngx_shim.cpp`, the `ngxShim` task in
+  `quadrature-nvidia/build.gradle`, `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/Ngx.java`,
+  the DLSS batch in `StandIn.java`, the extension and loader hand-over in `VulkanDevice.java`,
+  the options and timing in `VulkanHandoff.java`
+- Source: NVIDIA, DLSS Super Resolution Programming Guide 310.6.0 (Vulkan initialization with a
+  project identifier and engine type, the instance and device extension requirements asked
+  before creation, capability parameters, optimal settings, feature creation and evaluation,
+  render presets, feature flags, resource states and shutdown) and the declarations of the SDK
+  310.9.16's headers the shim includes; Java's Foreign Function and Memory API (Java 25).
+- Taken: NGX's interface as declared, called as the guide describes; nothing of the SDK is in
+  the tree (D19): the shim is compiled against a copy the builder supplies, and what it builds
+  is never committed or put in the JAR.
+- Not taken: any code from NVIDIA's samples or anyone's integration; none were opened.
+- Added: 2026-11-19
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

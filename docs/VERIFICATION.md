@@ -882,6 +882,59 @@ bounded before anything is allocated, and no error leaves the handoff for the ga
 Not measured: DLSS itself, which needs its SDK; a GPU-bound frame, where the round trip's time
 adds to the frame's; a queue of compute alone; binary semaphores.
 
+### DLSS through the handoff
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with the DLSS SDK 310.9.16's
+`nvngx_dlss.dll`, on one fresh instance, behind `-Dquadrature.handoff=measure
+-Dquadrature.handoff.evaluate=dlss` (ARCHITECTURE.md 4.9) in Performance mode at a render scale of
+one half: 960x540 to 1920x1080 and 1280x720 to 2560x1440, the sizes DLSS's optimal settings ask
+for. The handoff's parts took turns in segments of 120 frames as in the handoff's own measurement,
+over a five-view tour that visits the Nether and comes back; the parts that evaluate ran DLSS. An
+`nvidia-smi` sampler every 250 ms tagged each frame with the GPU's power state. P0 held most frames,
+its median graphics clock 1,605 MHz in the 1080p K run and 1,920 to 1,927 MHz in the others. DLSS
+evaluated on the game's frame copied down, with zero motion and no jitter: enough to time it, not to
+judge its picture.
+
+| Median GPU time at P0 | 1080p, preset K | 1080p, preset M | 1440p, preset K | 1440p, preset M |
+|---|---|---|---|---|
+| NGX's own commands | 1.544 ms | 2.553 ms | 2.201 ms | 4.531 ms |
+| their 99th percentile | 3.249 ms | 5.848 ms | 3.587 ms | 8.795 ms |
+| NVIDIA's published cost, RTX 3060 | 1.45 ms | 2.81 ms | 2.39 ms | 5.05 ms |
+| Round trip with DLSS | 1.887 ms | 2.852 ms | 2.514 ms | 4.844 ms |
+| Round trip alone, same run | 0.380 ms | 0.291 ms | 0.285 ms | 0.282 ms |
+| All of it (copies in, round trip, copy out) | 1.985 ms | 2.944 ms | 2.646 ms | 4.979 ms |
+| DLSS's feature, GPU memory | 82 MiB | 124 MiB | 142 MiB | 209 MiB |
+
+- **DLSS costs here what NVIDIA publishes, and the handoff adds its fixed latency.** NGX's own
+  commands come within 0.09 to 0.52 ms of the guide's figures, under them except at 1080p with
+  preset K. The round trip with DLSS exceeds NGX's work by 0.30 to 0.34 ms in every
+  configuration, the handoff's cost measured alone, so the handoff's measurement predicted
+  DLSS's cost through it.
+- **The clock.** NGX's time is the same within 0.3 ms at every graphics clock the sampler saw
+  above 1,000 MHz (1440p, preset M: 4.52 to 4.54 ms from 800 to 1,999 MHz). Either the 250 ms
+  samples do not follow the clock within a frame, or the evaluation does not depend on it; these
+  runs cannot tell which.
+- **The frame interval** at P0 stays at the cap, 8.32 to 8.38 ms, in every part of every run,
+  preset M at 1440p included: under the cap DLSS fits in the frame's slack. The longer intervals
+  at P3 come in the parts without DLSS too (11.3 ms with the handoff off at 1080p).
+- **The client** spends 0.096 to 0.103 ms a frame in recording and submitting the DLSS batch,
+  against 0.015 ms for the stand-in's prerecorded one, since NGX records its evaluation into the
+  batch each frame; the handoff in all takes 0.19 to 0.20 ms a frame.
+- **Memory.** Starting NGX adds about 19 MiB to the Vulkan device (24 MiB against 5 to 6).
+  DLSS's feature is the fall in the driver's available memory over making the images and the
+  feature, less the images' 26.25 and 45.00 MiB; the guide gives 85.8 to 119.3 MB at 1080p and
+  143.5 to 207.4 MB at 1440p.
+- **Checks.** Every stamp check passed, 18 to 22 a run, with no OpenGL error on a checked frame
+  and no result dropped; the stamp is written into the output's first pixel after DLSS, so the
+  check proves the round trip, not DLSS's picture. Over three world changes a run, DLSS's history
+  started afresh each time and the images were kept. NGX's logs show it mapped the project's
+  identifier as an engine of its own, loaded the SDK's `nvngx_dlss.dll` 310.9.16 from the path the
+  run gave, and took the preset asked for in every quality mode.
+- **Validation.** On the first build, Vulkan's validation layer reported 14 messages, all of them
+  NGX using buffer device addresses on a device that had not enabled them: NGX's list of the
+  extensions it needs does not name the feature. With the feature enabled for DLSS, a validated
+  run with three world changes reported nothing. NGX's time on the first build matched the second
+  (1.550 against 1.544 ms at 1080p with preset K).
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE

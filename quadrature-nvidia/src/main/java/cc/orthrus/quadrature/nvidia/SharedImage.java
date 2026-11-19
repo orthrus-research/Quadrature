@@ -71,6 +71,11 @@ final class SharedImage implements AutoCloseable {
     int glTexture;
     int glFramebuffer;
 
+    /** The aspect the image's view shows: the depth alone of a depth image, which sampling and DLSS read. */
+    int viewAspect() {
+        return depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+
     /** @param texel bytes a texel of the format takes, which bounds the allocation the driver may ask for */
     SharedImage(VulkanDevice vulkan, Role role, int vkFormat, int glFormat, int width, int height, int texel, boolean depth,
                 boolean stencil) {
@@ -171,7 +176,7 @@ final class SharedImage implements AutoCloseable {
 
         VkImageViewCreateInfo viewInfo = VkImageViewCreateInfo.calloc(stack).sType$Default().image(image)
             .viewType(VK_IMAGE_VIEW_TYPE_2D).format(vkFormat);
-        viewInfo.subresourceRange().aspectMask(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT)
+        viewInfo.subresourceRange().aspectMask(viewAspect())
             .baseMipLevel(0).levelCount(1).baseArrayLayer(0).layerCount(1);
         check(vkCreateImageView(vulkan.device, viewInfo, null, handle), "vkCreateImageView " + role);
         view = handle.get(0);

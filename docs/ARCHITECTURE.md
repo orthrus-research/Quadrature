@@ -412,8 +412,9 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
 The frame stays OpenGL; where DLSS is chosen, it is evaluated by Vulkan on images the two
 APIs share (D21), in a separately licensed module (D19). The handoff is built in measurement
 form behind `-Dquadrature.handoff=measure` (PLAN, capability and tier work, item 7), with a
-stand-in where DLSS would evaluate; the bridge itself is not. Research R1, 1.9 has the rules
-it follows. **Built, behind a switch.**
+stand-in where DLSS would evaluate or, with `-Dquadrature.handoff.evaluate=dlss`, DLSS Super
+Resolution itself; the bridge itself is not. Research R1, 1.9 has the rules it follows.
+**Built, behind a switch.**
 
 - **The seam.** `Handoff` in `core`: it opens beside the current context, runs one round trip
   a frame at the end of the world pass, after the hand and before the interface, where DLSS's
@@ -455,6 +456,25 @@ it follows. **Built, behind a switch.**
   it); OpenGL and Vulkan timestamps are put on the client's clock; a stamp written into the
   motion image and carried back by the stand-in checks every 600 frames, and after each world
   change and resize, that the output came from that frame.
+- **DLSS through NGX.** NGX's entry points come as a static library in NVIDIA's SDK, so the
+  module has a shim of its own, `quadrature_ngx.dll` from `src/main/native/ngx_shim.cpp`, which
+  links it and offers ten flat C functions; `Ngx` calls them through the Foreign Function and
+  Memory API. `./gradlew :quadrature-nvidia:ngxShim -PdlssSdk=<folder>` builds it with clang-cl
+  into the module's `build/native`; the shim and NVIDIA's runtime libraries are loaded from
+  paths the run names (`shim`, and `dlssPath` for `nvngx_dlss.dll`, by default the shim's own
+  folder), never from the JAR. Before the Vulkan instance and device are made, NGX is asked
+  which extensions DLSS needs, and they are enabled beside the handoff's, with buffer device
+  addresses, which NGX uses and its extension list does not name; NGX then starts on
+  the handoff's device with the project's identifier as an engine of its own, handed the
+  loader's two lookups, and the handoff stops with NGX's reason where DLSS is not available.
+  The feature is made for each set of images, in the quality mode and render preset the
+  options name (`quality`, `preset`), with render-resolution motion and, where `depthInverted`
+  says so, reversed depth. The DLSS batch is recorded for every submission, since NGX records
+  that frame's evaluation into it: it acquires the images as the stand-in's batch does, places
+  two more timestamps around NGX's commands, then runs the stand-in on the output's first
+  pixel alone, which carries the stamp the check reads, and releases them. A world change
+  starts DLSS's history afresh. NGX is shut down after the queue is idle and before the device
+  goes.
 - **Not beside the scaler.** The handoff reads the game's framebuffer as the world pass leaves
   it and takes its size as the output's, and with the scaler's switches on (4.8) the world is
   drawn into a smaller framebuffer standing in for the game's. Until one design takes the
@@ -465,9 +485,14 @@ it follows. **Built, behind a switch.**
 Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
 alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the
 client 0.06 ms a frame; the four images take 32 and 57 MiB, the Vulkan device 5 to 6 MiB more.
+DLSS in Performance mode (VERIFICATION.md, DLSS through the handoff) takes 1.54 and 2.20 ms of
+its own at 1080p and 1440p with preset K and 2.55 and 4.53 ms with preset M, at P0; the round
+trip around it adds 0.30 to 0.34 ms.
 
-Not built: DLSS's evaluation, jitter, exposure, the bridge as a stage with declared resources
-in the pass graph, and the motion vectors it needs from every draw (D21).
+Not built: jitter, exposure, the bridge as a stage with declared resources in the pass graph,
+and the motion vectors DLSS needs from every draw (D21). Without them DLSS evaluates on the
+game's frame copied down, with zero motion, which is enough to time it, not to judge its
+picture.
 
 ## 5. Scene sources
 

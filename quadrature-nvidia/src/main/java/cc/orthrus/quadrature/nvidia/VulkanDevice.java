@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 
 /**
  * A Vulkan instance and a device on the same GPU as the game's OpenGL context, with one queue. The device
@@ -99,9 +100,14 @@ final class VulkanDevice implements AutoCloseable {
      *                  match, so the failure of a mismatched import can be observed
      * @param queueKind {@code graphics} for a family with graphics and compute, {@code compute} for one with
      *                  compute alone
+     * @param extraInstanceExtensions instance extensions an evaluation needs besides the handoff's (DLSS's, from NGX)
+     * @param extraDeviceExtensions   the device extensions it needs, asked of the instance and physical device chosen
+     * @param deviceAddress           whether the evaluation addresses buffers by device address, as NGX's DLSS does;
+     *                                its extension list does not say so, and Vulkan's validation does
      */
     VulkanDevice(Handoff.Host host, List<DeviceIdentity> glDevices, String policy, String queueKind,
-                 boolean wantValidation) {
+                 boolean wantValidation, List<String> extraInstanceExtensions,
+                 BiFunction<VkInstance, VkPhysicalDevice, List<String>> extraDeviceExtensions, boolean deviceAddress) {
         try (MemoryStack stack = stackPush()) {
             Set<String> layers = Enumerations.layerNames("vkEnumerateInstanceLayerProperties",
                 VK10::vkEnumerateInstanceLayerProperties);
@@ -116,8 +122,26 @@ final class VulkanDevice implements AutoCloseable {
                 .pApplicationName(stack.UTF8("Quadrature")).applicationVersion(1)
                 .pEngineName(stack.UTF8("Quadrature")).engineVersion(1).apiVersion(VK13.VK_API_VERSION_1_3);
             PointerBuffer enabledLayers = validation ? stack.pointers(stack.UTF8(VALIDATION)) : null;
-            PointerBuffer enabledExtensions = validation
-                ? stack.pointers(stack.UTF8(EXTDebugUtils.VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) : null;
+            List<String> instanceWanted = new ArrayList<>();
+            for (String extension : extraInstanceExtensions) {
+                if (!instanceExtensions.contains(extension)) {
+                    throw new IllegalStateException("The Vulkan instance lacks " + extension + ", which the evaluation needs.");
+                }
+                if (!instanceWanted.contains(extension)) {
+                    instanceWanted.add(extension);
+                }
+            }
+            if (validation && !instanceWanted.contains(EXTDebugUtils.VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+                instanceWanted.add(EXTDebugUtils.VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            }
+            PointerBuffer enabledExtensions = null;
+            if (!instanceWanted.isEmpty()) {
+                enabledExtensions = stack.mallocPointer(instanceWanted.size());
+                for (String extension : instanceWanted) {
+                    enabledExtensions.put(stack.UTF8(extension));
+                }
+                enabledExtensions.flip();
+            }
             VkInstanceCreateInfo instanceInfo = VkInstanceCreateInfo.calloc(stack).sType$Default()
                 .pApplicationInfo(application).ppEnabledLayerNames(enabledLayers)
                 .ppEnabledExtensionNames(enabledExtensions);
@@ -166,18 +190,26 @@ final class VulkanDevice implements AutoCloseable {
                         throw new IllegalStateException("The Vulkan device lacks " + required + ".");
                     }
                 }
+                for (String extra : extraDeviceExtensions.apply(instance, physical)) {
+                    if (!available.contains(extra)) {
+                        throw new IllegalStateException("The Vulkan device lacks " + extra + ", which the evaluation needs.");
+                    }
+                    if (!wanted.contains(extra)) {
+                        wanted.add(extra);
+                    }
+                }
                 if (available.contains(KHRCalibratedTimestamps.VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)) {
-                    wanted.add(KHRCalibratedTimestamps.VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+                    addOnce(wanted, KHRCalibratedTimestamps.VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
                     calibration = CALIBRATION_KHR;
                 } else if (available.contains(EXTCalibratedTimestamps.VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME)) {
-                    wanted.add(EXTCalibratedTimestamps.VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
+                    addOnce(wanted, EXTCalibratedTimestamps.VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME);
                     calibration = CALIBRATION_EXT;
                 } else {
                     calibration = CALIBRATION_NONE;
                 }
                 memoryBudget = available.contains(EXTMemoryBudget.VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
                 if (memoryBudget) {
-                    wanted.add(EXTMemoryBudget.VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+                    addOnce(wanted, EXTMemoryBudget.VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
                 }
                 VkPhysicalDeviceVulkan12Features supported = VkPhysicalDeviceVulkan12Features.calloc(stack).sType$Default();
                 vkGetPhysicalDeviceFeatures2(physical,
@@ -185,8 +217,12 @@ final class VulkanDevice implements AutoCloseable {
                 if (!supported.timelineSemaphore()) {
                     throw new IllegalStateException("The Vulkan device has no timeline semaphores.");
                 }
+                if (deviceAddress && !supported.bufferDeviceAddress()) {
+                    throw new IllegalStateException("The Vulkan device has no buffer device addresses, which the evaluation "
+                        + "needs.");
+                }
                 VkPhysicalDeviceVulkan12Features enabled = VkPhysicalDeviceVulkan12Features.calloc(stack).sType$Default()
-                    .timelineSemaphore(true);
+                    .timelineSemaphore(true).bufferDeviceAddress(deviceAddress);
                 PointerBuffer names = stack.mallocPointer(wanted.size());
                 wanted.forEach(name -> names.put(stack.UTF8(name)));
                 names.flip();
@@ -214,6 +250,26 @@ final class VulkanDevice implements AutoCloseable {
             destroyInstance();
             throw e;
         }
+    }
+
+    private static void addOnce(List<String> names, String name) {
+        if (!names.contains(name)) {
+            names.add(name);
+        }
+    }
+
+    /** The loader's vkGetInstanceProcAddr, which NGX is handed so it calls the same loader. */
+    static long getInstanceProcAddr() {
+        return org.lwjgl.vulkan.VK.getFunctionProvider().getFunctionAddress("vkGetInstanceProcAddr");
+    }
+
+    /** The instance's vkGetDeviceProcAddr, as the loader gives it for the instance. */
+    long getDeviceProcAddr() {
+        long address = VK10.vkGetInstanceProcAddr(instance, "vkGetDeviceProcAddr");
+        if (address == 0) {
+            throw new IllegalStateException("The Vulkan loader gave no vkGetDeviceProcAddr for the instance.");
+        }
+        return address;
     }
 
     private void createMessenger() {
