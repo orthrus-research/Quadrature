@@ -3,7 +3,6 @@ package cc.orthrus.quadrature.rays;
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.scene.BrickTrace;
 import cc.orthrus.quadrature.core.scene.LightScene;
-import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.scene.TraceFormat;
 
 import org.lwjgl.BufferUtils;
@@ -18,10 +17,11 @@ import java.util.List;
 /**
  * A diagnostic of the ray benchmark, {@code -Dquadrature.rays.check=true}: after each measurement two
  * runs of {@value #RUN} rays and their results are read back, with the scene's generation and box; at
- * the end of the set the scene's buffers are read back once and each sampled ray traced again by
- * {@link BrickTrace} over them. The results must be the same, word for word: the distance's bits, the
- * cell, the outcome and the nodes visited. A sample taken under another generation than the buffers
- * read back is passed over and counted, since the buffers it was traced against are gone.
+ * the end of the set the copy of the scene's buffers the benchmark made on the GPU at the set's start is
+ * read back once, never the scene's own buffers, and each sampled ray traced again by {@link BrickTrace}
+ * over it. The results must be the same, word for word: the distance's bits, the cell, the outcome and
+ * the nodes visited. A sample traced under another generation than the copy's is passed over and
+ * counted, since what it was traced against is not what was copied.
  */
 final class RayCheck {
 
@@ -91,14 +91,19 @@ final class RayCheck {
         samples.add(sample);
     }
 
-    /** Reads the scene's buffers back and traces every sample of the set taken under the same generation. */
-    void compare(int blockingBuffer, PublishedScene scene) {
-        if (samples.isEmpty() || scene == null) {
+    /**
+     * Reads back a copy of the scene's lookup and bricks and traces every sample of the set taken under the
+     * copy's generation.
+     *
+     * @param generation the scene's generation when the copy was made
+     */
+    void compare(int blockingBuffer, int lookupBuffer, int brickBuffer, long generation, int sizeX, int sizeY, int sizeZ) {
+        if (samples.isEmpty() || lookupBuffer == 0) {
             return;
         }
         long began = System.nanoTime();
-        int lookupInts = scene.sizeX() * scene.sizeY() * scene.sizeZ();
-        int brickInts = GL45.glGetNamedBufferParameteri(scene.brickBuffer(), GL15.GL_BUFFER_SIZE) / 4;
+        int lookupInts = sizeX * sizeY * sizeZ;
+        int brickInts = GL45.glGetNamedBufferParameteri(brickBuffer, GL15.GL_BUFFER_SIZE) / 4;
         if (lookupBack == null || lookupBack.capacity() < lookupInts) {
             lookupBack = BufferUtils.createIntBuffer(lookupInts);
         }
@@ -106,9 +111,9 @@ final class RayCheck {
             brickBack = BufferUtils.createIntBuffer(brickInts);
         }
         lookupBack.clear().limit(lookupInts);
-        GL45.glGetNamedBufferSubData(scene.lookupBuffer(), 0, lookupBack);
+        GL45.glGetNamedBufferSubData(lookupBuffer, 0, lookupBack);
         brickBack.clear().limit(brickInts);
-        GL45.glGetNamedBufferSubData(scene.brickBuffer(), 0, brickBack);
+        GL45.glGetNamedBufferSubData(brickBuffer, 0, brickBack);
         blockingBack.clear();
         GL45.glGetNamedBufferSubData(blockingBuffer, 0, blockingBack);
         int[] lookup = new int[lookupInts];
@@ -127,7 +132,7 @@ final class RayCheck {
         int[] mine = new int[TraceFormat.RESULT_INTS];
         int[] outcomes = new int[TraceFormat.OUTCOMES];
         for (Sample sample : samples) {
-            if (sample.generation != scene.generation() || sample.sizeX != scene.sizeX() || sample.sizeY != scene.sizeY()) {
+            if (sample.generation != generation || sample.sizeX != sizeX || sample.sizeY != sizeY) {
                 skipped += RUNS * RUN;
                 continue;
             }
@@ -166,10 +171,10 @@ final class RayCheck {
         for (int outcome = 0; outcome < TraceFormat.OUTCOMES; outcome++) {
             ends.append(outcome == 0 ? "" : ", ").append(outcomes[outcome]).append(' ').append(TraceFormat.outcomeName(outcome));
         }
-        String line = String.format("Ray check set %d: %,d rays of %d measurements traced again on the CPU over the buffers "
-                + "read back at generation %d (%s): %,d the same word for word, %,d differ; %,d passed over for another "
+        String line = String.format("Ray check set %d: %,d rays of %d measurements traced again on the CPU over the copy "
+                + "read back, made at generation %d (%s): %,d the same word for word, %,d differ; %,d passed over for another "
                 + "generation. Reading back %.1f ms, tracing %.1f ms. In all %,d rays, %,d differ, %,d passed over.", set,
-            traced, samples.size(), scene.generation(), ends, same, differ, skipped, (read - began) / 1e6,
+            traced, samples.size(), generation, ends, same, differ, skipped, (read - began) / 1e6,
             (System.nanoTime() - read) / 1e6, checkedRays, differences, passedOver);
         if (differ > 0) {
             Quadrature.LOGGER.error("RAYS CHECK FAILED. " + line);

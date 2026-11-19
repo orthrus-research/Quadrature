@@ -117,6 +117,22 @@ public final class RayTracer implements RayTrace {
         return timing;
     }
 
+    /**
+     * As {@link #trace(int, int, int)}, reading the lookup and bricks from storage blocks in the buffers
+     * given, which hold what the scene's do, laid out the same: a copy, for instance. The box is the scene's.
+     */
+    Timed trace(int rayBuffer, int resultBuffer, int count, int lookupBuffer, int brickBuffer) {
+        PublishedScene scene = scene();
+        if (scene == null || !built(STORAGE)) {
+            return null;
+        }
+        Timing timing = new Timing(count);
+        GL33.glQueryCounter(timing.before, GL33.GL_TIMESTAMP);
+        dispatch(scene, rayBuffer, resultBuffer, count, STORAGE, lookupBuffer, brickBuffer);
+        GL33.glQueryCounter(timing.after, GL33.GL_TIMESTAMP);
+        return timing;
+    }
+
     /** Traces without timing, as a step that prepares other rays. */
     void traceUntimed(int rayBuffer, int resultBuffer, int count) {
         PublishedScene scene = scene();
@@ -126,6 +142,11 @@ public final class RayTracer implements RayTrace {
     }
 
     private void dispatch(PublishedScene scene, int rayBuffer, int resultBuffer, int count, int way) {
+        dispatch(scene, rayBuffer, resultBuffer, count, way, scene.lookupBuffer(), scene.brickBuffer());
+    }
+
+    private void dispatch(PublishedScene scene, int rayBuffer, int resultBuffer, int count, int way, int lookupBuffer,
+        int brickBuffer) {
         int blocking = blockingBuffer();
         int program = programs[way];
         state.save(way == TEXTURE);
@@ -134,8 +155,8 @@ public final class RayTracer implements RayTrace {
             GL45.glBindTextureUnit(TraceProgram.LOOKUP_UNIT, scene.lookupTexture());
             GL45.glBindTextureUnit(TraceProgram.BRICK_UNIT, scene.brickTexture());
         } else {
-            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 2, scene.lookupBuffer());
-            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, scene.brickBuffer());
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 2, lookupBuffer);
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, brickBuffer);
         }
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, rayBuffer);
         GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, resultBuffer);
