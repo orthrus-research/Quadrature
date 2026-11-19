@@ -99,6 +99,14 @@ final class SceneBuffers {
         return published;
     }
 
+    /**
+     * What the buffers have yet to take from the scene and copy, as the last frame left it: cubes queued, bricks
+     * and lookup entries changed and not copied. Read only; 0 before the first frame, when nothing is held either.
+     */
+    long waiting() {
+        return bricks == null ? 0 : (long) bricks.cubesWaiting() + bricks.bricksWaiting() + bricks.entriesWaiting();
+    }
+
     /** Makes the buffers for a box of this reach, dropping any made for another. */
     private void create(int across, int upward) {
         if (lookupBuffer != 0) {

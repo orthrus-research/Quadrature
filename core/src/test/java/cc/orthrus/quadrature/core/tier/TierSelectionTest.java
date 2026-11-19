@@ -112,11 +112,25 @@ final class TierSelectionTest {
     }
 
     @Test
-    void theTraceIsHeldWithinAFactorOfTwoOfTheOtherProbes() {
-        BenchmarkResult fast = result(1, true);
-        BenchmarkResult tenfold = new BenchmarkResult(fast.version(), fast.outputWidth(), fast.outputHeight(), fast.smallGBs(),
-            fast.largeGBs(), 0, 0, fast.terrain(), null, fast.lightMs(), 0, fast.lightPrimitives(), 0, List.of(), 20.0);
-        assertEquals(2, TierSelection.ratios(tenfold, calibration().reference()).trace(), EPSILON);
+    void aTraceFarFromTheOtherProbesTurnsTheRunAway() {
+        BenchmarkResult agreeing = result(1, true);
+        // The trace's reference rate is 2 rays a nanosecond here: a trace of 2 agrees with the other probes exactly.
+        double[] traces = {20.0, 2 * 1.9, 2 / 1.9, 2 / 2.1, 2 * 2.1, Double.NaN};
+        boolean[] agrees = {false, true, true, false, false, true};
+        for (int i = 0; i < traces.length; i++) {
+            BenchmarkResult result = new BenchmarkResult(agreeing.version(), agreeing.outputWidth(), agreeing.outputHeight(),
+                agreeing.smallGBs(), agreeing.largeGBs(), 0, 0, agreeing.terrain(), null, agreeing.lightMs(), 0,
+                agreeing.lightPrimitives(), 0, List.of(), traces[i]);
+            TierSelection.Outcome outcome = TierSelection.choose(result, calibration(), 1e6, null, null);
+            assertEquals(agrees[i], outcome.traceAgrees(), "trace " + traces[i]);
+        }
+        // The ratio is kept as measured, not drawn in toward the others.
+        BenchmarkResult tenfold = new BenchmarkResult(agreeing.version(), agreeing.outputWidth(), agreeing.outputHeight(),
+            agreeing.smallGBs(), agreeing.largeGBs(), 0, 0, agreeing.terrain(), null, agreeing.lightMs(), 0,
+            agreeing.lightPrimitives(), 0, List.of(), 20.0);
+        TierSelection.Ratios ratios = TierSelection.ratios(tenfold, calibration().reference());
+        assertEquals(10, ratios.trace(), EPSILON);
+        assertEquals(10, ratios.traceApart(), EPSILON);
     }
 
     @Test

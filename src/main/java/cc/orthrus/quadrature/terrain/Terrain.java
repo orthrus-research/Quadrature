@@ -1883,6 +1883,11 @@ public final class Terrain
         return sceneBuffers == null ? null : sceneBuffers.published();
     }
 
+    @Override
+    public long sceneCopyWaiting() {
+        return sceneBuffers == null ? -1 : sceneBuffers.waiting();
+    }
+
     /**
      * How far near terrain reaches from the viewer, twice over: by the cubes held, which is what a
      * stage is told, and by what is meshed now, which is the square of chunk columns around the

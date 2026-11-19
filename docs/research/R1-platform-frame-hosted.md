@@ -258,9 +258,12 @@ GB, driver 610.88, in the game, with the card's clocks sampled beside each tour 
   leaves a standard deviation of 8.6% between places. The light view's box drawn whole, by its
   primitives and fragments, leaves 7.1%.
 - **The trace's rate follows its rays' scene.** MEDIUM's probes, 65,536 rays of 64 blocks, ran
-  at 290 to 460 million rays a second at 16 of 17 places and 4,267 at one, where the rays left
-  the scene at once. Without a count of the nodes each ray visited, the rate is a figure of the
-  place as much as of the card.
+  at 290 to 460 million rays a second at 16 of 17 places and 4,267 at one. That one was not the
+  scene: its rays met the light scene's copy on the GPU before it had caught up, holding no brick,
+  and the benchmark now waits for the copy and turns away a trace past a factor of two from its
+  other probes (VERIFICATION.md, the tier benchmark). Between sound places the trace still spreads
+  more than the other probes; without a count of the nodes each ray visited, the rate is a figure
+  of the place as much as of the card.
 - **The settling load.** An arithmetic pass and a pass over 256 MiB, with two more arithmetic
   passes untimed, about 6 ms a frame, agreed within 5% after 13 to 15 frames in most runs and
   within 40 in nearly all. The loaded top clock still steps between about 1,950 and 2,100 MHz,

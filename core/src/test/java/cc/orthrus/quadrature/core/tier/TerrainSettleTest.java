@@ -54,6 +54,40 @@ final class TerrainSettleTest {
     }
 
     @Test
+    void nothingIsTimedUntilTheLightScenesCopyHasCaughtUp() {
+        // As at one jump of the view on the forest tour: the meshes all arrived, the copy held no brick and had about
+        // two million cubes queued, taking 512 a frame.
+        TerrainSettle settle = new TerrainSettle();
+        long queued = 2_000_000;
+        long t = 0;
+        settle.frame(t, 0, 3_841, true, 0, queued, 0);
+        for (t = SECOND / 120; queued > 0; t += SECOND / 120) {
+            queued = Math.max(0, queued - 512);
+            assertFalse(settle.frame(t, 0, 3_841, true, 0, queued, 0), "with " + queued + " cubes queued");
+            assertTrue(settle.sceneBehind());
+        }
+        assertTrue(settle.secondsTerrainCaughtUp(t) > 30);
+        // Nothing queued, but no brick copied yet: the scene holds nothing for the rays to meet.
+        assertFalse(settle.frame(t, 0, 3_841, true, 0, 0, 0));
+        // Bricks waiting to be copied, or lookup entries, count as much as cubes waiting.
+        assertFalse(settle.frame(t + 1, 0, 3_841, true, 0, 64, 5_000));
+        assertTrue(settle.frame(t + 2, 0, 3_841, true, 0, 0, 6_406));
+        assertFalse(settle.sceneBehind());
+        assertEquals(6_406, settle.sceneBricks());
+        // The copy never stands in for terrain: with the scene caught up, near terrain must still be.
+        assertFalse(settle.frame(t + 3, 2, 3_841, true, 0, 0, 6_406));
+        assertFalse(settle.sceneBehind());
+    }
+
+    @Test
+    void whereTheSceneIsNotCopiedOnlyTerrainIsWaitedFor() {
+        TerrainSettle settle = new TerrainSettle();
+        settle.frame(0, 0, 4_090, true, 0, -1, 0);
+        assertTrue(settle.frame(SECOND / 120, 0, 4_090, true, 0, -1, 0));
+        assertEquals(-1, settle.sceneWaiting());
+    }
+
+    @Test
     void theTimeSinceArrivalStartsAgainAtEachPlace() {
         TerrainSettle settle = new TerrainSettle();
         settle.arrived(10 * SECOND);

@@ -1077,9 +1077,9 @@ runs and within 40 in nearly all. A place's first run now reads as its later one
 | The 17 places, each place's median | 26.3% | standard deviation 6.8% |
 
 - By probe, across places: terrain a standard deviation of 8.6%, the light's box 7.1%,
-  bandwidth 1.9%, the trace 26.5%. The trace's rate follows what its rays meet: at one place
-  they leave the scene at once and read 4,267 million rays a second, against 290 to 460 at the
-  rest, so its ratio is held within a factor of two of the others'.
+  bandwidth 1.9%, the trace 26.5%. At one place the trace read 4,267 million rays a second,
+  against 290 to 460 at the rest: its rays met the light scene's copy before it had caught up
+  (below, the light scene's copy), which the benchmark now waits for.
 - **The band exceeds the spread.** At 15% of the budget it is thirty times the spread at one
   place and on two instances, and 2.2 standard deviations of the spread between places. A card
   that sits exactly on a boundary changes tier on a run at another place about once in seventy
@@ -1154,6 +1154,44 @@ its reference rate, measured on the walk that read the coarser bits, is scaled b
 batch's own times on the two walks, 0.180 against 0.222 ms, to 305 million rays a second, and
 the run's trace in the test by the same factor (ARCHITECTURE 12.1.1); the benchmark's version is
 2. No run was made on the GPU for it.
+
+**The light scene's copy.** On the merged branch the benchmark ran 51 times on a fresh instance
+over the forest tour at radius 12, at version 2: every run chose HIGH at the window, and at 15
+of the 17 places the trace read 0.78 to 0.82 times the final code's run above (median 0.79,
+against 0.81 from the walk's own times), 290 million rays a second at the median against the
+305 of the reference. Place by place the two set apart one place of the final code's run (runs 7
+to 12, two views at -15873.5): its trace took 0.015 ms for 65,536 rays, 4,267 million a second,
+where the merged jar read 230 to 290 million. The scene's copy says why: after the view's jump
+there it held no brick, with about two million cubes queued to be taken from the scene, 512 a
+frame, and held none for about 35 s while near terrain stood caught up, so the rays left at
+once. The queue held each cube many times over, a box being 15,625 cubes. The same held for ten
+runs of the repeatability tours, at two places on two instances, the copy holding no brick with
+100,000 to 1.8 million cubes queued; nine of them are among the 128 calibration runs, whose
+median trace is the same without them.
+
+- **Nothing is timed until the copy has caught up**: nothing left to take from the scene or to
+  copy, and some bricks held (`TerrainSettle`, through one read-only figure of the copy's,
+  `TerrainHook.sceneCopyWaiting`). A unit test holds a place whose meshes have all arrived and
+  whose copy works through two million queued cubes to running nothing until the copy is done.
+- **A trace far from the other probes chooses nothing.** Over the 128 runs, the 118 others
+  read the trace within 1.29 times of the geometric mean of the run's other ratios, a standard
+  deviation of 1.14 times in the logarithm; the runs that met the empty copy stood 10.6 to 12.7
+  times above, and the first run at one place at radius 16 3.5 times below (0.110 billion rays
+  a second, then 0.309 and 0.315 at the same view). A run whose trace stands past twice or half
+  the others now chooses nothing: 5.2 standard deviations past the sound runs and far inside
+  both kinds of fault. A unit test feeds two of those runs' measured figures to the table, and
+  neither chooses; this card's run of the tiers test agrees. With both changes the benchmark is
+  at version 3.
+- **The settling load does not wait on the copy for its own sake.** It begins only once the
+  place has caught up, the copy included, so it waits by construction. Its high times at the
+  first run of a place (5 of the 50 runs: 2.99 to 4.49 ms of arithmetic against 2.01 to 2.20)
+  are a lower clock state held steady, not the copy's work: in four of them the pass over the
+  large set read 1.15 ms against 0.77, 1.50 times, the ratio of the memory clocks of 7,501 and
+  5,001 MHz. Three
+  of them came with the copy at rest, one while it was still copying bricks and one with it
+  empty and doing nothing on the GPU; one run at the empty copy settled at 2.01 ms. Each of those
+  runs' probes read as its place's later runs (bandwidth 0.99 to 1.00): the warm-up repetitions
+  and the untimed load brought the clocks up before the timed ones.
 
 **A driver update, left to be run.** Every run so far is on driver 610.88. A driver is the
 user's to install, so the repeat across one is a step left:

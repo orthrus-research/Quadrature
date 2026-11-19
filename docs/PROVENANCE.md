@@ -726,7 +726,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 
 ### Tier benchmark: bandwidth kernel and timed probes
 - Code: `src/main/java/cc/orthrus/quadrature/platform/TierBench.java`, `BandwidthKernel.java`,
-  `TraceProbe.java`; `TerrainHook.java` (`Probes`, `afterOpaque`) and `Terrain.java` (`probes`);
+  `TraceProbe.java`; `TerrainHook.java` (`Probes`, `afterOpaque`, `sceneCopyWaiting`), `Terrain.java`
+  (`probes`) and `SceneBuffers.java` (`waiting`);
   `core/src/main/java/cc/orthrus/quadrature/core/tier/BenchmarkRun.java`, `BenchmarkResult.java`,
   `TerrainFit.java`, `ClockSettle.java`, `TerrainSettle.java`, `Samples.java`, `TierBenchmark.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (timestamp, primitives
@@ -737,7 +738,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: nothing. The probes issue the frame's own commands again; the kernel reads a buffer once
   a dispatch, threads a dispatch's width apart; a register-bound load runs until its own times
   agree, so the clocks have settled without any clock being asked for; a probe waits for the view's
-  search to meet no cube that is not loaded, or for that count to stand still; a probe's time is
+  search to meet no cube that is not loaded, or for that count to stand still, and for the light
+  scene's copy on the GPU to have nothing left to take or copy; a probe's time is
   set against a model of the reference card fitted over many places, by primitives and pixels.
 - Added: 2026-11-18
 
@@ -749,7 +751,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   Schmitt trigger.
 - Taken: nothing. A tier's cost on a machine is the reference card's, group by group, over the
   ratio of the probe standing for the group; the band is a share of the budget, and the last tier
-  on the same GPU, kept by digest, is the one the band holds to.
+  on the same GPU, kept by digest, is the one the band holds to; a run whose trace stands past a
+  factor of two from its other probes chooses nothing.
 - Added: 2026-11-18
 
 ### Memory tier lowered at run time by evictions and 1% lows

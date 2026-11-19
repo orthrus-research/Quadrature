@@ -14,9 +14,10 @@ public final class TierBenchmark {
 
     /**
      * The benchmark's version; part of the key a result is stored under. 1, the first calibration; 2, the trace probe
-     * on the walk that reads no coarser bits, against a reference scaled to it.
+     * on the walk that reads no coarser bits, against a reference scaled to it; 3, nothing timed before the light
+     * scene's copy has caught up, and a run whose trace stands far from the other probes chooses nothing.
      */
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
 
     /** The bandwidth kernel's small working set: past the last-level cache of Turing and Ampere, inside Ada's. */
     public static final long SMALL_BYTES = 8L << 20;
