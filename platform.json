@@ -7,7 +7,8 @@
     "vendor": "Eclipse Adoptium"
   },
   "cleanroom": {
-    "version": "0.7.14-alpha"
+    "version": "0.7.14-alpha",
+    "lwjgl": "3.4.3"
   },
   "cleanroomGradle": {
     "version": "0.23.0"

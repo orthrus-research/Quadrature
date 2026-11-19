@@ -22,6 +22,13 @@ next commit on is licensed under the Apache License 2.0.
 distributed by the Gradle project under the Apache License 2.0. They are build tooling and
 are not part of the mod JAR.
 
+## quadrature-nvidia
+
+The `quadrature-nvidia` module is a separately licensed part of Quadrature (decision D19 in
+`docs/DECISIONS.md`). Its terms are set by Orthrus Research and are still pending; the Apache
+License does not cover it. `quadrature-nvidia/NOTICE.md` states its status. Quadrature runs
+without it.
+
 ## What Quadrature does not contain
 
 Quadrature is an original implementation (decision D2 in `docs/DECISIONS.md`). It contains

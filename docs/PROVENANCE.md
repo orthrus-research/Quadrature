@@ -614,6 +614,59 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
 - Added: 2026-11-17
 
+### The handoff seam and its module
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/handoff/Handoff.java`,
+  `src/main/java/cc/orthrus/quadrature/frame/HandoffHost.java`, the hook in `FrameHost.endPass`,
+  `quadrature-nvidia/build.gradle`, `quadrature-nvidia/NOTICE.md`
+- Source: original. Facts used: Java's `ServiceLoader`; the class loader the game's mods load
+  in (Foundation 0.22.2, read from its public classes: it defines `org.lwjgl` classes itself and
+  lets a URL be added); Forge 1.12.2's `WorldEvent.Unload`; the game's `Framebuffer` fields.
+  The module's Vulkan binding is LWJGL's own (`org.lwjgl:lwjgl-vulkan`, BSD 3-Clause), embedded
+  in the module's JAR at the release platform.json names.
+- Taken: nothing beyond the interfaces named.
+- Added: 2026-11-18
+
+### Choosing the Vulkan device by the OpenGL context's identity
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/handoff/DeviceIdentity.java`,
+  `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/VulkanDevice.java`
+- Source: Khronos, `EXT_external_objects` 4.2.1 and issue 20, and `EXT_external_objects_win32`
+  (device and driver UUIDs, LUID, node mask); Vulkan specification, `VkPhysicalDeviceIDProperties`
+  and the compatibility tables of `VkExternalMemoryHandleTypeFlagBits` and
+  `VkExternalSemaphoreHandleTypeFlagBits`.
+- Taken: that opaque Win32 handles import only where both UUIDs match, and that a valid LUID
+  names the same adapter to both APIs on Windows.
+- Added: 2026-11-18
+
+### Images and semaphores shared between OpenGL and Vulkan
+- Code: `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/SharedImage.java`,
+  `SharedSemaphores.java`, `StandIn.java`, `Win32.java`, `Gl.java`, and the round trip in
+  `VulkanHandoff.java`
+- Source: Khronos, `EXT_external_objects` (memory objects, textures from memory, tiling, the
+  dedicated parameter, semaphore signal and wait with layouts, issues 9, 13, 17 to 19),
+  `EXT_external_objects_win32` (handle import, ownership), `NV_timeline_semaphore` (type,
+  values, wait before signal); Vulkan specification (external memory and semaphore export,
+  dedicated allocations, `VK_QUEUE_FAMILY_EXTERNAL` release and acquire, timeline semaphores);
+  NVIDIA, DLSS Super Resolution Programming Guide 310.6.0, sections 3.3 and 3.4 (the inputs'
+  and output's formats and usages).
+- Taken: the import and synchronization rules as specified: every supported usage and the
+  mutable-format bit on a shared image, dedicated memory flagged on both sides, NT handles
+  closed after import, acquire and release through the external queue family in the layouts
+  each side names, one timeline semaphore with rising values for both directions; DLSS's image
+  usages for the stand-in's images.
+- Not taken: any code from NVIDIA's or anyone's samples; none were opened.
+- Added: 2026-11-18
+
+### Measuring the handoff
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/handoff/HandoffSchedule.java`,
+  `Samples.java`, `RenderSize.java`, `quadrature-nvidia/src/main/glsl/standin.comp`, and the
+  timing, check and report in `VulkanHandoff.java`
+- Source: original. Facts used: OpenGL 4.6 timestamp queries and `GL_TIMESTAMP`; Vulkan
+  timestamp queries, `timestampPeriod` and `vkGetCalibratedTimestampsKHR` with the performance
+  counter's time domain; Windows `QueryPerformanceCounter`, which Java's `nanoTime` counts on
+  Windows. The stand-in is a bilinear upscale reading the three inputs DLSS reads.
+- Taken: nothing beyond the interfaces named.
+- Added: 2026-11-18
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

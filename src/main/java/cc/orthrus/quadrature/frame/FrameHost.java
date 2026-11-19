@@ -104,6 +104,10 @@ public final class FrameHost {
             audit.endPass();
         }
         timeline.endFrame();
+        if (HandoffHost.REQUESTED) {
+            // After the stages are timed, so the handoff's work is not charged to the last of them.
+            HandoffHost.endOfWorld();
+        }
         currentStage = -1;
         if (LOG && System.nanoTime() - lastLogNanos > LOG_INTERVAL_NANOS) {
             lastLogNanos = System.nanoTime();
