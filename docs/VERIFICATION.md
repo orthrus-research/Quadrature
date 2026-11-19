@@ -1313,6 +1313,28 @@ boundary. The rest of the stage, 0.1 to 0.4 ms, is the work between the timed pa
 - **Not measured:** the picture with a mod's post-processing that keeps the game's framebuffer
   from before the pass. Variance clipping is not used and its gain is not measured (D23).
 
+### The four together
+
+Measured 2026-11-19 at 1280 by 720 on one fresh instance, with a jar built from commit de5bd03, which
+merges the rays through the bricks, the tier benchmark, own temporal anti-aliasing and scaler, and the
+handoff to Vulkan onto the build pool.
+
+- **Every switch off.** Own terrain against the game-drawn run of the same instance: 17 of 17 forest
+  views within `near.json`, 15 of them under 0.02% changed; view 07 reads 0.0779%, where two
+  game-drawn runs of the instance differ by 0.0698%.
+- **The scaler at 0.67, plain kernel.** The picture's shift against own native is within 0.05 px on
+  all six views of the short tour; history is kept in 17,676 of 17,694 composites; motion reads
+  0.0001 px at most in still views. Quality at this output is not that of 2560 by 1440 and is not
+  compared with it.
+- **The tier benchmark** (`calibrate`, radius 12): 51 runs, each choosing HIGH at the window. The
+  trace probe's rate per place is 0.78 to 0.82 times that of the walk with coarser bits at 15 of 17
+  places (median 0.79), against 0.81 for the probe's batch in the ray benchmark.
+- No out-of-memory notice, failed check, OpenGL error or exception from Quadrature in any run.
+
+Since that jar, the tier benchmark waits for the light scene's copy and turns away a trace far from
+the run's other ratios (5f0cd3a); those paths are unit tested, and no run above traced outside the
+bound. Not run: the handoff's refusal beside the scaler, which turns the handoff off at its first
+frame.
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
