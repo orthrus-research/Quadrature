@@ -447,13 +447,20 @@ it follows. **Built, behind a switch.**
   and slot of a six-deep ring, and a slot is reused after its fence.
 - **What the measurement adds.** The game still renders at output resolution, so OpenGL fills
   the render-resolution inputs with scaled copies from the game's framebuffer, clears the
-  motion image (no motion vectors exist yet: item 6 makes them) and copies the output back.
+  motion image (the motion vectors of 4.8 exist only beside the scaler, which the handoff does
+  not run with) and copies the output back.
   In the bridge, OpenGL draws into the shared images directly and the post effects read the
   output, so these copies are timed apart from the handoff. The parts take turns in segments
   of 120 frames (nothing, the round trip alone, with the stand-in, the copies alone, all of
   it); OpenGL and Vulkan timestamps are put on the client's clock; a stamp written into the
   motion image and carried back by the stand-in checks every 600 frames, and after each world
   change and resize, that the output came from that frame.
+- **Not beside the scaler.** The handoff reads the game's framebuffer as the world pass leaves
+  it and takes its size as the output's, and with the scaler's switches on (4.8) the world is
+  drawn into a smaller framebuffer standing in for the game's. Until one design takes the
+  scaler's color, depth and motion at render resolution as the handoff's inputs and the
+  window's framebuffer as its output, the handoff turns itself off at its first frame, with a
+  message, whenever the scaler is on, and the scaler runs.
 
 Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
 alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the

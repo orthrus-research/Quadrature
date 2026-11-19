@@ -55,6 +55,15 @@ public final class HandoffHost {
         if (stopped) {
             return;
         }
+        if (handoff == null && TemporalScaler.REQUESTED) {
+            // The handoff reads the game's framebuffer as the world pass leaves it and takes its size as the
+            // output's, and the scaler stands a smaller framebuffer in for it while the world is drawn. No design
+            // yet takes the scaler's images as the handoff's inputs, so the two do not run together.
+            Quadrature.LOGGER.warn("The handoff ({}) does not run beside the scaler (own temporal anti-aliasing or a "
+                + "scale below 1): it is turned off, and the scaler runs.", SWITCH);
+            stopped = true;
+            return;
+        }
         Minecraft minecraft = Minecraft.getMinecraft();
         if (handoff == null && !open(minecraft)) {
             stopped = true;
