@@ -123,6 +123,15 @@ public final class TemporalScaler {
 
     /** The game's own framebuffer, kept while the drawn one stands in for it. */
     private static Framebuffer game;
+    /** The display's size as the game had it when the drawn one stood in for it. */
+    private static int savedWidth;
+    private static int savedHeight;
+    /** The display or the drawn framebuffer was resized while the drawn picture stood in: no composite this frame. */
+    private static boolean resizedInPass;
+    private static long framebuffersMade;
+    private static long framebuffersMadeAtReport;
+    private static long framesAtReport;
+    private static int framebufferNotes;
     /** The framebuffer the world is drawn into, of the game's formats at the drawn size. */
     private static Framebuffer drawn;
     private static int depthFormat;
@@ -160,6 +169,7 @@ public final class TemporalScaler {
     static void beginPass() {
         active = false;
         composited = false;
+        resizedInPass = false;
         terrainDepthCopied = false;
         current = null;
         if (!REQUESTED || failed) {
@@ -201,6 +211,9 @@ public final class TemporalScaler {
         }
         // The drawn framebuffer stands in for the game's, and the display's size is its size.
         game = minecraft.getFramebuffer();
+        savedWidth = minecraft.displayWidth;
+        savedHeight = minecraft.displayHeight;
+        resizedInPass = false;
         ((MinecraftScaleAccess) minecraft).quadrature$setFramebuffer(drawn);
         minecraft.displayWidth = drawnWidth;
         minecraft.displayHeight = drawnHeight;
@@ -261,11 +274,30 @@ public final class TemporalScaler {
 
     // The work.
 
-    /** Puts the game's own framebuffer and the display's size back. */
+    /**
+     * Puts the game's own framebuffer and the display's size back, each only where it still holds what
+     * was put in its place: a resize while the drawn picture stood in set the display's new size, which
+     * stands, and resized the framebuffer standing in, whose size the game's own then takes. Such a frame
+     * makes no picture; the next one makes the drawn framebuffer anew for the new size.
+     */
     private static void restore(Minecraft minecraft) {
-        ((MinecraftScaleAccess) minecraft).quadrature$setFramebuffer(game);
-        minecraft.displayWidth = outputWidth;
-        minecraft.displayHeight = outputHeight;
+        boolean displayKept = minecraft.displayWidth == drawnWidth && minecraft.displayHeight == drawnHeight;
+        boolean framebufferKept = drawn.framebufferWidth == drawnWidth && drawn.framebufferHeight == drawnHeight;
+        if (minecraft.getFramebuffer() == drawn) {
+            ((MinecraftScaleAccess) minecraft).quadrature$setFramebuffer(game);
+        }
+        if (displayKept) {
+            minecraft.displayWidth = savedWidth;
+            minecraft.displayHeight = savedHeight;
+        }
+        if (!framebufferKept && (game.framebufferWidth != minecraft.displayWidth || game.framebufferHeight != minecraft.displayHeight)) {
+            game.createBindFramebuffer(minecraft.displayWidth, minecraft.displayHeight);
+        }
+        if (!displayKept || !framebufferKept) {
+            resizedInPass = true;
+            Quadrature.LOGGER.warn("Scaler: the display was resized during the world pass, to {} by {}; that size stands and the frame "
+                + "makes no picture.", minecraft.displayWidth, minecraft.displayHeight);
+        }
         swapped = false;
     }
 
@@ -294,6 +326,12 @@ public final class TemporalScaler {
         Minecraft minecraft = Minecraft.getMinecraft();
         if (swapped) {
             restore(minecraft);
+        }
+        if (resizedInPass) {
+            // The sizes the targets were made for no longer hold; the next frame makes them anew.
+            lastComposite = Long.MIN_VALUE;
+            StateEnvelope.leave();
+            return;
         }
         try {
             int picture = game.framebufferTexture;
@@ -542,6 +580,26 @@ public final class TemporalScaler {
 
     // Diagnostics.
 
+    /**
+     * A framebuffer of the game's kind is made or made anew, by the game, a mod or the scaler: counted
+     * for the timing log, and the first thirty said with the class that asked for it, whether the drawn
+     * picture stood in at the time, and the frame. A framebuffer made every frame shows as a count that
+     * keeps pace with the frames.
+     */
+    public static void framebufferMade(int width, int height) {
+        if (!REQUESTED) {
+            return;
+        }
+        framebuffersMade++;
+        if (framebufferNotes < 30) {
+            framebufferNotes++;
+            String maker = StackWalker.getInstance().walk(stack -> stack.map(StackWalker.StackFrame::getClassName)
+                .filter(name -> !name.startsWith("net.minecraft.client.shader.Framebuffer")).findFirst().orElse("unknown"));
+            Quadrature.LOGGER.info("Scaler: a framebuffer of {} by {} is made for {}, {} the world pass, frame {}.", width, height, maker,
+                swapped ? "inside" : "outside", frames);
+        }
+    }
+
     private static ByteBuffer checkRead;
 
     /** Reads the motion target back and says how much moves: for a view held still, nothing should. */
@@ -592,7 +650,11 @@ public final class TemporalScaler {
         for (int i = 0; i < PASSES.length; i++) {
             line.append(String.format(" %s %.3f", PASSES[i], clock.median(i) / 1e6));
         }
-        return line.append(" ms").toString();
+        line.append(String.format(" ms; framebuffers made %d, %d since the last report over %d frames", framebuffersMade,
+            framebuffersMade - framebuffersMadeAtReport, frames - framesAtReport));
+        framebuffersMadeAtReport = framebuffersMade;
+        framesAtReport = frames;
+        return line.toString();
     }
 
     /**

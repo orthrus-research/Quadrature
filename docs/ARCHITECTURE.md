@@ -331,7 +331,11 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
   viewports of display size inside the pass was built first and failed on the lab's own pack:
   GTCEu Reloaded's bloom copies the game's picture into framebuffers of its own and draws it
   back every frame, and each of those display-sized draws was shrunk again (VERIFICATION, own
-  temporal anti-aliasing and scaler).
+  temporal anti-aliasing and scaler). Each is put back only where it still holds the stand-in: a
+  resize during the pass sets the display's new size, which stands, the game's own framebuffer
+  takes it, and that frame makes no picture. Framebuffers of the game's kind made while the
+  scaler is on are counted in the timing line, and the first thirty named with the class that
+  asked for them (`MixinFramebufferScale`), so a mod remaking its framebuffers each frame shows.
 - **The offset.** Each frame the projection of every world view the game builds is moved by a
   sub-pixel offset of the drawn picture, from the Halton sequence in bases 2 and 3, 8 offsets a cycle
   (`quadrature.taa.phases`). The clip-space translation is multiplied in just before each

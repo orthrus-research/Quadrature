@@ -629,7 +629,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Code: `src/main/java/cc/orthrus/quadrature/frame/TemporalScaler.java` (the drawn framebuffer
   standing in for the game's, the view, the composite's order and state), `ScalerShaders.java`
   (`MOTION_COMPUTE`), `src/main/java/cc/orthrus/quadrature/mixin/MixinEntityRendererScale.java`,
-  `MinecraftScaleAccess.java`, `core/src/main/java/cc/orthrus/quadrature/core/scale/`
+  `MinecraftScaleAccess.java`, `MixinFramebufferScale.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/scale/`
   (`RenderScale`, `Jitter`, `Reprojection`); hooks in `FrameHost` and `BaselineGraph`
 - Source: original in its placement. Ideas used: a sub-pixel offset of the projection each frame
   from a low-discrepancy sequence, and motion for what stands still from depth and the previous
