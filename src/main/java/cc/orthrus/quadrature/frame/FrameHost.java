@@ -42,6 +42,7 @@ public final class FrameHost {
         StageSelfTest.runOnce();
         seen.clear();
         timeline.beginFrame();
+        TemporalScaler.beginPass();
         if (audit != null) {
             audit.beginPass();
         }
@@ -83,6 +84,16 @@ public final class FrameHost {
                 StageHost.run();
                 cc.orthrus.quadrature.terrain.TerrainHook.writeImagesDue();
             }
+            if (TemporalScaler.REQUESTED && stage.equals(TemporalScaler.BEFORE) && TemporalScaler.due()) {
+                // The picture at the output's size, made before the mods' last world drawing reads or draws on it.
+                if (audit != null) {
+                    audit.boundary(TemporalScaler.STAGE);
+                }
+                timeline.enter(TemporalScaler.STAGE);
+            }
+            if (TemporalScaler.REQUESTED) {
+                TemporalScaler.boundary(stage);
+            }
             if (audit != null) {
                 audit.boundary(stage);
             }
@@ -100,6 +111,7 @@ public final class FrameHost {
         if (timeline == null) {
             return;
         }
+        TemporalScaler.endPass();
         if (audit != null) {
             audit.endPass();
         }
@@ -138,6 +150,10 @@ public final class FrameHost {
         String terrain = cc.orthrus.quadrature.terrain.TerrainHook.summary();
         if (terrain != null) {
             line.append(String.format("%n  %s", terrain));
+        }
+        String scaler = TemporalScaler.summary();
+        if (scaler != null) {
+            line.append(String.format("%n  %s", scaler));
         }
         Quadrature.LOGGER.info(line.toString());
     }
