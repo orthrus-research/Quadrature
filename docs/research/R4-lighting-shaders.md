@@ -168,13 +168,13 @@ below is taken as ideas; the records are in PROVENANCE.md and the design is ARCH
   standard deviation box, are an embodiment.
 - Decision, 2026-11-18 (D23): the history is clipped to the 3 by 3 neighborhood's minimum
   and maximum, a box that holds every neighborhood color by construction; variance clipping
-  is not used. Its code is kept outside the repository and measured from scratch builds only,
-  so that the decision can be revisited with its measured quality gain (VERIFICATION, own
-  temporal anti-aliasing and scaler).
+  is not used. It was built in scratch builds outside the repository only; the one run that
+  tried to measure its gain was on a first design that failed, and on 2026-11-19 the user
+  dropped the measurement (VERIFICATION, own temporal anti-aliasing and scaler).
 *Implication:* the history test is the minimum and maximum box of the 3 by 3 neighborhood
 (Malan, Karis).
 
-**7b.2 Edge-adaptive spatial upscaling. [V for the sources' scope, K for the kernels]**
+**7b.2 Spatial upscaling. [V for the sources' scope, K for the kernels]**
 - Keys, "Cubic convolution interpolation for digital image processing" (IEEE Transactions on
   Acoustics, Speech and Signal Processing 29(6), 1981) [K]: the separable cubic kernel with
   a = -1/2, interpolating and with a small negative lobe that keeps edges sharp.
@@ -198,8 +198,9 @@ below is taken as ideas; the records are in PROVENANCE.md and the design is ARCH
   The steered kernel Quadrature built and measured took gradients by central differences,
   found an edge's direction and coherence from the eigenvectors of the 2 by 2 structure tensor
   (the same information as a singular value decomposition of the gradients), and interpolated
-  once with a lengthened cubic kernel, without iterating. The comparison was sent to the
-  project for a decision, and the steered kernel is not used (D23).
+  once with a lengthened cubic kernel, without iterating. The comparison went to the user,
+  who declined the steered kernel on 2026-11-19 (D23): measured against the separable cubic,
+  it scored no better at either scale and cost more (below).
 - Published before that patent's priority date of 2005-08-30, the ideas that kernel combined
   (facts only): the local orientation of an image from the eigenvectors of its gradients'
   second-moment matrix, the structure tensor, in Bigün and Granlund, "Optimal orientation

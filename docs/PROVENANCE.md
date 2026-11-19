@@ -664,8 +664,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: the structure of accumulation and rectification and the ideas above, written anew. The
   nine-read spline is derived here from the cubic's weights; the Gaussian of half a pixel, the
   motion term, the depth-change test for a raised weight and every constant are Quadrature's.
-- Not taken: variance clipping, the box from the neighborhood's mean and deviation (D23;
-  research R4, 7b.1).
+- Not taken: variance clipping, the box from the neighborhood's mean and deviation, which
+  NVIDIA patents describe (D23; research R4, 7b.1).
 - Added: 2026-11-18
 
 ### Spatial scaler
@@ -675,11 +675,12 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   Transactions on Acoustics, Speech and Signal Processing 29(6), 1981 (the kernel, a = -1/2).
 - Taken: Keys' kernel as published. The hold to the central texels' range and the sharpening
   boost are Quadrature's.
-- Not taken: a kernel steered along the edge the structure tensor shows, built and measured
-  against this one and not used (D23; research R4, 7b.2); steering kernel regression or any part
-  of its procedure; any code or constant of NVIDIA Image Scaling or AMD FidelityFX Super
-  Resolution, neither of which was opened. NVIDIA Image Scaling is a comparison reference only
-  (D23).
+- Not taken: a kernel steered along the edge the structure tensor shows. It was built and
+  measured against this one at 67% and 77%, where it scored no better and its pass cost more,
+  and the user declined it on 2026-11-19 with US 7,889,950 in view (D23; research R4, 7b.2).
+  Nor steering kernel regression or any part of its procedure; any code or constant of NVIDIA
+  Image Scaling or AMD FidelityFX Super Resolution, neither of which was opened. NVIDIA Image
+  Scaling is a comparison reference only (D23).
 - Added: 2026-11-18
 
 ### Picture quality measures

@@ -208,5 +208,7 @@ Image Scaling is a comparison reference only and is never shipped: its license w
 it, but no published timing shows an advantage worth an exception to D2. DLSS is the option
 above it (D21). The history is rectified by clipping to the neighborhood's minimum and
 maximum; variance clipping, which NVIDIA patents describe, is not used (the user's decision of
-2026-11-18, to be revisited with its measured quality gain). The scaler is Keys' separable
-cubic; a kernel steered along edges, measured against it, is not used (the user's decision).
+2026-11-18), and its quality gain is not to be measured (2026-11-19). The scaler is Keys'
+separable cubic. A kernel steered along edges by the structure tensor is not used (the user's
+decision of 2026-11-19, with US 7,889,950 in view): measured against the separable cubic at 67%
+and 77%, it scored no better and cost more.
