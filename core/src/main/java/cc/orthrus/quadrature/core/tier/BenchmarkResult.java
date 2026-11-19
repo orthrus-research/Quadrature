@@ -42,6 +42,12 @@ public record BenchmarkResult(int version, int outputWidth, int outputHeight, do
         trace = List.copyOf(trace);
     }
 
+    /** Whether the opaque terrain probe drew enough for the run to measure the card ({@link TierBenchmark#LEAST_PRIMITIVES}). */
+    public boolean drewEnough() {
+        return !terrain.isEmpty() && terrain.stream().mapToLong(TerrainPoint::primitives).min().orElse(0)
+            >= TierBenchmark.LEAST_PRIMITIVES;
+    }
+
     /** Nanoseconds a primitive of the light view's depth-only draw; not a number where it did not run. */
     public double lightNsPerPrimitive() {
         return lightPrimitives > 0 && Double.isFinite(lightMs) ? lightMs * 1e6 / lightPrimitives : Double.NaN;

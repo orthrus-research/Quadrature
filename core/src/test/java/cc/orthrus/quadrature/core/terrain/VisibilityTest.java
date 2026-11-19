@@ -211,4 +211,21 @@ class VisibilityTest {
         assertEquals(2, visibility.unloadedEntered());
         assertEquals(1 << CubeConnectivity.WEST | 1 << CubeConnectivity.EAST, visibility.edgeFaces());
     }
+
+    @Test
+    void cubesPastTheBoxAreNeverCountedAndCubesInsideItThatNeverLoadAre() {
+        // The view reaches two cubes each way. Loaded within that box and nothing past it: the search comes to every
+        // face of the box and counts nothing, so a view at the edge of what is loaded can be caught up.
+        Visibility.Cubes box = (x, y, z) -> Math.max(Math.abs(x), Math.max(Math.abs(y), Math.abs(z))) <= 2
+            ? CubeConnectivity.ALL : -1;
+        visibility.search(box, everywhere(true));
+        assertEquals(0b111111, visibility.edgeFaces());
+        assertEquals(0, visibility.unloadedEntered());
+        // A server that loads one cube less than the client's distances: the box's outer shell never arrives and is
+        // counted, which is why a count that stands still also means caught up (TerrainSettle).
+        Visibility.Cubes nearer = (x, y, z) -> Math.max(Math.abs(x), Math.max(Math.abs(y), Math.abs(z))) <= 1
+            ? CubeConnectivity.ALL : -1;
+        visibility.search(nearer, everywhere(true));
+        assertEquals(125 - 27, visibility.unloadedEntered());
+    }
 }

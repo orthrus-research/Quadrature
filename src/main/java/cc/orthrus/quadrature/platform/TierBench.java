@@ -15,6 +15,8 @@ import cc.orthrus.quadrature.core.tier.TierCalibration;
 import cc.orthrus.quadrature.core.tier.TierChoice;
 import cc.orthrus.quadrature.core.tier.TierGroup;
 import cc.orthrus.quadrature.core.tier.TierSelection;
+import cc.orthrus.quadrature.core.tier.TerrainSettle;
+import cc.orthrus.quadrature.core.terrain.SearchEdge;
 import cc.orthrus.quadrature.core.view.View;
 import cc.orthrus.quadrature.depth.DepthCalls;
 import cc.orthrus.quadrature.terrain.TerrainHook;
@@ -119,7 +121,8 @@ public final class TierBench {
     private final float[] lastModelView = new float[16];
     private final double[] lastOrigin = new double[3];
     private int stillFrames;
-    private int lastHeld = -1;
+    private final TerrainSettle settle = new TerrainSettle();
+    private boolean settleSaid;
     private int runsHere;
     private int sinceRun;
     private int runs;
@@ -220,10 +223,24 @@ public final class TierBench {
             if (probes == null || view == null) {
                 return;
             }
-            int held = probes.held();
-            boolean steady = probes.waiting() == 0 && held > 0 && held == lastHeld;
-            lastHeld = held;
-            boolean still = still(view) && steady;
+            boolean viewStill = still(view);
+            if (!viewStill) {
+                settle.arrived(now);
+                settleSaid = false;
+            }
+            // A place still arriving can hold its count of meshes for seconds between batches: the view's search must
+            // also meet no cube that is not loaded, or find their count standing still (TerrainSettle).
+            SearchEdge edge = TerrainHook.searchEdge();
+            boolean steady = settle.frame(now, probes.waiting(), probes.held(), edge != null && edge.searched(),
+                edge == null ? -1 : edge.unloaded());
+            if (steady && !settleSaid) {
+                settleSaid = true;
+                Quadrature.LOGGER.info("Tier benchmark: near terrain caught up {} s after the view came to rest, with {} meshes "
+                    + "held; {}.", fixed(settle.secondsSinceArrival(now)), probes.held(), settle.byPlateau()
+                    ? settle.unloaded() + " cubes of the view's box not loaded, their count unchanged for 15 s"
+                    : "no cube of the view's box not loaded");
+            }
+            boolean still = viewStill && steady;
             if (running != null) {
                 if (!still) {
                     Quadrature.LOGGER.info("Tier benchmark: run abandoned at its step {} of {}: {}.", running.next,
@@ -337,6 +354,18 @@ public final class TierBench {
         record.put("time", java.time.Instant.now().toString());
         record.put("result", json(result));
         double available = availableMiB();
+        if (!result.drewEnough()) {
+            Quadrature.LOGGER.info("Tier benchmark run {}: the view drew fewer than {} primitives, too few to measure the card; "
+                + "the run chooses nothing.", runs, TierBenchmark.LEAST_PRIMITIVES);
+            record.put("counted", false);
+            append(record);
+            if (!CALIBRATE) {
+                runsHere = 0;
+                stillFrames = 0;
+            }
+            return;
+        }
+        record.put("counted", true);
         if (TierCalibration.CURRENT.calibrated()) {
             TierSelection.Outcome outcome = TierSelection.choose(result, TierCalibration.CURRENT, available,
                 StoredTiers.previousSpeed(stored, gpu), StoredTiers.previousMemory(stored, gpu));

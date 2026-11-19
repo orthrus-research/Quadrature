@@ -69,6 +69,20 @@ final class BenchmarkResultTest {
     }
 
     @Test
+    void aViewWhoseCubesHaveNotArrivedDoesNotMeasureTheCard() {
+        // As at radius 20 while a place arrived: a few thousand primitives, the time the probe's fixed part alone.
+        BenchmarkRun empty = new BenchmarkRun(1280, 720);
+        BenchmarkRun drawn = new BenchmarkRun(1280, 720);
+        for (int[] size : new int[][] {{1280, 720}, {2560, 1440}}) {
+            empty.add(new BenchmarkRun.Terrain(size[0], size[1], 20_000, 4_922, 50_000));
+            drawn.add(new BenchmarkRun.Terrain(size[0], size[1], 1_300_000, 2_050_184, 2_000_000));
+        }
+        assertTrue(!BenchmarkResult.of(empty).drewEnough());
+        assertTrue(BenchmarkResult.of(drawn).drewEnough());
+        assertTrue(!BenchmarkResult.of(new BenchmarkRun(1280, 720)).drewEnough());
+    }
+
+    @Test
     void theTraceIsRaysANanosecond() {
         BenchmarkRun run = new BenchmarkRun(1280, 720);
         run.add(new BenchmarkRun.Trace(1280, 720, 1_000_000, 921_600));

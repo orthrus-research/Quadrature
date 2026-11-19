@@ -29,6 +29,13 @@ public final class TierBenchmark {
     /** Repetitions kept of the light view's box drawn whole, which takes longest of the probes. */
     public static final int LIGHT_REPETITIONS = 5;
 
+    /**
+     * The fewest primitives the opaque terrain probe must draw for a run to measure the card: the calibration's
+     * smallest place drew 270,000. A view whose cubes have not arrived draws a few thousand, and its time is the
+     * probe's fixed part alone, which reads the card three times as fast as it is.
+     */
+    public static final long LEAST_PRIMITIVES = 200_000;
+
     /** The render scales the tiers use, lowest tier first (ARCHITECTURE 12.1); the probes run at each. */
     public static final double[] RENDER_SCALES = {0.67, 0.77, 1.0, 1.0};
 

@@ -664,7 +664,7 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Code: `src/main/java/cc/orthrus/quadrature/platform/TierBench.java`, `BandwidthKernel.java`,
   `TraceProbe.java`; `TerrainHook.java` (`Probes`, `afterOpaque`) and `Terrain.java` (`probes`);
   `core/src/main/java/cc/orthrus/quadrature/core/tier/BenchmarkRun.java`, `BenchmarkResult.java`,
-  `TerrainFit.java`, `ClockSettle.java`, `Samples.java`, `TierBenchmark.java`
+  `TerrainFit.java`, `ClockSettle.java`, `TerrainSettle.java`, `Samples.java`, `TierBenchmark.java`
 - Source: original. Facts used: the OpenGL 4.6 compatibility specification (timestamp, primitives
   generated and samples passed queries, their availability, the one time-elapsed query a target
   may have open, compute dispatch, storage buffers, framebuffer clears, the fixed-function alpha
@@ -672,8 +672,9 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   public classes (the block texture's mipmap switch and the alpha state around its opaque layers).
 - Taken: nothing. The probes issue the frame's own commands again; the kernel reads a buffer once
   a dispatch, threads a dispatch's width apart; a register-bound load runs until its own times
-  agree, so the clocks have settled without any clock being asked for; a probe's time is set
-  against a model of the reference card fitted over many places, by primitives and pixels.
+  agree, so the clocks have settled without any clock being asked for; a probe waits for the view's
+  search to meet no cube that is not loaded, or for that count to stand still; a probe's time is
+  set against a model of the reference card fitted over many places, by primitives and pixels.
 - Added: 2026-11-18
 
 ### Tier selection: predicted cost, a band at each boundary, memory and overrides
