@@ -39,10 +39,13 @@ import java.util.List;
  * the hour, since the hour a tour holds may put the sun overhead.</li>
  * </ul>
  *
- * <p>Each trace runs {@value #REPEATS} times reading the lookup and bricks from storage blocks and as many
- * through their buffer textures, alternately, one trace a frame, and the medians are logged with a count of how
- * the rays ended. A set of all of them runs at most every {@code -Dquadrature.rays.bench.every} seconds
- * (20) in one place; one stops if the view moves to another cube. With
+ * <p>A set traces in rounds, one trace a frame: each round traces every measurement once, so that every
+ * class meets the GPU's clocks as they stand over the whole set, not only at its start or end. The first
+ * round is not timed, to bring the clocks up. Each measurement is then timed {@value #REPEATS} times
+ * reading the lookup and bricks from storage blocks and as many through their buffer textures, in
+ * alternate rounds, and the medians are logged with a count of how the rays ended. A set runs at most
+ * every {@code -Dquadrature.rays.bench.every} seconds (20) in one place; one stops if the view moves to
+ * another cube. With
  * {@code -Dquadrature.rays.check=true} a sample of each trace's rays and results is read back and the
  * rays traced again on the CPU over the scene's buffers as read back ({@link RayCheck}).
  *
@@ -117,7 +120,6 @@ public final class RayBench {
         final Tier tier;
         final int length;
         final double[][] millis = new double[2][REPEATS];
-        int repeat;
         int[] census;
         /** The scene as the latest repeat's trace read it: its generation, origin cube and box. */
         long generation;
@@ -168,8 +170,12 @@ public final class RayBench {
     private int sets;
     private long setStart;
     private final List<Step> steps = new ArrayList<>();
-    private int next;
+    /** The round of the set, 0 untimed, and the measurement within it. */
+    private int round;
+    private int index;
     private Step running;
+    /** The repeat the trace in flight is timed as, or -1 in the untimed round. */
+    private int runningRepeat;
     private RayTrace.Timed timing;
     private long fence;
     private final double[] toward = new double[3];
@@ -217,10 +223,10 @@ public final class RayBench {
             lastZ = z;
             lastGeneration = scene.generation();
         }
-        if (running != null || next < steps.size()) {
+        if (!steps.isEmpty()) {
             if (x != setX || y != setY || z != setZ) {
-                Quadrature.LOGGER.info("Ray benchmark set {} stopped after {} of {} measurements: the view moved to cube "
-                    + "({}, {}, {}).", sets, next, steps.size(), x, y, z);
+                Quadrature.LOGGER.info("Ray benchmark set {} stopped in round {} of {}: the view moved to cube ({}, {}, {}).",
+                    sets, round, rounds(), x, y, z);
                 endSet(now, false);
                 return;
             }
@@ -272,7 +278,8 @@ public final class RayBench {
         setY = scene.originY();
         setZ = scene.originZ();
         steps.clear();
-        next = 0;
+        round = 0;
+        index = 0;
         for (int rayClass = 0; rayClass < CLASSES.length; rayClass++) {
             for (int length : LENGTHS) {
                 for (Tier tier : TIERS) {
@@ -289,7 +296,7 @@ public final class RayBench {
             String.format("%.2f", scene.bytes() / 1048576.0), scene.slotsInUse(), scene.mostSlotsInUse(),
             String.format("%.3f", toward[0]), String.format("%.3f", toward[1]), String.format("%.3f", toward[2]),
             String.format("%.3f", lowSun[0]), String.format("%.3f", lowSun[1]), String.format("%.3f", lowSun[2]),
-            steps.size() * runs());
+            steps.size() * rounds());
         if (check != null) {
             check.begin(sets);
         }
@@ -318,36 +325,43 @@ public final class RayBench {
             }
             GL32.glDeleteSync(fence);
             fence = 0;
-            int way = way(running.repeat);
-            running.millis[way][running.repeat / runsPerRepeat()] = timing.gpuMillis();
-            if (check != null && running.repeat >= runs() - runsPerRepeat()) {
-                // The last repeat of each way: its rays and results, set beside the CPU's.
-                check.sample(running.label() + " through " + WAYS[way], rayBuffer, resultBuffer, running.tier.rays(),
-                    running.generation, running.originX, running.originY, running.originZ, running.sizeX, running.sizeY);
-            }
-            if (running.repeat == runs() - 1) {
-                censusBack.clear();
-                GL45.glGetNamedBufferSubData(censusBuffer, 0, censusBack);
-                running.census = new int[BenchPrograms.CENSUS_WORDS];
-                censusBack.get(running.census);
-                report(running);
-                next++;
-            } else {
-                running.repeat++;
+            int repeat = runningRepeat;
+            if (repeat >= 0) {
+                int way = way(repeat);
+                running.millis[way][repeat / runsPerRepeat()] = timing.gpuMillis();
+                if (check != null && repeat >= runs() - runsPerRepeat()) {
+                    // The last repeat of each way: its rays and results, set beside the CPU's.
+                    check.sample(running.label() + " through " + WAYS[way], rayBuffer, resultBuffer, running.tier.rays(),
+                        running.generation, running.originX, running.originY, running.originZ, running.sizeX, running.sizeY);
+                }
+                if (repeat == runs() - 1) {
+                    censusBack.clear();
+                    GL45.glGetNamedBufferSubData(censusBuffer, 0, censusBack);
+                    running.census = new int[BenchPrograms.CENSUS_WORDS];
+                    censusBack.get(running.census);
+                }
             }
             running = null;
             timing = null;
+            if (++index == steps.size()) {
+                index = 0;
+                round++;
+            }
         }
-        if (next >= steps.size()) {
+        if (round >= rounds()) {
+            for (Step done : steps) {
+                report(done);
+            }
             endSet(System.nanoTime(), true);
             return;
         }
-        Step step = steps.get(next);
-        dispatch(step, scene, view);
-        running = step;
+        running = steps.get(index);
+        runningRepeat = round - 1;
+        dispatch(running, scene, view, runningRepeat);
     }
 
-    private void dispatch(Step step, PublishedScene scene, View view) {
+    /** Prepares a measurement's rays and traces them, timed as a repeat, or untimed where the repeat is -1. */
+    private void dispatch(Step step, PublishedScene scene, View view, int repeat) {
         int rays = step.tier.rays();
         // The player relative to the origin cube's lowest corner, where rays are given.
         float px = (float) (view.originX() - scene.originX() * 16.0);
@@ -376,7 +390,8 @@ public final class RayBench {
             float stepX = 256.0f / step.tier.columnsX;
             float stepZ = 256.0f / step.tier.columnsZ;
             GL41.glProgramUniform3i(columnsProgram, 0, step.tier.columnsX, step.tier.columnsZ, rays);
-            GL41.glProgramUniform4f(columnsProgram, 1, px - 128, pz - 128, stepX, stepZ);
+            // A sixteenth of a block off the whole numbers, so that no column runs down the faces of cells.
+            GL41.glProgramUniform4f(columnsProgram, 1, px - 128 + 0.0625f, pz - 128 + 0.0625f, stepX, stepZ);
             GL41.glProgramUniform2f(columnsProgram, 2, top, scene.sizeY() * 16);
             GL20.glUseProgram(columnsProgram);
             GL43.glDispatchCompute((rays + TraceProgram.GROUP - 1) / TraceProgram.GROUP, 1, 1);
@@ -386,7 +401,7 @@ public final class RayBench {
             GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, rayBuffer);
             GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, resultBuffer);
             GL41.glProgramUniform3i(shadowsProgram, 0, step.tier.columnsX, step.tier.columnsZ, rays);
-            GL41.glProgramUniform4f(shadowsProgram, 1, px - 128, pz - 128, stepX, stepZ);
+            GL41.glProgramUniform4f(shadowsProgram, 1, px - 128 + 0.0625f, pz - 128 + 0.0625f, stepX, stepZ);
             double[] light = step.rayClass == SHADOWS ? toward : lowSun;
             GL41.glProgramUniform4f(shadowsProgram, 2, (float) light[0], (float) light[1], (float) light[2], step.length);
             GL41.glProgramUniform1f(shadowsProgram, 3, top);
@@ -395,14 +410,14 @@ public final class RayBench {
             GL43.glDispatchCompute((rays + TraceProgram.GROUP - 1) / TraceProgram.GROUP, 1, 1);
             state.restore();
         }
-        timing = tracer.trace(rayBuffer, resultBuffer, rays, way(step.repeat));
+        timing = tracer.trace(rayBuffer, resultBuffer, rays, repeat < 0 ? RayTracer.STORAGE : way(repeat));
         step.generation = scene.generation();
         step.originX = scene.originX();
         step.originY = scene.originY();
         step.originZ = scene.originZ();
         step.sizeX = scene.sizeX();
         step.sizeY = scene.sizeY();
-        if (step.repeat == runs() - 1) {
+        if (repeat == runs() - 1) {
             GL45.glClearNamedBufferData(censusBuffer, GL30.GL_R32UI, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT,
                 (java.nio.ByteBuffer) null);
             state.save();
@@ -418,7 +433,12 @@ public final class RayBench {
         fence = GL32.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     }
 
-    /** Traces a measurement takes: each repeat once for each way timed. */
+    /** Rounds in a set: the untimed one, then one for each timed trace of a measurement. */
+    private int rounds() {
+        return 1 + runs();
+    }
+
+    /** Timed traces of a measurement: each repeat once for each way timed. */
     private int runs() {
         return REPEATS * runsPerRepeat();
     }
@@ -508,7 +528,8 @@ public final class RayBench {
         running = null;
         timing = null;
         steps.clear();
-        next = 0;
+        round = 0;
+        index = 0;
         lastSetEnd = now;
     }
 
