@@ -37,14 +37,21 @@ public record TierCalibration(boolean calibrated, Reference reference, double bu
     }
 
     /**
-     * One group's GPU time on the reference card at a tier's settings: a part fixed by the settings, a part
-     * that follows the pixels drawn at the render resolution, and one that follows the output's.
+     * One group's GPU time on the reference card at a tier's settings: a part fixed by the settings, parts
+     * that follow the pixels drawn at the render resolution and their square, since opaque terrain's time
+     * rises faster than its pixels toward 3840 by 2160, and one that follows the output's.
      */
     public record Cost(String name, Probe probe, double fixedMs, double msPerRenderMegapixel,
-                       double msPerOutputMegapixel) {
+                       double msPerRenderMegapixelSquared, double msPerOutputMegapixel) {
+
+        /** A cost that follows the pixels in proportion. */
+        public Cost(String name, Probe probe, double fixedMs, double msPerRenderMegapixel, double msPerOutputMegapixel) {
+            this(name, probe, fixedMs, msPerRenderMegapixel, 0, msPerOutputMegapixel);
+        }
 
         public double ms(double renderMegapixels, double outputMegapixels) {
-            return fixedMs + msPerRenderMegapixel * renderMegapixels + msPerOutputMegapixel * outputMegapixels;
+            return fixedMs + msPerRenderMegapixel * renderMegapixels
+                + msPerRenderMegapixelSquared * renderMegapixels * renderMegapixels + msPerOutputMegapixel * outputMegapixels;
         }
     }
 
@@ -69,18 +76,53 @@ public record TierCalibration(boolean calibrated, Reference reference, double bu
      * @param lightMsPerMegaFragment and a million fragments that passed
      * @param traceGigaRays the indirect trace's billions of rays a second, or not a number before it is measured
      */
-    public record Reference(String card, double smallGBs, double largeGBs, double terrainMsPerMegaPrimitive,
-                            double terrainMsPerMegapixel, double lightMsPerMegaPrimitive, double lightMsPerMegaFragment,
+    public record Reference(String card, double smallGBs, double largeGBs, List<TerrainLine> terrain,
+                            double lightFixedMs, double lightMsPerMegaPrimitive, double lightMsPerMegaFragment,
                             double traceGigaRays) {
 
-        /** What the reference card would take to draw a view's terrain at a resolution, in ms. */
+        public Reference {
+            terrain = List.copyOf(terrain);
+        }
+
+        /**
+         * What the reference card would take to draw a view's terrain at a resolution, in ms: its lines at the
+         * resolutions either side, mixed by pixels; below the first line its fixed part shrinks with the pixels,
+         * and above the last the last two lines go on as they run. Not a number without lines.
+         */
         public double terrainMs(long primitives, int width, int height) {
-            return terrainMsPerMegaPrimitive * primitives / 1e6 + terrainMsPerMegapixel * width * (double) height / 1e6;
+            if (terrain.isEmpty()) {
+                return Double.NaN;
+            }
+            double megapixels = width * (double) height / 1e6;
+            double megaPrimitives = primitives / 1e6;
+            TerrainLine first = terrain.getFirst();
+            if (terrain.size() == 1 || megapixels <= first.megapixels()) {
+                return first.fixedMs() * Math.min(1, megapixels / first.megapixels()) + first.msPerMegaPrimitive() * megaPrimitives;
+            }
+            int upper = 1;
+            while (upper < terrain.size() - 1 && terrain.get(upper).megapixels() < megapixels) {
+                upper++;
+            }
+            TerrainLine low = terrain.get(upper - 1);
+            TerrainLine high = terrain.get(upper);
+            double share = (megapixels - low.megapixels()) / (high.megapixels() - low.megapixels());
+            return low.ms(megaPrimitives) + share * (high.ms(megaPrimitives) - low.ms(megaPrimitives));
         }
 
         /** What the reference card would take to draw a light box whole, in ms. */
         public double lightMs(long primitives, double fragments) {
-            return lightMsPerMegaPrimitive * primitives / 1e6 + lightMsPerMegaFragment * fragments / 1e6;
+            return lightFixedMs + lightMsPerMegaPrimitive * primitives / 1e6 + lightMsPerMegaFragment * fragments / 1e6;
+        }
+    }
+
+    /**
+     * The reference card's opaque terrain at one resolution, fitted over the calibration's places: a part
+     * that the resolution fixes and a part a million primitives.
+     */
+    public record TerrainLine(double megapixels, double fixedMs, double msPerMegaPrimitive) {
+
+        public double ms(double megaPrimitives) {
+            return fixedMs + msPerMegaPrimitive * megaPrimitives;
         }
     }
 

@@ -14,6 +14,9 @@ import java.util.Arrays;
  */
 public final class TierSelection {
 
+    /** How far the trace's ratio may stand from the other probes', as a factor either way. */
+    public static final double TRACE_LEEWAY = 2;
+
     private TierSelection() {
     }
 
@@ -77,12 +80,20 @@ public final class TierSelection {
         if (measured > 0) {
             terrain = predicted / measured;
         }
-        double light = result.lightPrimitives() > 0 && result.lightMs() > 0
-            ? reference.lightMs(result.lightPrimitives(), result.lightFragments()) / result.lightMs() : Double.NaN;
+        // The light's model has a constant below zero, so a box far smaller than any the calibration met says nothing.
+        double lightReference = result.lightPrimitives() > 0 && result.lightMs() > 0
+            ? reference.lightMs(result.lightPrimitives(), result.lightFragments()) : Double.NaN;
+        double light = lightReference > 0.1 * result.lightMs() ? lightReference / result.lightMs() : Double.NaN;
         double trace = result.traceGigaRays() / reference.traceGigaRays();
         double bandwidth = Samples.geometricMean(
             new double[] {result.smallGBs() / reference.smallGBs(), result.largeGBs() / reference.largeGBs()},
             new double[] {1, 1});
+        // The trace's rate follows what its rays meet as much as the card: where they leave the scene at once it
+        // reads ten times as fast. It is held within a factor of two of what the other probes say.
+        double others = Samples.geometricMean(new double[] {terrain, light, bandwidth}, new double[] {1, 1, 1});
+        if (trace > 0 && Double.isFinite(trace) && others > 0 && Double.isFinite(others)) {
+            trace = Math.max(others / TRACE_LEEWAY, Math.min(others * TRACE_LEEWAY, trace));
+        }
         double fallback = Samples.geometricMean(new double[] {terrain, light, trace, bandwidth},
             new double[] {1, 1, 1, 1});
         return new Ratios(terrain, light, trace, bandwidth, fallback);

@@ -194,8 +194,16 @@ public final class TierBench {
                 ? "first-launch path" : MODE, TierBenchmark.VERSION, instance.key, gpu, driver,
             TierCalibration.CURRENT.calibrated() ? "calibrated" : "not calibrated", instance.stored == null ? "nothing"
                 : "key " + instance.stored.key() + ", speed " + instance.stored.speed() + ", memory " + instance.stored.memory());
-        if (FIRST_LAUNCH && !CALIBRATE && !ONCE && !StoredTiers.needsRun(instance.stored, instance.key)) {
-            instance.adopt(instance.stored.speed(), instance.stored.memory(), "stored");
+        StoredTiers stored = instance.stored;
+        Quadrature.LOGGER.info("Tier benchmark: the first-launch path {}{}.", StoredTiers.needsRun(stored, instance.key)
+                ? "runs the benchmark: " + (stored == null ? "nothing is stored" : "the stored result is under another key, "
+                    + (stored.gpu().equals(gpu) ? "the same GPU" : "another GPU") + (stored.driver().equals(driver)
+                    ? "" : ", another driver") + (stored.benchmark() != TierBenchmark.VERSION ? ", another benchmark version" : ""))
+                : "takes the stored tiers",
+            StoredTiers.previousSpeed(stored, gpu) != null ? "; the band holds to speed " + stored.speed() + " and memory "
+                + stored.memory() : "");
+        if (FIRST_LAUNCH && !CALIBRATE && !ONCE && !StoredTiers.needsRun(stored, instance.key)) {
+            instance.adopt(stored.speed(), stored.memory(), "stored");
             instance.finished = true;
         }
     }
@@ -585,8 +593,9 @@ public final class TierBench {
                 steps.add(new Step(Kind.BANDWIDTH, 1, kept));
             }
             for (int round = 0; round < TierBenchmark.WARM_UP + TierBenchmark.REPETITIONS; round++) {
-                for (int size = 0; size < sizes.length; size++) {
-                    steps.add(new Step(Kind.TERRAIN, size, round >= TierBenchmark.WARM_UP));
+                // Each round in another order, so that what comes every few frames falls on another size each time.
+                for (int i = 0; i < sizes.length; i++) {
+                    steps.add(new Step(Kind.TERRAIN, (i + round) % sizes.length, round >= TierBenchmark.WARM_UP));
                 }
             }
             for (int round = 0; round < TierBenchmark.WARM_UP + TierBenchmark.LIGHT_REPETITIONS; round++) {

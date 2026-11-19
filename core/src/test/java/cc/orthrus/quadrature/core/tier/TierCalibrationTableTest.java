@@ -45,9 +45,25 @@ final class TierCalibrationTableTest {
             return;
         }
         TierCalibration.Reference reference = calibration.reference();
-        for (double figure : new double[] {reference.smallGBs(), reference.largeGBs(), reference.terrainMsPerMegaPrimitive(),
-            reference.terrainMsPerMegapixel(), reference.lightMsPerMegaPrimitive()}) {
+        for (double figure : new double[] {reference.smallGBs(), reference.largeGBs(), reference.lightMsPerMegaPrimitive()}) {
             assertTrue(figure > 0 && Double.isFinite(figure));
         }
+        assertTrue(reference.terrain().size() >= 2);
+        for (int i = 1; i < reference.terrain().size(); i++) {
+            assertTrue(reference.terrain().get(i).megapixels() > reference.terrain().get(i - 1).megapixels());
+        }
+        // Terrain's model gives a time for any view; the light's for any box of the size the calibration met, the
+        // smallest 1.7 million primitives with about seven fragments each.
+        for (long primitives : new long[] {100_000, 1_000_000, 5_000_000}) {
+            assertTrue(reference.terrainMs(primitives, 1280, 720) > 0);
+            assertTrue(reference.terrainMs(primitives, 3840, 2160) > reference.terrainMs(primitives, 1280, 720));
+        }
+        for (long primitives : new long[] {1_500_000, 5_000_000, 12_000_000}) {
+            assertTrue(reference.lightMs(primitives, primitives * 6.5) > 0);
+        }
+        // A box far smaller than any met says nothing of the card: the light's ratio is left out.
+        BenchmarkResult tiny = new BenchmarkResult(TierBenchmark.VERSION, 1280, 720, 348, 350, 0, 0, java.util.List.of(), null,
+            0.3, 0, 200_000, 1_000_000, java.util.List.of(), Double.NaN);
+        assertTrue(Double.isNaN(TierSelection.ratios(tiny, reference).light()));
     }
 }

@@ -7,6 +7,7 @@ import cc.orthrus.quadrature.core.tier.TierCalibration.Cost;
 import cc.orthrus.quadrature.core.tier.TierCalibration.Memory;
 import cc.orthrus.quadrature.core.tier.TierCalibration.Probe;
 import cc.orthrus.quadrature.core.tier.TierCalibration.Reference;
+import cc.orthrus.quadrature.core.tier.TierCalibration.TerrainLine;
 
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +20,8 @@ final class TierSelectionTest {
     /** A reference card whose figures are round, and tiers costing 2, 4, 6 and 8 ms at any output. */
     private static TierCalibration calibration() {
         // Terrain 0.5 ms a million primitives and 1 ms a million pixels; the light 0.25 ms a million primitives.
-        Reference reference = new Reference("test", 100, 50, 0.5, 1.0, 0.25, 0, 2.0);
+        Reference reference = new Reference("test", 100, 50, List.of(new TerrainLine(0.9216, 0.9216, 0.5),
+            new TerrainLine(3.6864, 3.6864, 0.5)), 0, 0.25, 0, 2.0);
         List<List<Cost>> costs = List.of(costs(2), costs(4), costs(6), costs(8));
         List<Memory> memory = List.of(new Memory(1000, 0, 0), new Memory(2000, 0, 0), new Memory(3000, 0, 0),
             new Memory(4000, 0, 0));
@@ -95,6 +97,26 @@ final class TierSelectionTest {
         // A resolution that drew nothing is left out.
         assertEquals((1.4216 + 4.1864) / 7.0, TierSelection.ratios(result, reference).terrain(), 1e-9);
         assertTrue(Double.isNaN(TierSelection.ratios(result, reference).light()));
+    }
+
+    @Test
+    void terrainLinesAreMixedByPixelsAndCarriedPastTheEnds() {
+        Reference reference = new Reference("test", 1, 1, List.of(new TerrainLine(1, 1, 0.2), new TerrainLine(3, 2, 0.4)),
+            0, 0, 0, Double.NaN);
+        // A million primitives: 1.2 ms at one megapixel, 2.4 at three.
+        assertEquals(1.2, reference.terrainMs(1_000_000, 1000, 1000), EPSILON);
+        assertEquals(1.8, reference.terrainMs(1_000_000, 2000, 1000), EPSILON);
+        assertEquals(3.6, reference.terrainMs(1_000_000, 5000, 1000), EPSILON);
+        // Below the first line its fixed part shrinks with the pixels.
+        assertEquals(0.5 + 0.2, reference.terrainMs(1_000_000, 500, 1000), EPSILON);
+    }
+
+    @Test
+    void theTraceIsHeldWithinAFactorOfTwoOfTheOtherProbes() {
+        BenchmarkResult fast = result(1, true);
+        BenchmarkResult tenfold = new BenchmarkResult(fast.version(), fast.outputWidth(), fast.outputHeight(), fast.smallGBs(),
+            fast.largeGBs(), 0, 0, fast.terrain(), null, fast.lightMs(), 0, fast.lightPrimitives(), 0, List.of(), 20.0);
+        assertEquals(2, TierSelection.ratios(tenfold, calibration().reference()).trace(), EPSILON);
     }
 
     @Test

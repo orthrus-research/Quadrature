@@ -12,8 +12,11 @@ public final class ClockSettle {
 
     /** How many of the latest times must agree. */
     public static final int AGREEING = 4;
-    /** By how much at most, as a share of the shortest. */
-    public static final double AGREEMENT = 0.02;
+    /**
+     * By how much at most, as a share of the shortest. Loaded, the top clock still moves between its steps,
+     * about 1,950 to 2,100 MHz on an RTX 3060, which moves the load's time by up to 7%; the climb to it is 50%.
+     */
+    public static final double AGREEMENT = 0.05;
     /** The fewest times before any may count as settled: the climb takes over a second. */
     public static final int LEAST = 12;
 
