@@ -162,6 +162,17 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   its block vertex format, and Cubature's cube source interfaces and render distance bound.
 - Added: 2026-11-14
 
+### Notice of an out-of-memory error the game catches
+- Code: `src/main/java/cc/orthrus/quadrature/platform/OutOfMemoryWatch.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/platform/OutOfMemoryNotice.java`, and the wrap of
+  `runGameLoop` in `src/main/java/cc/orthrus/quadrature/mixin/MixinMinecraft.java`
+- Source: original. Facts used: the game's `Minecraft.run` (Minecraft 1.12.2 as Cleanroom ships it),
+  read from its class files, catches `OutOfMemoryError` around `runGameLoop`, then frees memory,
+  shows `GuiMemoryErrorScreen` and runs a collection, logging nothing; MixinExtras' `WrapOperation`;
+  the platform's `BufferPoolMXBean` for direct buffers.
+- Taken: the names and the order of the game's handling. Noting the error where it is caught and
+  logging it on the loop's next pass, once memory is freed, is this project's own.
+- Added: 2026-11-18
 ### Meshes built on the cube source's build pool
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/Terrain.java` (`submit`, `sort`, `build`,
   `priority`, `reprioritize`, `collect`, `take`, `place`), `CubeMesher.java`, `BuiltCube.java`,
