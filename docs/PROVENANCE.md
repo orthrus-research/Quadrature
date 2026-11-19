@@ -614,6 +614,14 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names (indexed buffer bindings, texture unit bindings, blend, mask, test and stack state).
 - Added: 2026-11-17
 
+### Picture quality measures
+- Code: `tools/frames.py` (`ssim`, `psnr`, `edge_detail`, `quality`)
+- Source: Wang, Bovik, Sheikh and Simoncelli, "Image quality assessment: from error visibility to
+  structural similarity", IEEE Transactions on Image Processing 13(4), 2004 (the index, its
+  Gaussian window of deviation 1.5 and its constants for 8-bit values).
+- Taken: the index's formula and constants. The edge-detail ratio is Quadrature's.
+- Added: 2026-11-18
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

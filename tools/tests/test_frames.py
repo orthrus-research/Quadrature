@@ -123,5 +123,58 @@ class FramesTest(unittest.TestCase):
         save(self.candidate, "a.png", np.flip(gradient(), axis=1))
         self.assertEqual(frames.main(["check", str(self.candidate), str(self.reference)]), 1)
 
+
+class QualityTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    @staticmethod
+    def checker(size: int = 48, cell: int = 4) -> np.ndarray:
+        y, x = np.mgrid[0:size, 0:size]
+        board = (((x // cell) + (y // cell)) % 2 * 255).astype(np.uint8)
+        return np.stack([board] * 3, axis=2)
+
+    def test_identical_images_score_one_and_an_infinite_ratio(self) -> None:
+        image = self.checker()
+        self.assertAlmostEqual(frames.ssim(image.astype(np.int16), image.astype(np.int16)), 1.0, places=12)
+        self.assertEqual(frames.psnr(image, image), float("inf"))
+        self.assertAlmostEqual(frames.edge_detail(image, image), 1.0)
+
+    def test_a_blurred_image_keeps_less_structure_and_less_detail(self) -> None:
+        image = self.checker().astype(np.float64)
+        # A 3 by 3 box blur, edges replicated.
+        padded = np.pad(image, ((1, 1), (1, 1), (0, 0)), mode="edge")
+        blurred = sum(padded[dy:dy + 48, dx:dx + 48] for dy in range(3) for dx in range(3)) / 9
+        score = frames.ssim(image, blurred)
+        self.assertLess(score, 0.9)
+        self.assertGreater(score, 0.0)
+        self.assertLess(frames.edge_detail(image, blurred), 0.8)
+        self.assertLess(frames.psnr(image, blurred), 20)
+
+    def test_a_small_shift_in_brightness_keeps_the_structure(self) -> None:
+        image = self.checker().astype(np.int16) // 2 + 40
+        self.assertGreater(frames.ssim(image, image + 10), 0.99)
+
+    def test_more_noise_scores_lower(self) -> None:
+        rng = np.random.default_rng(7)
+        image = self.checker().astype(np.float64)
+        light = image + rng.normal(0, 8, image.shape)
+        heavy = image + rng.normal(0, 40, image.shape)
+        self.assertGreater(frames.ssim(image, light), frames.ssim(image, heavy))
+
+    def test_quality_scores_the_shared_frames_and_names_the_rest(self) -> None:
+        save(self.root / "reference", "a.png", self.checker())
+        save(self.root / "reference", "b.png", self.checker())
+        save(self.root / "candidate", "a.png", self.checker())
+        report = frames.quality(self.root / "reference", self.root / "candidate")
+        self.assertEqual([row["frame"] for row in report["frames"]], ["a.png"])
+        self.assertEqual(report["missing"], ["b.png"])
+        self.assertAlmostEqual(report["mean"]["ssim"], 1.0, places=12)
+
+
 if __name__ == "__main__":
     unittest.main()
