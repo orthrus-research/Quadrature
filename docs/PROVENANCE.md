@@ -688,11 +688,15 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Added: 2026-11-18
 
 ### Picture quality measures
-- Code: `tools/frames.py` (`ssim`, `psnr`, `edge_detail`, `quality`)
+- Code: `tools/frames.py` (`ssim`, `psnr`, `edge_detail`, `quality`, `shift`)
 - Source: Wang, Bovik, Sheikh and Simoncelli, "Image quality assessment: from error visibility to
   structural similarity", IEEE Transactions on Image Processing 13(4), 2004 (the index, its
-  Gaussian window of deviation 1.5 and its constants for 8-bit values).
-- Taken: the index's formula and constants. The edge-detail ratio is Quadrature's.
+  Gaussian window of deviation 1.5 and its constants for 8-bit values); Guizar-Sicairos, Thurman
+  and Fienup, "Efficient subpixel image registration algorithms", Optics Letters 33(2), 2008 (a
+  correlation evaluated near its peak on a finer grid by a matrix DFT).
+- Taken: the index's formula and constants; the refinement as published. The edge-detail ratio,
+  the cross-correlation of luma gradients under a Hann window and the grid's extent are
+  Quadrature's.
 - Added: 2026-11-18
 
 ## Design sources

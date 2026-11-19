@@ -178,3 +178,48 @@ class QualityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShiftTest(unittest.TestCase):
+    @staticmethod
+    def texture(height: int, width: int, sigma: float, seed: int = 7) -> np.ndarray:
+        """Noise smoothed to a cutoff of sigma cycles a pixel: structure at several scales, as terrain has."""
+        rng = np.random.default_rng(seed)
+        spectrum = np.fft.fft2(rng.normal(0, 1, (height, width)))
+        fy = np.fft.fftfreq(height)[:, None]
+        fx = np.fft.fftfreq(width)[None, :]
+        spectrum *= np.exp(-(fx ** 2 + fy ** 2) / (2 * sigma ** 2))
+        image = np.fft.ifft2(spectrum).real
+        image = (image - image.min()) / (image.max() - image.min()) * 200 + 20
+        return np.stack([image] * 3, axis=2)
+
+    @staticmethod
+    def moved(image: np.ndarray, dx: float, dy: float) -> np.ndarray:
+        """The picture moved right by dx and down by dy, by a phase ramp."""
+        height, width = image.shape[:2]
+        fy = np.fft.fftfreq(height)[:, None]
+        fx = np.fft.fftfreq(width)[None, :]
+        ramp = np.exp(-2j * np.pi * (fx * dx + fy * dy))
+        return np.stack([np.fft.ifft2(np.fft.fft2(image[..., c]) * ramp).real for c in range(3)], axis=2)
+
+    @staticmethod
+    def crop(image: np.ndarray) -> np.ndarray:
+        """The middle of a larger picture, so content enters at the edges as it does between two frames."""
+        return image[40:-40, 40:-40]
+
+    def test_a_sub_pixel_shift_is_found_to_a_twentieth_of_a_pixel(self) -> None:
+        for sigma in (0.08, 0.25):
+            big = self.texture(400, 640, sigma)
+            reference = self.crop(big)
+            for dx, dy in [(0.3, -0.7), (-1.25, 0.4), (0.1, 0.1), (0.0, 0.0)]:
+                found = frames.shift(reference, self.crop(self.moved(big, dx, dy)))
+                self.assertAlmostEqual(found[0], dx, delta=0.06, msg=f"sigma {sigma}")
+                self.assertAlmostEqual(found[1], dy, delta=0.06, msg=f"sigma {sigma}")
+
+    def test_a_symmetric_blur_does_not_move_the_picture(self) -> None:
+        big = self.texture(400, 640, 0.25)
+        padded = np.pad(big, ((1, 1), (1, 1), (0, 0)), mode="edge")
+        blurred = sum(padded[dy:dy + big.shape[0], dx:dx + big.shape[1]] for dy in range(3) for dx in range(3)) / 9
+        found = frames.shift(self.crop(big), self.crop(self.moved(blurred, 0.45, -0.2)))
+        self.assertAlmostEqual(found[0], 0.45, delta=0.06)
+        self.assertAlmostEqual(found[1], -0.2, delta=0.06)

@@ -234,6 +234,49 @@ def edge_detail(reference: np.ndarray, candidate: np.ndarray) -> float:
     return float("nan") if base == 0 else gradient(candidate) / base
 
 
+# Global shift by cross-correlation of the two lumas' gradients under a Hann window, refined below a pixel by
+# evaluating the correlation around its peak on a finer grid with a matrix DFT (Guizar-Sicairos, Thurman and Fienup,
+# 2008). Gradients weigh edges, where a shift shows, and a symmetric blur such as an upscale's moves no peak.
+SHIFT_UPSAMPLE = 20
+
+
+def gradients(image: np.ndarray, window: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The luma's central differences across and down, under a window."""
+    y = luma(image.astype(np.float64))
+    across = np.zeros_like(y)
+    down = np.zeros_like(y)
+    across[:, 1:-1] = (y[:, 2:] - y[:, :-2]) / 2
+    down[1:-1, :] = (y[2:, :] - y[:-2, :]) / 2
+    return across * window, down * window
+
+
+def shift(reference: np.ndarray, candidate: np.ndarray, upsample: int = SHIFT_UPSAMPLE) -> tuple[float, float]:
+    """How far the candidate's picture lies from the reference's, in pixels, x right and y down: the candidate is the
+    reference moved by the returned (dx, dy)."""
+    if reference.shape != candidate.shape:
+        raise ValueError("sizes differ")
+    height, width = reference.shape[:2]
+    window = np.outer(np.hanning(height), np.hanning(width))
+    ax, ay = gradients(reference, window)
+    bx, by = gradients(candidate, window)
+    cross = np.fft.fft2(ax) * np.conj(np.fft.fft2(bx)) + np.fft.fft2(ay) * np.conj(np.fft.fft2(by))
+    correlation = np.fft.ifft2(cross).real
+    peak_y, peak_x = np.unravel_index(int(np.argmax(correlation)), correlation.shape)
+    peak_y = peak_y - height if peak_y > height // 2 else peak_y
+    peak_x = peak_x - width if peak_x > width // 2 else peak_x
+    # The correlation on a grid 1/upsample apart, a pixel and a half each way of the whole-pixel peak.
+    steps = np.arange(-1.5, 1.5 + 1e-9, 1.0 / upsample)
+    ys, xs = peak_y + steps, peak_x + steps
+    ky = np.fft.fftfreq(height) * height
+    kx = np.fft.fftfreq(width) * width
+    rows = np.exp(2j * np.pi * np.outer(ys, ky) / height)
+    columns = np.exp(2j * np.pi * np.outer(kx, xs) / width)
+    fine = (rows @ cross @ columns).real
+    fy, fx = np.unravel_index(int(np.argmax(fine)), fine.shape)
+    # The correlation peaks where the reference must move back onto the candidate: the shift is its negative.
+    return float(-xs[fx]), float(-ys[fy])
+
+
 def quality(reference_dir: Path, candidate_dir: Path, channel_threshold: int = 8) -> dict:
     """Every frame the two directories share, scored by each measure, and the mean of each over them."""
     reference, candidate = frames(reference_dir), frames(candidate_dir)
