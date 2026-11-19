@@ -826,6 +826,10 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
 | `quadrature.exitOnOutOfMemory=true` | After the `CLIENT OUT OF MEMORY` notice, the client quits, so a launcher waiting on it fails at once instead of waiting on a world the game has dropped. Every lab run sets it |
 | `quadrature.testOutOfMemory=<seconds>` | That many seconds after the first world is entered, the game loop asks for an array no heap holds, to show the notice and the quit in a real run |
+| `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |
+| `quadrature.gbuffer.image=true` | Writes the targets as images into the client's `quadrature-gbuffer/` where the player stands still |
+| `quadrature.materials.audit=true` | Logs each block where the list of kinds and the rule differ, each the rule gives a kind that the list does not name, and the states of blocks that hold a material in each state |
+| `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 
 An out-of-memory error from the game loop is one the game catches itself: it frees what it can,
 drops the world, shows its memory screen and logs nothing, so a run then waits on views that never
@@ -833,10 +837,14 @@ come. Quadrature logs it always, switch or none: `CLIENT OUT OF MEMORY in the ga
 error's stack trace, which names the allocation that failed, and the heap and direct buffers in use
 once the game has freed what it could. An out-of-memory error on one of Cubature's build threads,
 which fails that build, is logged the same way, as `in a build thread`.
-| `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |
-| `quadrature.gbuffer.image=true` | Writes the targets as images into the client's `quadrature-gbuffer/` where the player stands still |
-| `quadrature.materials.audit=true` | Logs each block where the list of kinds and the rule differ, each the rule gives a kind that the list does not name, and the states of blocks that hold a material in each state |
-| `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
+
+In a real run, one forest tour with `quadrature.testOutOfMemory=45` and
+`quadrature.exitOnOutOfMemory=true`, two views were captured with the hooks applied. The notice
+then came once, 45 s after the world was entered, naming the forced allocation, with 574 of
+8,192 MiB of heap and 70.7 MiB in 400 direct buffers in use. The client stopped within 3 s, and the
+launcher failed at once, 2 min 21 s into the run. In that last second the game's warnings about
+packets for the dropped world and four NullPointerExceptions appear: its own handling, ended by
+the quit.
 
 A settled frame is one with no cube waiting to be meshed.
 ## Limits
