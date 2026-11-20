@@ -111,6 +111,8 @@ public final class Terrain
 
     private final ICubeSource source;
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
+    /** Each cube's translucent quads, where own terrain draws that layer ({@link TranslucentCube#OWN}). */
+    private final Long2ObjectOpenHashMap<TranslucentCube> translucents = new Long2ObjectOpenHashMap<>();
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
     /**
      * Off unless {@code -Dquadrature.scene=true}: the cells of every cube that is meshed are kept for
@@ -566,6 +568,7 @@ public final class Terrain
             buildCauses.remove(key);
         }
         release(meshes.remove(key));
+        releaseTranslucent(key);
         links.remove(key);
         slots.release(key);
         releaseFaceSlot(key);
@@ -573,6 +576,13 @@ public final class Terrain
         unsettle(key);
         if (scene != null) {
             scene.remove(x, y, z);
+        }
+    }
+
+    private void releaseTranslucent(long key) {
+        TranslucentCube cube = translucents.remove(key);
+        if (cube != null) {
+            cube.delete();
         }
     }
 
@@ -618,6 +628,10 @@ public final class Terrain
             release(mesh);
         }
         meshes.clear();
+        for (TranslucentCube cube : translucents.values()) {
+            cube.delete();
+        }
+        translucents.clear();
         dirty.clear();
         // The pool drops a world's builds when the world goes; those still held are let go here as well.
         for (IClientBuildWork.Task<BuiltCube> task : tasks.values()) {
@@ -900,6 +914,7 @@ public final class Terrain
         // All air draws nothing whatever lies around it: no touching cube's change can change that.
         readsOf.put(key, 0L);
         release(meshes.remove(key));
+        releaseTranslucent(key);
         emptied++;
         setLinks(key, CubeConnectivity.ALL);
         if (settled.add(key)) {
@@ -960,6 +975,10 @@ public final class Terrain
                 surfaceHeights.ask(x, z);
                 heightsAtMesh++;
             }
+        }
+        releaseTranslucent(key);
+        if (built.translucentCount() > 0) {
+            translucents.put(key, new TranslucentCube(x, y, z, built.translucentVertices(), built.translucentCount()));
         }
         CubeMesh old = meshes.remove(key);
         if (CAUSES) {
@@ -1043,6 +1062,63 @@ public final class Terrain
             vertices += mesh.vertices();
             bytes += mesh.bytes();
         }
+    }
+
+    /**
+     * How many cubes' translucent quads are sorted again in a frame at most, where the eye has moved more than a block
+     * from where they were last sorted: the game sorts again the 15 nearest render chunks holding translucent quads once
+     * the player has moved more than a block. A cube never sorted is sorted whatever this says, to be drawn at all.
+     */
+    private static final int TRANSLUCENT_SORTS = Integer.getInteger("quadrature.terrain.translucentSorts", 15);
+    private long translucentSorts;
+    private long translucentFirstSorts;
+    private long translucentSortNanos;
+    private int translucentDrawnLastFrame;
+
+    /**
+     * Draws the translucent layer of what the view sees, under the state the game has set for it: the cubes farthest
+     * first, the reverse of the search's order (nearest first, as the game's own list of render chunks is), and each
+     * cube's quads in its own sorted order, farthest first.
+     */
+    private void drawTranslucent(View view) {
+        double cameraX = view.originX();
+        double cameraY = view.originY();
+        double cameraZ = view.originZ();
+        int seen = visible.count();
+        long began = System.nanoTime();
+        int sorted = 0;
+        for (int i = 0; i < seen; i++) {
+            TranslucentCube cube = translucents.get(visible.key(i));
+            if (cube == null) {
+                continue;
+            }
+            if (!cube.drawable()) {
+                cube.sort(cameraX, cameraY, cameraZ);
+                translucentFirstSorts++;
+            } else if (sorted < TRANSLUCENT_SORTS && cube.stale(cameraX, cameraY, cameraZ)) {
+                cube.sort(cameraX, cameraY, cameraZ);
+                sorted++;
+            }
+        }
+        translucentSorts += sorted;
+        translucentSortNanos += System.nanoTime() - began;
+        net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
+        DriverMessages.enter("terrain " + BlockRenderLayer.TRANSLUCENT);
+        program.begin(view);
+        int drawn = 0;
+        for (int i = seen - 1; i >= 0; i--) {
+            TranslucentCube cube = translucents.get(visible.key(i));
+            if (cube == null) {
+                continue;
+            }
+            program.draw(cube.mesh, 0, (float) ((cube.x << 4) - cameraX), (float) ((cube.y << 4) - cameraY),
+                (float) ((cube.z << 4) - cameraZ));
+            drawn++;
+        }
+        translucentDrawnLastFrame = drawn;
+        program.end();
+        DriverMessages.leave();
+        net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
     }
 
     /** A built cube's kept vertices, copied into one buffer the driver can read, a part for each layer. */
@@ -1901,6 +1977,10 @@ public final class Terrain
      */
     @Override
     public void draw(BlockRenderLayer layer, View view) {
+        if (layer == BlockRenderLayer.TRANSLUCENT) {
+            drawTranslucent(view);
+            return;
+        }
         double cameraX = view.originX();
         double cameraY = view.originY();
         double cameraZ = view.originZ();
@@ -2353,6 +2433,16 @@ public final class Terrain
                 byHeight.append(away == 13 ? " 13+ " : " " + away + " ").append(held[away]).append('/').append(heldVertices[away] / 1000);
             }
             line += byHeight;
+        }
+        if (TranslucentCube.OWN) {
+            long held = 0;
+            for (TranslucentCube cube : translucents.values()) {
+                held += cube.vertexCount();
+            }
+            line += String.format("; translucent: %d cubes holding %d k vertices, %d drawn last frame, %d first sorts and "
+                    + "%d sorts again, %.3f ms a frame sorting on average", translucents.size(), held / 1000,
+                translucentDrawnLastFrame, translucentFirstSorts, translucentSorts,
+                frames == 0 ? 0.0 : translucentSortNanos / 1e6 / frames);
         }
         long cpuBuilds = CubeMesher.CPU_BUILDS.sum();
         line += String.format("; the build threads' own CPU %.3f ms a build over %d builds, empty ones included",

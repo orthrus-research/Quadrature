@@ -907,9 +907,28 @@ back-face rejection at under a tenth of geometry time, so it is not in the defau
 ### 6.5 Translucency
 
 Translucent faces are a separate layer, drawn after opaque geometry and hosted stages.
-Per-cube back-to-front order is established on the CPU from cube positions; faces within a
-cube are sorted when the camera crosses into a different octant of it. **Default.** A
-weighted blended method that needs no sorting is the alternative if sorting cost shows up.
+Per-cube back-to-front order is established on the CPU from cube positions, and faces
+within a cube are sorted again as the eye moves. **Default.** A weighted blended method that
+needs no sorting is the alternative if sorting cost shows up.
+
+Built (PLAN item 12e), with `-Dquadrature.terrain.translucent=own` under own terrain; off,
+the game meshes and draws the layer as before:
+
+- **Meshing.** Each build meshes the translucent layer into a buffer of its own beside the
+  three opaque ones, every block through the game's dispatcher, so its quads are the game's.
+  The game's chunk rebuild leaves the layer out by 12a's rule (`GameChunkRebuilds.leftOut`).
+- **Holding.** A cube's quads stay on the client as meshed, with each quad's center, and in
+  a buffer of the cube's own on the GPU in the order last sorted (`TranslucentCube`).
+- **Order.** Quads are ordered as the game orders a render chunk's: by the squared distance
+  from the eye to the mean of a quad's four corners, the farthest first, ties in mesh order
+  (`QuadOrder`). A cube is sorted when first seen, and again once the eye has moved more
+  than a block from where it was last sorted, the nearest such cubes first, at most 15 a
+  frame (`quadrature.terrain.translucentSorts`). Quadrature sorts from the camera the frame
+  is drawn from; the game sorts from the viewer's position at the last tick.
+- **Drawing.** At the game's translucent pass, under the state the game sets for it, the
+  cubes the search found are drawn in the reverse of its order, the farthest first, each by
+  one draw of its buffer through the forward program. With the fade on that program fades
+  them too; that combination has not been run.
 
 ### 6.6 Targets for shading
 
@@ -1003,8 +1022,7 @@ drawn along the light takes no part. Off, the stages are unchanged to the charac
 `TerrainHook.fadeBandInUse()` gives the band a frame was drawn with and
 `TerrainHook.fadeOrigin()` the place its distance was measured from, the camera's, which in
 a view from behind is not the player's; both are null where no fade was drawn. The sums
-are `NearFade`'s, in `core`. Near translucent terrain is still drawn by the game and does
-not fade. It is built and has not been exercised with distant terrain.
+are `NearFade`'s, in `core`. Near translucent terrain drawn by the game does not fade. It is built and has not been exercised with distant terrain.
 
 **Not built**, and where each belongs in the frame:
 

@@ -785,6 +785,27 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   worlds, every quad written directly the same byte for byte, and with a rounding factor or a factor of the
   occlusion changed slightly, 116 and 431 quads differ.
 - Added: 2026-11-19
+
+### Translucent terrain meshed, sorted and drawn by Quadrature
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/TranslucentCube.java`, the translucent builder in
+  `CubeMesher.java`, the translucent store and draw in `Terrain.java`, `GameChunkRebuilds.leftOut`, the
+  translucent case in `MixinRenderGlobal`; `core/src/main/java/cc/orthrus/quadrature/core/terrain/QuadOrder.java`
+- Source: original. Facts used, read from the game's decompiled sources as Forge and Cleanroom 0.7.14 patch them:
+  that `RenderChunk.rebuildChunk` meshes a block's translucent layer through `BlockRendererDispatcher.renderBlock`
+  with the layer set by `ForgeHooksClient.setRenderLayer`, as for the other layers; that `BufferBuilder.sortVertexData`
+  orders a chunk's quads by the squared distance from the eye to the mean of each quad's four corners, the farthest
+  first, by a stable sort; that `RenderGlobal.renderBlockLayer` draws the translucent layer's render chunks in the
+  reverse of its visible list, nearest first, and has the 15 nearest render chunks holding translucent quads sorted
+  again once the player has moved more than a block; and the state `EntityRenderer` sets before that draw, which
+  is kept as the game set it.
+- Taken: the order, as behavior, so that blending composes the same. Where the game's chunk workers sort from the
+  viewer's position at the last tick, in single precision, Quadrature sorts from the camera the frame is drawn from;
+  standing still the two differ only by rounding. The per-cube buffer, sorting each cube by
+  its own distance moved rather than once for all, and the sort itself (a bottom-up merge sort checked against the
+  library's stable sort over 200 random cubes with many equal distances) are Quadrature's own. No code from another
+  renderer.
+- Added: 2026-11-20
+
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

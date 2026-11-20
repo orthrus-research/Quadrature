@@ -23,11 +23,11 @@ public abstract class MixinRenderGlobal {
         at = @At("HEAD"), cancellable = true)
     private void quadrature$drawLayer(BlockRenderLayer layer, double partialTicks, int pass, Entity viewer,
         CallbackInfoReturnable<Integer> callback) {
-        // Only the three layers the game itself calls opaque. Any other layer, the translucent one and
-        // those other mods add to the enumeration, is left to the game.
-        boolean opaque = layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED
-            || layer == BlockRenderLayer.CUTOUT;
-        if (opaque && TerrainHook.active()) {
+        // The three layers the game itself calls opaque, and the translucent one where own terrain draws it.
+        // Any other layer, such as those other mods add to the enumeration, is left to the game.
+        boolean own = layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED
+            || layer == BlockRenderLayer.CUTOUT || layer == BlockRenderLayer.TRANSLUCENT && TerrainHook.drawsTranslucent();
+        if (own && TerrainHook.active()) {
             TerrainHook.draw(layer, partialTicks, viewer);
             callback.setReturnValue(0);
         }

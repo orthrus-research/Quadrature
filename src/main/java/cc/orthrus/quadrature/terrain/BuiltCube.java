@@ -74,6 +74,23 @@ final class BuiltCube {
         this.reads = reads;
     }
 
+    /** The translucent layer's vertices and how many, where own terrain draws it ({@link TranslucentCube#OWN}); null without. */
+    private byte[] translucent;
+    private int translucentCount;
+
+    void translucent(byte[] vertices, int vertexCount) {
+        translucent = vertices;
+        translucentCount = vertexCount;
+    }
+
+    byte[] translucentVertices() {
+        return translucent;
+    }
+
+    int translucentCount() {
+        return translucentCount;
+    }
+
     /** The sides whose blocks a build read, from {@link #reads}. */
     static int blockSides(long reads) {
         return (int) (reads & 0x7FF_FFFFL);
@@ -105,6 +122,10 @@ final class BuiltCube {
                 }
             } else {
                 hash = 0;
+            }
+            if (translucentCount > 0) {
+                hash = hash * 31 + translucentCount;
+                hash = hash * 1_000_003 + java.util.Arrays.hashCode(translucent);
             }
             content = hash;
             contentKnown = true;

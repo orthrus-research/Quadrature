@@ -235,25 +235,30 @@ and with no position made for a face test, is now the default for model blocks (
 for the old path). That covers most of what 12d set out to save, the positions the game's face test makes; a table
 of each state's faces would save only two calls a face, so 12d waits for a profile that shows them.
 
-12f's measure, Cubature's cube lookup for every render chunk in the entity pass, is met in Cubature instead (its branch for underground costs, 46a9d9e5): each column counts its cubes holding entities, and of 179 million requests over a forest tour with golems in view 99.8% were answered without a lookup, none wrongly. What remains of 12f, the entity pass taking Quadrature's visible cubes in place of the game's render chunks, waits on 12e, since under the policy proposed the game still finds the block entity lists.
+12f's measure, Cubature's cube lookup for every render chunk in the entity pass, is met in Cubature instead (its branch for underground costs, 46a9d9e5): each column counts its cubes holding entities, and of 179 million requests over a forest tour with golems in view 99.8% were answered without a lookup, none wrongly. What remains of 12f, the entity pass taking Quadrature's visible cubes in place of the game's render chunks, is optional: under the policy for 12e the game's rebuild still finds the block entity lists, and the lookup it cost is met.
 
 12b is not needed while 12a holds: the game's rebuilds on the client thread took 0.14 s over the forest tour and
 0.76 s over the generating cave tour once they left the opaque layers out, about a tenth of a percent of the
 client thread, where they had been 49% of its samples over the base cave tour. It is taken up again if a frame's
 time is ever traced to them.
 
-**Proposed policy for 12e (for the user's decision).** Stopping the game's chunk rebuild altogether takes away
+**Policy for 12e (decided 2026-11-20).** Stopping the game's chunk rebuild altogether would take away
 what mods add through it: layers of their own (GregTech CEu's bloom layer, CTM's extra layers a quad), changes to
 the layer a block draws in (Fluidlogged API), and events inside the rebuild (RenderChunk rebuildChunk Hooks, which
 BetterFoliage and others use); in the surveyed pack five mods patch `RenderChunk` and three
-`BlockRendererDispatcher` (research R5, 11.3). The proposal keeps the rebuild as the point where they join, and
-extends 12a's rule instead: the rebuild leaves out every layer Quadrature draws, the translucent one too once
-Quadrature meshes and sorts it, so a render chunk with nothing else in it costs the game only its pass over the
-blocks for the visibility graph and the block entity lists, which 12f then takes over. A layer, a hook or an event a
-mod adds keeps working as it does today, drawn by the game. Quadrature meshes another mod's layer only where that
-mod is examined and the result passes its own views. The alternative, Quadrature meshing every layer and the game
-never rebuilding, frees the last of the game's rebuild cost but needs each mod's layers taken over one by one, and
-breaks the hooks' users outright.
+`BlockRendererDispatcher` (research R5, 11.3). The rebuild therefore stays as the point where they join, and 12a's
+rule extends to every layer Quadrature draws: a render chunk with nothing else in it costs the game only its pass
+over the blocks for the visibility graph and the block entity lists. A layer, a hook or an event a mod adds keeps
+working as it does today, drawn by the game. Quadrature meshes another mod's layer only where that mod is examined
+and the result passes its own views.
+
+12e is done under that policy: with `-Dquadrature.terrain.translucent=own` Quadrature meshes the translucent layer
+through the game's dispatcher, sorts each cube's quads by the game's rule as the eye moves, and draws the cubes
+farthest first at the game's translucent pass, and the game's rebuild leaves the layer out (ARCHITECTURE 6.5). On the
+water tour it draws what the game draws at all 7 views against own terrain with the game's translucent layer, and
+the game's rebuilds took 26.2 s against 36.8 s with only the opaque layers left out (VERIFICATION, translucent
+terrain). The switch stays off by default until a forest tour has been played with it; one view of the water tour
+shows own opaque terrain drawing faint terrain through an opening where the game draws none, which is open.
 
 ## Reading rules
 

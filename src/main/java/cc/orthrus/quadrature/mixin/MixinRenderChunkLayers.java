@@ -20,7 +20,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * The game's chunk rebuild leaves out the opaque layers own terrain draws (PLAN item 12a; {@link GameChunkRebuilds}).
+ * The game's chunk rebuild leaves out the layers own terrain draws (PLAN items 12a and 12e; {@link GameChunkRebuilds}).
  * The per-block layer test is wrapped, not redirected, so other mods' wraps of the same call still run; for the
  * layers it leaves out, the original test, and whatever other mods hook into it, is not called at all.
  */
@@ -41,7 +41,7 @@ public abstract class MixinRenderChunkLayers {
         target = "Lnet/minecraft/block/Block;canRenderInLayer(Lnet/minecraft/block/state/IBlockState;Lnet/minecraft/util/BlockRenderLayer;)Z"))
     private boolean quadrature$layer(Block block, IBlockState state, BlockRenderLayer layer, Operation<Boolean> original,
         @Share("leaveOut") LocalBooleanRef leaveOut) {
-        if (leaveOut.get() && GameChunkRebuilds.opaque(layer)) {
+        if (leaveOut.get() && GameChunkRebuilds.leftOut(layer)) {
             return false;
         }
         return original.call(block, state, layer);

@@ -36,7 +36,7 @@ public final class TerrainHook {
         /** Fills and returns the player's view for the frame about to be drawn. */
         View mainView(double partialTicks, Entity viewer);
 
-        /** Draws one opaque layer for a view. */
+        /** Draws one layer for a view: an opaque one, or the translucent one where own terrain draws it. */
         void draw(BlockRenderLayer layer, View view);
 
         /** What is published of the depth drawn along the light, or null when it is not drawn. */
@@ -166,6 +166,11 @@ public final class TerrainHook {
 
     public static boolean active() {
         return drawer != null && drawer.active();
+    }
+
+    /** Whether own terrain draws the translucent layer as well as the opaque ones (PLAN item 12e). */
+    public static boolean drawsTranslucent() {
+        return TranslucentCube.OWN;
     }
 
     /** Whether own terrain draws the opaque layers of this world; safe from any thread. */

@@ -44,6 +44,14 @@ final class CubeMesher {
     /** Whether a layer's buffer was begun and not yet finished: a build that threw leaves one so. */
     private final boolean[] drawing = new boolean[LAYERS.length];
     private final int[] counts = new int[LAYERS.length];
+    /**
+     * The translucent layer, where own terrain draws it ({@link TranslucentCube#OWN}): drawn by the game's dispatcher
+     * alone, block by block in the order the game's chunk rebuild takes them, so its quads are the game's.
+     */
+    private final BufferBuilder translucent = TranslucentCube.OWN ? new BufferBuilder(1 << 16) : null;
+    private boolean translucentStarted;
+    private boolean translucentDrawing;
+    private int translucentCount;
     private final long[] opaque = new long[64];
     /** Whether each cube's cells are noted for the light scene. */
     private final boolean keepCells;
@@ -228,10 +236,16 @@ final class CubeMesher {
             census = new long[3];
             census(census);
         }
-        return new BuiltCube(cubeX, cubeY, cubeZ, sequence, false, any, links, geometry,
+        BuiltCube built = new BuiltCube(cubeX, cubeY, cubeZ, sequence, false, any, links, geometry,
             keepCells ? cells.clone() : null, keepCells ? opaque.clone() : null, keepCells ? newStates.toIntArray() : null,
             vertices, vertexCounts, records, recordCounts, faceCounts, FACE_CHECK ? checkCounts.clone() : null, census, nanos,
             (long) sideReads.light() << 32 | sideReads.blocks() & 0xFFFF_FFFFL);
+        if (translucentCount > 0) {
+            byte[] bytes = new byte[translucentCount * CubeMesh.STRIDE];
+            translucent.getByteBuffer().duplicate().get(bytes);
+            built.translucent(bytes, translucentCount);
+        }
+        return built;
     }
 
     /**
@@ -325,6 +339,22 @@ final class CubeMesher {
                                 CHECK_WALK_NANOS.add(System.nanoTime() - began);
                             }
                         }
+                        if (translucent != null && block.canRenderInLayer(state, BlockRenderLayer.TRANSLUCENT)) {
+                            ForgeHooksClient.setRenderLayer(BlockRenderLayer.TRANSLUCENT);
+                            if (!translucentStarted) {
+                                translucentStarted = true;
+                                translucentDrawing = true;
+                                translucent.begin(QUADS, DefaultVertexFormats.BLOCK);
+                                translucent.setTranslation(-minX, -minY, -minZ);
+                            }
+                            try {
+                                dispatcher.renderBlock(state, pos, world, translucent);
+                            } catch (RuntimeException e) {
+                                if (failures++ < 5) {
+                                    Quadrature.LOGGER.error("A block model failed for {} at {}", state, pos, e);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -347,6 +377,12 @@ final class CubeMesher {
             drawing[layer] = false;
             counts[layer] = builders[layer].getVertexCount();
             any |= counts[layer] > 0;
+        }
+        translucentCount = 0;
+        if (translucentStarted) {
+            translucent.finishDrawing();
+            translucentDrawing = false;
+            translucentCount = translucent.getVertexCount();
         }
         if (FACES) {
             for (int layer = 0; layer < LAYERS.length; layer++) {
@@ -570,6 +606,16 @@ final class CubeMesher {
                 walked[layer].reset();
             }
         }
+        if (translucentStarted) {
+            if (translucentDrawing) {
+                translucent.finishDrawing();
+                translucentDrawing = false;
+            }
+            translucentStarted = false;
+            translucent.setTranslation(0, 0, 0);
+            translucent.reset();
+        }
+        translucentCount = 0;
         if (walk != null) {
             walk.begin();
         }

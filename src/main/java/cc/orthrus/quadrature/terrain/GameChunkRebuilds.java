@@ -15,7 +15,8 @@ import net.minecraft.world.World;
  * are never begun, rendered or uploaded. The visibility graph and the block entity lists are found before
  * that test and are found as before. The rule is decided once a rebuild, against the world the render chunk
  * belongs to, so a rebuild for a world own terrain does not serve, as when the game reloads its renderers for
- * a new world before the cube source follows it, keeps every layer. {@code -Dquadrature.terrain.gameOpaque=build}
+ * a new world before the cube source follows it, keeps every layer. Where own terrain draws the translucent layer
+ * too, the rebuild leaves that out by the same rule (PLAN item 12e). {@code -Dquadrature.terrain.gameOpaque=build}
  * restores the game's full rebuild for comparison.
  *
  * <p>Called from the game's chunk-mesh threads and, for the rebuilds it does at once near the player, from
@@ -40,9 +41,13 @@ public final class GameChunkRebuilds {
         return !BUILD_OPAQUE && TerrainHook.drawsOpaqueOf(world);
     }
 
-    /** Whether a layer is one of the three own terrain draws. */
-    public static boolean opaque(BlockRenderLayer layer) {
-        return layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED || layer == BlockRenderLayer.CUTOUT;
+    /**
+     * Whether a rebuild that leaves out what own terrain draws leaves out this layer: the three opaque layers, and the
+     * translucent one where own terrain draws that as well ({@code quadrature.terrain.translucent=own}, PLAN item 12e).
+     */
+    public static boolean leftOut(BlockRenderLayer layer) {
+        return layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED || layer == BlockRenderLayer.CUTOUT
+            || TranslucentCube.OWN && layer == BlockRenderLayer.TRANSLUCENT;
     }
 
     private static final java.lang.management.ThreadMXBean THREADS = java.lang.management.ManagementFactory.getThreadMXBean();

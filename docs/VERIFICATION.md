@@ -119,6 +119,15 @@ What this establishes:
   against run 2 on view 16. `repeat.json` passes run 2 against run 3 with Distant Horizons
   and fails run 1 against run 2 on nine frames.
 
+Animated textures break this for water. Measured 2026-11-20 on the water tour
+(`bricks-water-8675309`, seed 8675309, 7 views, no distant terrain): the game's terrain played twice
+on a fresh instance changed the three views of water from above by 0.50% to 2.16%, in pixels
+scattered over every surface under water, because the water texture's animation stands at a
+different frame in each capture. With `-Dquadrature.textures.still=true`, which holds every animated
+texture of the block atlas at the frame stitched first, the same pair on another fresh instance
+changed those views by 0.0000% to 0.0594%. Hold textures still in every run of an instance whose
+views show water, lava or fire, the game's runs as well as Quadrature's.
+
 ## Quadrature against the vanilla reference
 
 Measured 2026-11-13, at the commit that added the timed baseline graph. Quadrature was
@@ -1222,6 +1231,37 @@ generating cave tour on fresh instances:
 - **A sixth less time on the same blocks.** The walk took 0.833 of the dispatcher's time (91,958 against 110,444 ms),
   where with the table alone it took 0.9995.
 - **Without the check** a build took 1.233 ms on the clock and 1.167 ms of its thread's CPU over 105,075 builds.
+### Translucent terrain
+
+Measured 2026-11-20 with a jar built from tree 9f052a98 (`feat/translucent-terrain` with PLAN item 12e
+and the still-texture switch), the water tour (`bricks-water-8675309`: a reef and kelp from under water,
+kelp from above, river, wetland and lake shallows from above at 45 degrees) on a fresh instance of seed
+8675309, textures held still in every run: the game's terrain twice (settling, reference), then own
+terrain with the translucent layer its own (`quadrature.terrain.translucent=own`), then own terrain with
+the game drawing the translucent layer (the control).
+
+| | Game's rebuilds on its threads | Each | On the client thread |
+|---|---|---|---|
+| Game's terrain (reference) | 101,806, 106.7 s | 1.048 ms | 825, 0.75 s |
+| Own terrain, the game's translucent layer | 105,804, 36.8 s | 0.348 ms | 842, 0.11 s |
+| Own terrain, own translucent layer | 103,043, 26.2 s | 0.254 ms | 799, 0.07 s |
+
+- **Own translucent terrain draws what the game draws.** Against the control, which differs from it in
+  the translucent layer alone, all 7 views pass; the worst, `06-wetland-shallows`, changes by 0.098% in
+  735 scattered pixels, particles that differ between the game's own runs at that view as well (0.059%).
+- **Against the game's own draw 6 of 7 pass.** `03-kelp-from-above` fails by 0.191% with own translucent
+  and by 0.191% in the control: through an opening far below, both own runs draw terrain faint in the fog
+  where the game draws none. That difference belongs to own opaque terrain's selection, not to this step,
+  and is open.
+- **The game's rebuilds lose another quarter.** With the translucent layer left out as well, they took
+  26.2 s on its threads against 36.8 s with only the opaque layers left out, and 106.7 s with none; those
+  on the client thread 0.07 against 0.11 and 0.75 s.
+- **Sorting costs little.** 422 cubes held 778,000 translucent vertices at the end of the tour; 1,432
+  first sorts and 8 sorts after the eye moved took 0.054 ms a frame on average.
+- **The order is the game's.** `QuadOrder` matches the library's stable sort, the game's, over 200 random
+  cubes of half-block centers with many equal distances, and fails that test where its rule for equal
+  distances is reversed.
+
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1711,6 +1751,7 @@ Each is a system property, read once, and costs nothing when unset.
 | Property | Effect |
 |---|---|
 | `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected; for each cube only Quadrature draws, which of the game's conditions left it out; for each cube only the game draws, whether a mesh is held, whether the cube is loaded and whether the view sees it |
+| `quadrature.textures.still=true` | Animated textures stay at the first frame stitched, so water and lava look the same in every capture; for comparing runs, set in all of them (Measured repeatability) |
 | `quadrature.terrain.visibility=all` | Quadrature draws every meshed cube in the view's volume and reach, with no search |
 | `quadrature.terrain.gameSelection=true` | Quadrature draws only the cubes the game selected |
 | `quadrature.terrain.gameSelection=inverse` | Quadrature draws only the cubes the game did not select |
