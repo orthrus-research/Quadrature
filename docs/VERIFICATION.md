@@ -440,10 +440,11 @@ frame over 2 ms of the light's GPU time counted by the layers that drew part of 
 
 - **A larger spread removes nearly every slow frame**, those where both layers begin a box together and those
   that redraw dirty tiles, which take the same share. The spread is 32 since this run.
-- **The first frame's 15 ms is not the box.** It stands at either spread, and the first frame draws no cube at all:
-  no mesh has arrived, so only the frame's state is set and its tiles cleared. The time lies in that setup and those
-  clears, a first use in the driver; timestamps between them, on the first frames after world entry, are the next
-  thing to read.
+- **The first frame's 15 ms was the copy of an empty box.** Split by timestamps (`quadrature.shadow.splitFirst`), the
+  first frame took 0.005 ms to set state, 0.14 ms a layer to attach and clear, and 7.40 and 7.44 ms to copy each
+  layer's scratch over its published one: no mesh has arrived, so the first box draws no cube and is whole at once.
+  A box that drew no cube now clears the published layer instead, the same texels: the first frame took 0.55 ms
+  in all, and the light's check found 0 of 16,777,216 texels differing in either layer.
 
 ### The light's depth kept, and the scene for lighting
 

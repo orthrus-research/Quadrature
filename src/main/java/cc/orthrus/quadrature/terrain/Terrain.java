@@ -1521,6 +1521,47 @@ public final class Terrain
      * copied over the front once it is whole. A frame with nothing due draws nothing and sweeps nothing;
      * every layer is published all the same, through a view made from its box for this frame's origin.
      */
+    /**
+     * {@code -Dquadrature.shadow.splitFirst=true}: the first three frames that draw the light's depth put GPU timestamps
+     * after its state is set, after each layer's tiles are attached and cleared, after each layer's draws and copies, and
+     * at its end, read back at once (a stall, those frames only) and logged as the time between them (open question 1).
+     */
+    private static final boolean SPLIT_FIRST = Boolean.getBoolean("quadrature.shadow.splitFirst");
+    private final int[] splitQueries = new int[16];
+    private final String[] splitLabels = new String[16];
+    private int splitCount;
+    private int splitFramesLogged;
+
+    private void split(String label) {
+        if (!SPLIT_FIRST || splitFramesLogged >= 3 || splitCount >= splitQueries.length) {
+            return;
+        }
+        if (splitQueries[splitCount] == 0) {
+            splitQueries[splitCount] = org.lwjgl.opengl.GL15.glGenQueries();
+        }
+        org.lwjgl.opengl.GL33.glQueryCounter(splitQueries[splitCount], org.lwjgl.opengl.GL33.GL_TIMESTAMP);
+        splitLabels[splitCount++] = label;
+    }
+
+    private void logSplit() {
+        if (!SPLIT_FIRST || splitFramesLogged >= 3 || splitCount < 2) {
+            splitCount = 0;
+            return;
+        }
+        StringBuilder line = new StringBuilder("Light's depth, frame ").append(lightFrames).append(", GPU between stamps:");
+        long first = org.lwjgl.opengl.GL33.glGetQueryObjectui64(splitQueries[0], org.lwjgl.opengl.GL15.GL_QUERY_RESULT);
+        long last = first;
+        for (int i = 1; i < splitCount; i++) {
+            long at = org.lwjgl.opengl.GL33.glGetQueryObjectui64(splitQueries[i], org.lwjgl.opengl.GL15.GL_QUERY_RESULT);
+            line.append(String.format(" %s %.3f ms;", splitLabels[i], (at - last) / 1e6));
+            last = at;
+        }
+        line.append(String.format(" in all %.3f ms", (last - first) / 1e6));
+        Quadrature.LOGGER.info(line.toString());
+        splitFramesLogged++;
+        splitCount = 0;
+    }
+
     private void drawLight() {
         long start = System.nanoTime();
         shadowMaps.beginFrame(mainView.originX(), mainView.originY(), mainView.originZ(), towardLight[0],
@@ -1547,9 +1588,11 @@ public final class Terrain
         if (began) {
             long mark = System.nanoTime();
             shadow.end();
+            split("state put back");
             program.end();
             DriverMessages.leave();
             lightParts[6] += System.nanoTime() - mark;
+            logSplit();
         }
         for (LightLayer layer : lightLayers) {
             LightLayerPlan plan = layer.plan;
@@ -1587,7 +1630,9 @@ public final class Terrain
         if (!began) {
             long mark = System.nanoTime();
             DriverMessages.enter("shadow");
+            split("start");
             shadow.begin(lightFrames);
+            split("state set");
             lightParts[6] += System.nanoTime() - mark;
             shadowMaps.objects(shadow.texture(), shadow.compareSampler(), shadow.depthSampler());
             shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
@@ -1633,6 +1678,7 @@ public final class Terrain
         mark = now;
         shadow.attach(next, layer.index);
         shadow.clear(layer.rectangles, LightTiles.rectangles(tiles, box.texels(), layer.rectangles));
+        split((layer.near ? "near" : "wide") + (next ? " new box" : " front") + " attached and cleared");
         now = System.nanoTime();
         lightParts[2] += now - mark;
         mark = now;
@@ -1651,14 +1697,23 @@ public final class Terrain
         }
         if (next) {
             layer.nextCubes += layer.chosen.count();
+            layer.boxCubes += layer.chosen.count();
             if (plan.nextDrawn(tiles)) {
-                shadow.publish(layer.index);
+                // Every tile of the box was cleared before it was drawn: a box that drew no cube is a clear layer, so the
+                // published layer is cleared rather than copied over (a whole layer's first copy took 7.4 ms of GPU).
+                if (layer.boxCubes == 0) {
+                    shadow.clearLayer(layer.index);
+                } else {
+                    shadow.publish(layer.index);
+                }
+                layer.boxCubes = 0;
                 plan.publish();
             }
         } else {
             layer.frontCubes += layer.chosen.count();
             plan.frontDrawn(tiles);
         }
+        split((layer.near ? "near" : "wide") + " drawn and copied");
         lightParts[5] += System.nanoTime() - mark;
     }
 
@@ -2224,7 +2279,9 @@ public final class Terrain
                 org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
             }
             DriverMessages.enter("shadow");
+            split("start");
             shadow.begin(lightFrames);
+            split("state set");
             shadow.attach(true, layer.index);
             layer.rectangles[0] = 0;
             layer.rectangles[1] = 0;

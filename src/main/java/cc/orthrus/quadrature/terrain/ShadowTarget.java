@@ -272,6 +272,13 @@ final class ShadowTarget {
     }
 
     /** Copies a layer of the scratch, drawn whole, over the published layer. */
+    /** Clears a published layer whole to the farthest depth: what copying a scratch with nothing drawn in it gives. */
+    void clearLayer(int layer) {
+        attach(false, layer);
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+    }
+
     void publish(int layer) {
         GL43.glCopyImageSubData(scratch, GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, texture, GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0,
             layer, SIDE, SIDE, 1);
