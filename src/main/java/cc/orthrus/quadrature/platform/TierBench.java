@@ -402,15 +402,16 @@ public final class TierBench {
         record.put("counted", true);
         if (outcome != null) {
             Quadrature.LOGGER.info("Tier benchmark run {}: score {} against the reference; ratios terrain {}, light {}, trace {}, "
-                    + "bandwidth {}; predicted ms {}, fits {}; speed tier {} ({} without the band); memory {} MiB available, "
-                    + "needs {}, memory tier {} ({} without the band).", runs, fixed(outcome.score()),
+                    + "bandwidth {}; predicted ms {} at render scales {}, fits {}; speed tier {} ({} without the band); "
+                    + "memory {} MiB available, needs {}, memory tier {} ({} without the band).", runs, fixed(outcome.score()),
                 fixed(outcome.ratios().terrain()), fixed(outcome.ratios().light()), fixed(outcome.ratios().trace()),
-                fixed(outcome.ratios().bandwidth()), fixed(outcome.predictedMs()), fixed(outcome.speedFits()),
+                fixed(outcome.ratios().bandwidth()), fixed(outcome.predictedMs()), fixed(outcome.scales()), fixed(outcome.speedFits()),
                 outcome.speed(), outcome.plainSpeed(), Math.round(available), fixed(outcome.needMiB()), outcome.memory(),
                 outcome.plainMemory());
             record.put("score", outcome.score());
             record.put("predictedMs", outcome.predictedMs());
             record.put("speedFits", outcome.speedFits());
+            record.put("scales", outcome.scales());
             record.put("speed", outcome.speed().name());
             record.put("plainSpeed", outcome.plainSpeed().name());
             record.put("availableMiB", available);

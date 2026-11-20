@@ -69,10 +69,11 @@ public final class TierSelection {
      * @param dlssMs DLSS's cost on this machine at the output: the reference's over the fallback ratio, since no
      *     probe measures what DLSS runs on
      * @param dlssFit the budget over the speed tier's cost with DLSS added
+     * @param scales each tier's render scale: its own, or 1 where drawing natively costs no more (D23)
      */
     public record Outcome(Ratios ratios, double score, double[] predictedMs, double[] speedFits, Tier plainSpeed,
                           Tier speed, double[] needMiB, double availableMiB, double[] memoryFits, Tier plainMemory,
-                          Tier memory, double dlssMs, double dlssFit) {
+                          Tier memory, double dlssMs, double dlssFit, double[] scales) {
 
         /** Whether the speed tier leaves room for DLSS above it (D21). */
         public boolean dlssOffered() {
@@ -119,17 +120,46 @@ public final class TierSelection {
         return new Ratios(terrain, light, trace, bandwidth, fallback);
     }
 
-    /** Each tier's groups on the machine at an output resolution, in ms: the reference's over the ratios. */
-    public static double[] predictedMs(Ratios ratios, TierCalibration calibration, int outputWidth, int outputHeight) {
+    /**
+     * Each tier's groups on the machine at an output resolution, in ms, and the render scale they are drawn at. A tier
+     * whose own scale is below 1 is priced at that scale, the scaler included, and drawn natively, the temporal pass
+     * alone; it renders below the output only where that costs less (D23), which it does once the work that follows the
+     * pixels outweighs the scaler's own cost.
+     */
+    public record Priced(double[] ms, double[] scales) {
+    }
+
+    public static Priced priced(Ratios ratios, TierCalibration calibration, int outputWidth, int outputHeight) {
         double output = (double) outputWidth * outputHeight / 1e6;
         double[] predicted = new double[Tier.values().length];
+        double[] scales = new double[Tier.values().length];
         for (Tier tier : Tier.values()) {
             double scale = TierBenchmark.renderScale(tier);
-            for (Cost cost : calibration.costs().get(tier.ordinal())) {
-                predicted[tier.ordinal()] += cost.ms(output * scale * scale, output) / ratios.of(cost.probe());
+            double below = cost(ratios, calibration.costs().get(tier.ordinal()), output * scale * scale, output);
+            predicted[tier.ordinal()] = below;
+            scales[tier.ordinal()] = scale;
+            if (scale < 1) {
+                double natively = cost(ratios, calibration.nativeCosts().get(tier.ordinal()), output, output);
+                if (natively <= below) {
+                    predicted[tier.ordinal()] = natively;
+                    scales[tier.ordinal()] = 1;
+                }
             }
         }
-        return predicted;
+        return new Priced(predicted, scales);
+    }
+
+    private static double cost(Ratios ratios, java.util.List<Cost> costs, double render, double output) {
+        double total = 0;
+        for (Cost cost : costs) {
+            total += cost.ms(render, output) / ratios.of(cost.probe());
+        }
+        return total;
+    }
+
+    /** Each tier's groups on the machine at an output resolution, in ms, at the scale {@link #priced} chooses. */
+    public static double[] predictedMs(Ratios ratios, TierCalibration calibration, int outputWidth, int outputHeight) {
+        return priced(ratios, calibration, outputWidth, outputHeight).ms();
     }
 
     /**
@@ -189,12 +219,13 @@ public final class TierSelection {
         int width = result.outputWidth();
         int height = result.outputHeight();
         Ratios ratios = ratios(result, calibration.reference());
-        double[] predicted = predictedMs(ratios, calibration, width, height);
+        Priced priced = priced(ratios, calibration, width, height);
+        double[] predicted = priced.ms();
         double[] speedFits = Arrays.stream(predicted).map(ms -> calibration.budgetMs() / ms).toArray();
         double[] need = new double[Tier.values().length];
         double[] memoryFits = new double[need.length];
         for (Tier tier : Tier.values()) {
-            need[tier.ordinal()] = calibration.needMiB(tier, width, height);
+            need[tier.ordinal()] = calibration.needMiB(tier, width, height, priced.scales()[tier.ordinal()]);
             memoryFits[tier.ordinal()] = availableMiB / need[tier.ordinal()];
         }
         Tier speed = withBand(speedFits, previousSpeed, calibration.band());
@@ -202,6 +233,6 @@ public final class TierSelection {
         double dlssFit = calibration.budgetMs() / (predicted[speed.ordinal()] + dlss);
         return new Outcome(ratios, score(ratios, calibration, width, height), predicted, speedFits,
             withBand(speedFits, null, 0), speed, need, availableMiB, memoryFits, withBand(memoryFits, null, 0),
-            withBand(memoryFits, previousMemory, calibration.memoryBand()), dlss, dlssFit);
+            withBand(memoryFits, previousMemory, calibration.memoryBand()), dlss, dlssFit, priced.scales());
     }
 }

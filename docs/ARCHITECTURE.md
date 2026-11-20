@@ -1393,8 +1393,14 @@ figures are taken as the top state's, as the other items' settled runs are.
   about 1.8 ms at 0.67 and 2.4 ms at 0.77 at 2560 by 1440, and 2.8 and 4.4 ms at 3840 by 2160,
   were all of it to follow the pixels; on the short tour at 3840 by 2160 the world's terrain
   took 2.36 ms at the output's size, and 2.81 and 3.29 ms with the scaler at 0.67 and 0.77.
-  Render scale stays a preset of each tier, never a lever the selection turns; whether LOW and
-  MEDIUM keep 67% and 77% is D23's to decide. On the run the unit test holds, this card takes
+  So the selection prices LOW and MEDIUM both ways, at 67% and 77% with the scaler and at the
+  output's resolution with the temporal pass alone, each group divided by its probe's ratio, and a
+  tier draws below the output only where that costs less (D23; benchmark version 4,
+  `TierSelection.priced`). On the reference card it does from 1920 by 1080 up, saving 0.42 and 0.39 ms
+  there, 1.17 and 0.99 ms at 2560 by 1440 and 3.73 and 3.32 ms at 3840 by 2160; at 1280 by 720
+  LOW draws natively on the card's measured run; a card
+  whose terrain runs faster than its memory against the reference's saves less and may draw
+  natively. The chosen scales are logged and stored with each run. On the run the unit test holds, this card takes
   HIGH at 2560 by 1440 (5.65 ms of the 7, a fit of 1.24) and MEDIUM at 3840 by 2160 (6.31 ms, a
   fit of 1.11). Its score runs 0.85 to 1.14 between places, so at the slowest places MEDIUM's
   fit at 3840 by 2160 falls below one; the band keeps whichever tier is stored first.

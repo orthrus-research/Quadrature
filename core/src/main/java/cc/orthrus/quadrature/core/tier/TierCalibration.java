@@ -17,9 +17,20 @@ import java.util.List;
  * @param costs each tier's groups on the reference card, lowest tier first
  * @param memory the GPU memory each tier holds, lowest tier first
  * @param dlss what DLSS costs on the reference card, for the room D21 asks the benchmark to find
+ * @param nativeCosts each tier's groups on the reference card drawn at the output's resolution, lowest tier first: a
+ *     tier that renders below it is priced both ways and draws natively where that costs no more (D23)
  */
 public record TierCalibration(boolean calibrated, Reference reference, double budgetMs, double band, double memoryBand,
-                              List<List<Cost>> costs, List<Memory> memory, Dlss dlss) {
+                              List<List<Cost>> costs, List<Memory> memory, Dlss dlss, List<List<Cost>> nativeCosts) {
+
+    /**
+     * A calibration whose tiers' groups are the same drawn natively: a tier keeps its own render scale where its costs
+     * follow the render pixels, and draws natively where they do not, since that then costs no more.
+     */
+    public TierCalibration(boolean calibrated, Reference reference, double budgetMs, double band, double memoryBand,
+                           List<List<Cost>> costs, List<Memory> memory, Dlss dlss) {
+        this(calibrated, reference, budgetMs, band, memoryBand, costs, memory, dlss, costs);
+    }
 
     /** Which probe's speed scales a group's cost from the reference card to a machine. */
     public enum Probe { TERRAIN, LIGHT, TRACE, BANDWIDTH }
@@ -127,10 +138,12 @@ public record TierCalibration(boolean calibrated, Reference reference, double bu
     }
 
     public TierCalibration {
-        if (costs.size() != Tier.values().length || memory.size() != Tier.values().length) {
-            throw new IllegalArgumentException("a cost list and a memory figure for every tier");
+        if (costs.size() != Tier.values().length || memory.size() != Tier.values().length
+            || nativeCosts.size() != Tier.values().length) {
+            throw new IllegalArgumentException("a cost list, a native cost list and a memory figure for every tier");
         }
         costs = costs.stream().map(List::copyOf).toList();
+        nativeCosts = nativeCosts.stream().map(List::copyOf).toList();
         memory = List.copyOf(memory);
     }
 
@@ -146,10 +159,14 @@ public record TierCalibration(boolean calibrated, Reference reference, double bu
         return total;
     }
 
-    /** The memory a tier holds at an output resolution, in MiB. */
+    /** The memory a tier holds at an output resolution, in MiB, at its own render scale. */
     public double needMiB(Tier tier, int outputWidth, int outputHeight) {
+        return needMiB(tier, outputWidth, outputHeight, TierBenchmark.renderScale(tier));
+    }
+
+    /** The memory a tier holds at an output resolution and a render scale, in MiB. */
+    public double needMiB(Tier tier, int outputWidth, int outputHeight, double scale) {
         double output = (double) outputWidth * outputHeight / 1e6;
-        double scale = TierBenchmark.renderScale(tier);
         return memory.get(tier.ordinal()).mib(output * scale * scale, output);
     }
 

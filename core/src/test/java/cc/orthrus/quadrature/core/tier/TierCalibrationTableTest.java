@@ -84,6 +84,10 @@ final class TierCalibrationTableTest {
             assertEquals(expected[o], outcome.speed(), sizes[o][0] + " by " + sizes[o][1]);
             assertEquals(Tier.MAX, outcome.memory(), sizes[o][0] + " by " + sizes[o][1]);
             assertTrue(outcome.traceAgrees());
+            // Drawing below the output pays on this card from 1920 by 1080 up; at 1280 by 720 LOW, at its small radius,
+            // saves less than the scaler costs and draws natively. MEDIUM keeps its scale at every size.
+            assertEquals(o == 0 ? 1.0 : 0.67, outcome.scales()[Tier.LOW.ordinal()], 1e-12, sizes[o][0] + " by " + sizes[o][1]);
+            assertEquals(0.77, outcome.scales()[Tier.MEDIUM.ordinal()], 1e-12, sizes[o][0] + " by " + sizes[o][1]);
         }
     }
 

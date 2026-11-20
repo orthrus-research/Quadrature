@@ -68,7 +68,10 @@ final class TierCalibrationTable {
             new TerrainLine(3.6864, 0.1353, 0.3301),
             new TerrainLine(8.2944, 0.1868, 0.8668)),
             -0.2486, 0.1257, 0.0528, TRACE_GIGA_RAYS);
-        List<List<Cost>> costs = List.of(tier(Tier.LOW), tier(Tier.MEDIUM), tier(Tier.HIGH), tier(Tier.MAX));
+        List<List<Cost>> costs = List.of(tier(Tier.LOW, false), tier(Tier.MEDIUM, false), tier(Tier.HIGH, false),
+            tier(Tier.MAX, false));
+        List<List<Cost>> nativeCosts = List.of(tier(Tier.LOW, true), tier(Tier.MEDIUM, true), tier(Tier.HIGH, true),
+            tier(Tier.MAX, true));
         // Near terrain's arenas at the tier's radius, distant terrain's reach, the light's layers with their
         // scratch, the light scene's lookup and bricks (and for MAX its states within radius 12, sized); the
         // targets for shading and a stage's own at the render resolution, a history at the output's.
@@ -77,7 +80,7 @@ final class TierCalibrationTable {
             new Memory(320 + 80 + 128 + 8.6, 30.5, 15.3),
             new Memory(448 + 141 + 256 + 15.0, 30.5, 15.3),
             new Memory(704 + 250 + 256 + 23.1 + 39, 30.5, 15.3));
-        return new TierCalibration(true, reference, 7.0, 0.15, 0.05, costs, memory, DLSS);
+        return new TierCalibration(true, reference, 7.0, 0.15, 0.05, costs, memory, DLSS, nativeCosts);
     }
 
     /**
@@ -105,7 +108,8 @@ final class TierCalibrationTable {
         return new Cost(name, Probe.BANDWIDTH, line[0], 0, 0, line[1]);
     }
 
-    private static List<Cost> tier(Tier tier) {
+    /** @param drawnNatively the tier's groups drawn at the output's resolution, with the temporal pass alone */
+    private static List<Cost> tier(Tier tier, boolean drawnNatively) {
         int t = tier.ordinal();
         double[] terrain = TERRAIN[t];
         List<Cost> costs = new java.util.ArrayList<>(List.of(
@@ -114,7 +118,7 @@ final class TierCalibrationTable {
             new Cost("the light's depth", Probe.LIGHT, LIGHT_MS[t], 0, 0),
             new Cost("shading", Probe.BANDWIDTH, 0, 0.19, 0),
             new Cost("the game's other drawing", Probe.BANDWIDTH, 0, 0.33, 0),
-            TierBenchmark.renderScale(tier) < 1
+            TierBenchmark.renderScale(tier) < 1 && !drawnNatively
                 ? scaled("own temporal anti-aliasing and the scaler", SCALER_POINTS_MS[t])
                 : scaled("own temporal anti-aliasing", TEMPORAL_POINTS_MS)));
         if (INDIRECT_MS[t] > 0) {

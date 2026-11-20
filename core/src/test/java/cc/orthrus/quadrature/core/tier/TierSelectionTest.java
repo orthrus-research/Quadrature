@@ -211,4 +211,47 @@ final class TierSelectionTest {
         assertEquals(1.5, withHandoff.dlssMs(), EPSILON);
         assertTrue(!withHandoff.dlssOffered());
     }
+
+    /**
+     * A calibration whose two lower tiers pay 1 ms for the scaler drawing below the output, or 0.9 ms for the temporal
+     * pass alone drawing natively, beside work of 0.1 ms a million render pixels.
+     */
+    private static TierCalibration scaling() {
+        TierCalibration base = calibration();
+        List<List<Cost>> below = new java.util.ArrayList<>();
+        List<List<Cost>> natively = new java.util.ArrayList<>();
+        for (Tier tier : Tier.values()) {
+            Cost work = new Cost("terrain", Probe.TERRAIN, 0, 0.1, 0);
+            below.add(List.of(work, new Cost("scaler", Probe.BANDWIDTH, TierBenchmark.renderScale(tier) < 1 ? 1.0 : 0.9, 0, 0)));
+            natively.add(List.of(work, new Cost("temporal", Probe.BANDWIDTH, 0.9, 0, 0)));
+        }
+        return new TierCalibration(true, base.reference(), 5.0, 0.1, 0.05, below, base.memory(), dlss(Double.NaN), natively);
+    }
+
+    @Test
+    void aTierDrawsNativelyWhereTheScalerCostsMoreThanItSaves() {
+        TierSelection.Ratios ratios = TierSelection.ratios(result(1, true), calibration().reference());
+        // At 1280 by 720 drawing at 0.67 saves 0.051 ms of work for 0.1 ms more of scaler: natively is cheaper.
+        TierSelection.Priced small = TierSelection.priced(ratios, scaling(), 1280, 720);
+        assertEquals(1.0, small.scales()[Tier.LOW.ordinal()], EPSILON);
+        assertEquals(1.0, small.scales()[Tier.MEDIUM.ordinal()], EPSILON);
+        assertEquals(0.9216 * 0.1 + 0.9, small.ms()[Tier.LOW.ordinal()], EPSILON);
+        // At 3840 by 2160 it saves 0.46 ms at 0.67 and 0.34 ms at 0.77: each tier keeps its own scale.
+        TierSelection.Priced large = TierSelection.priced(ratios, scaling(), 3840, 2160);
+        assertEquals(0.67, large.scales()[Tier.LOW.ordinal()], EPSILON);
+        assertEquals(0.77, large.scales()[Tier.MEDIUM.ordinal()], EPSILON);
+        assertEquals(8.2944 * 0.67 * 0.67 * 0.1 + 1.0, large.ms()[Tier.LOW.ordinal()], EPSILON);
+        // The tiers drawn at the output keep 1 either way.
+        assertEquals(1.0, large.scales()[Tier.HIGH.ordinal()], EPSILON);
+    }
+
+    @Test
+    void aTierWhoseCostsDoNotFollowThePixelsDrawsNatively() {
+        // Every cost is fixed: drawing below the output saves nothing, so every tier draws at the output's resolution.
+        TierSelection.Ratios ratios = TierSelection.ratios(result(1, true), calibration().reference());
+        TierSelection.Priced priced = TierSelection.priced(ratios, calibration(), 1280, 720);
+        for (Tier tier : Tier.values()) {
+            assertEquals(1.0, priced.scales()[tier.ordinal()], EPSILON);
+        }
+    }
 }

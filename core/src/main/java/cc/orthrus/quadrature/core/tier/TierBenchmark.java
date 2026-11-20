@@ -15,9 +15,10 @@ public final class TierBenchmark {
     /**
      * The benchmark's version; part of the key a result is stored under. 1, the first calibration; 2, the trace probe
      * on the walk that reads no coarser bits, against a reference scaled to it; 3, nothing timed before the light
-     * scene's copy has caught up, and a run whose trace stands far from the other probes chooses nothing.
+     * scene's copy has caught up, and a run whose trace stands far from the other probes chooses nothing; 4, a tier
+     * renders below the output only where that costs less than drawing natively.
      */
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
 
     /** The bandwidth kernel's small working set: past the last-level cache of Turing and Ampere, inside Ada's. */
     public static final long SMALL_BYTES = 8L << 20;
@@ -40,7 +41,10 @@ public final class TierBenchmark {
      */
     public static final long LEAST_PRIMITIVES = 200_000;
 
-    /** The render scales the tiers use, lowest tier first (ARCHITECTURE 12.1); the probes run at each. */
+    /**
+     * The lowest render scale each tier may use, lowest tier first (ARCHITECTURE 12.1); the probes run at each. A tier
+     * draws natively where that costs no more ({@link TierSelection#priced}).
+     */
     public static final double[] RENDER_SCALES = {0.67, 0.77, 1.0, 1.0};
 
     private TierBenchmark() {

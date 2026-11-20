@@ -1631,6 +1631,12 @@ empty copy read 0.228 to 0.291 billion rays a second.
   both kinds of fault. A unit test feeds two of those runs' measured figures to the table, and
   neither chooses; this card's run of the tiers test agrees. With both changes the benchmark is
   at version 3.
+- **Version 4 changes only the scoring** (2026-11-20): LOW and MEDIUM are priced at their own scale
+  with the scaler and at the output's resolution with the temporal pass alone, and render below
+  the output only where that costs less (D23). The probes are unchanged and no GPU run was made for
+  it. On this card's stored run the same speed tiers are chosen at all four outputs; MEDIUM keeps
+  0.77 at every one, and LOW keeps 0.67 from 1920 by 1080 up but draws natively at 1280 by 720,
+  where at its radius it saves less than the scaler costs (1.32 ms natively against the budget of 7).
 - **The settling load does not wait on the copy for its own sake.** It begins only once the
   place has caught up, the copy included, so it waits by construction. Its high times at the
   first run of a place (5 of the 50 runs: 2.99 to 4.49 ms of arithmetic against 2.01 to 2.20)

@@ -213,4 +213,7 @@ maximum; variance clipping, which NVIDIA patents describe, is not used (the user
 2026-11-18), and its quality gain is not to be measured (2026-11-19). The scaler is Keys'
 separable cubic. A kernel steered along edges by the structure tensor is not used (the user's
 decision of 2026-11-19, with US 7,889,950 in view): measured against the separable cubic at 67%
-and 77%, it scored no better and cost more.
+and 77%, it scored no better and cost more. A tier renders below the output only where the startup
+benchmark predicts that costs less than drawing at the output's resolution with the temporal pass
+alone; 67% and 77% are the scales LOW and MEDIUM go down to where it does (the user's decision of
+2026-11-20).
