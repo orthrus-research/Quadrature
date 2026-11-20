@@ -1397,6 +1397,35 @@ the client did not hold.
   blocks a second) or creative flight (about 11). Changing it would be measured again only if a
   slower server or a faster player shows cubes missing at the player's level.
 
+### What a depth pyramid would leave out
+
+Before culling on the GPU is built (ARCHITECTURE 6.4, steps 2 to 4), what it can save was measured
+with `quadrature.terrain.occlusion=measure` (`OcclusionMeasure`, the arithmetic of `DepthPyramid` in
+`core`), which leaves nothing out of a draw. For the player's view, each frame once the opaque layers
+are drawn, the frame's depth is copied, a pyramid built from it, and every cube the search found that
+draws anything is tested against it; a cube cannot hide itself, so what is counted is terrain that drew
+no pixel and lies wholly behind other terrain, the most a test against the frame's own depth can save.
+For the light's wide box, every 600 frames once it is drawn whole, every drawable cube it holds is
+tested against its published depth. On the RTX 3060 at 1280 by 720, radius 12, four fresh instances
+(2026-11-20):
+
+| | Forest tour | Cave tour |
+|---|---|---|
+| Player's view, drawn vertices behind other terrain | 34.0%, 33.5% (cubes 31%) | 44.5%, 44.7% (cubes 45%) |
+| By view | 0 to 8% from above the canopy, 39 to 88% among the trees | 6 to 90%, five of eight views over 50% |
+| Light's wide box, vertices hidden from the light | 27.5% (median 33.8% a measure; cubes 58%) | 56.1% (cubes 56%) |
+| The player's pyramid and test, GPU a frame | 0.55 and 0.03 ms | 0.68 and 0.04 ms |
+
+- **The test is cheap; the pyramid as built is not.** It is a full-resolution copy and a dispatch with
+  a barrier for each of eleven levels, 0.2 to 0.8 ms by view at one resolution; the card spent 2% of
+  both tours in P0 and 49 to 69% in P5, so those times are at low clocks. A pyramid built in fewer
+  passes from half resolution is the first thing culling needs.
+- **The light hides more cubes than vertices**: the cubes hidden from it are mostly under the ground,
+  solid and with few faces. Since the light is drawn by tiles over frames, culling it lowers the cost
+  of drawing a new box more than a frame's.
+- **Nothing is left changed.** With the measure on, opaque terrain leaves the same five fixed-function
+  changes in the 41 audited items as own terrain without it.
+
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE

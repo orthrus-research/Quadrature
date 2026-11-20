@@ -213,6 +213,8 @@ public final class Terrain
         TerrainArena.WIDE_GRANULE_BYTES, FaceBuilder.WIDE_STRIDE) : new TerrainArena();
     /** A slot for every loaded cube, holding where its mesh lies in the arena. */
     private final CubeSlots slots = new CubeSlots();
+    /** What testing the seen cubes against a depth pyramid would leave out, where measured. */
+    private final OcclusionMeasure occlusion = OcclusionMeasure.ON ? new OcclusionMeasure() : null;
     private final DrawCommands mainList = new DrawCommands();
     private final DrawCommands lightList = new DrawCommands();
     /**
@@ -1724,7 +1726,36 @@ public final class Terrain
                 System.arraycopy(lightParts, 0, lightPartsWorst, 0, lightParts.length);
             }
         }
+        if (occlusion != null && lightFrames % OcclusionMeasure.LIGHT_FRAMES == OcclusionMeasure.LIGHT_FRAMES / 2) {
+            measureLightOcclusion();
+        }
         image();
+    }
+
+    /**
+     * For the occlusion measure: the light's wide box, once it is drawn whole and nothing of it waits, against
+     * every drawable cube it holds, listed as the light's check lists them.
+     */
+    private void measureLightOcclusion() {
+        if (lightLayers.length == 0) {
+            return;
+        }
+        LightLayer layer = lightLayers[lightLayers.length - 1];
+        LightBox box = layer.plan.front();
+        if (box == null || layer.plan.next() != null || layer.plan.frontDirty()) {
+            return;
+        }
+        View view = View.throughLight(layer.front, mainView, box);
+        layer.swept.sweep(this, view);
+        layer.chosen.clear();
+        for (int i = 0, count = layer.swept.count(); i < count; i++) {
+            long key = layer.swept.key(i);
+            if (drawable(key) && box.texelsOf(CubeKey.x(key), CubeKey.y(key), CubeKey.z(key), lightRange)) {
+                layer.chosen.add(key);
+            }
+        }
+        occlusion.measureLight(view, layer.chosen, slots, FACES ? faceSlots : null, shadow.texture(), layer.index,
+            ShadowTarget.SIDE);
     }
 
     /** Sets the state the light's depth is drawn in, once a frame, before the first layer that draws. */
@@ -2079,6 +2110,9 @@ public final class Terrain
                     drawnVerticesThisFrame += mesh.count(index);
                 }
             }
+        }
+        if (occlusion != null && layer == BlockRenderLayer.CUTOUT && !DIRECT) {
+            occlusion.measure(view, visible, slots, FACES ? faceSlots : null);
         }
         if (ScreenProbe.INSTANCE != null && layer == BlockRenderLayer.SOLID && caughtUp()) {
             if (probeMesher == null) {

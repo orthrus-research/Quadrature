@@ -813,6 +813,11 @@ for it.
      and reach. Occlusion from a point does not apply to it.
 2. **Fine, on the GPU.** A compute stage tests each surviving cube against the frustum
    and against a depth pyramid, and writes draw commands and their count.
+   **Measured, not built:** the pyramid and the test exist as a measure that leaves nothing
+   out (`quadrature.terrain.occlusion=measure`, `DepthPyramid` in `core`). Against the frame's
+   own terrain they find 34% of the player's drawn vertices hidden over the forest tour and 45%
+   over the cave tour, and 28% and 56% of the light's wide box hidden from the light
+   (VERIFICATION, what a depth pyramid would leave out).
 3. **Two phases.** Cubes visible last frame are drawn first; the depth pyramid is built
    from them; cubes rejected in the first phase are retested against it and the survivors
    drawn. This removes the one-frame lag of testing against last frame's depth.
