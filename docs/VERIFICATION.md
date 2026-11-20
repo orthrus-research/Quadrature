@@ -1970,5 +1970,16 @@ check predictions written before it arrives, in this order, on a fresh instance 
    (`quadrature.tier.memoryLimitMiB`). The memory tier is read from the eviction count and the 1% low over
    the tour, as at run time.
 
+The RTX 3060's side of step 3, measured 2026-11-20 on a fresh instance of the 32 km world (the forest tour,
+own terrain, LOW's groups given outright: scale 0.67 with the temporal pass, distant reach 256, the light's one
+layer; near terrain at radius 12), with `quadrature.tier.memoryLimitMiB=8192` and the first-launch path:
+
+| Output | Available under 8 GB | MAX needs | Memory tier | GPU memory in use, median and peak | Speed tier |
+|---|---|---|---|---|---|
+| 1920 by 1080 | 4,667 MiB | 1,315 MiB | MAX | 3,745 and 4,032 MiB | MEDIUM |
+| 2560 by 1440 | 4,644 MiB | 1,348 MiB | MAX | 3,717 and 4,041 MiB | LOW |
+
+No eviction was logged. An 8 GB card is expected to take the same memory tier and to be held by speed alone.
+
 A card is recorded under its own heading here, with its driver branch, and the four clusters' bounds are
 revised from it.
