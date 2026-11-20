@@ -1313,6 +1313,21 @@ MAX's two cascades were measured together at one length (4.89 ms at 64, 12.17 ms
 above takes half of each. The far-shadow line is per million rays: a whole 2560 by 1440 picture is
 3.7 million.
 
+**Two more kinds of place, 2026-11-19.** The same benchmark and check on the brick-slot tours, each on a
+fresh instance with a jar from tree 362b8b38: open water (seed 8675309, 12 whole sets) and rugged rock forms
+with open caves (seed 101, 14 whole sets). MAX's batch of two million rays, at 16, 64 and 256 blocks:
+
+| Place | Probes | Toward a low sun | Shadows from above |
+|---|---|---|---|
+| The dwell tour's places (above) | 1.1, 4.9, 12.2 ms | 1.4, 3.6, 5.4 ms | |
+| Open water | 0.50, 0.87, 1.01 ms (75% hit) | 1.61, 3.81, 5.31 ms | 1.31, 1.93, 2.54 ms |
+| Rugged rock and open caves | 0.63, 1.63, 9.62 ms | 1.19, 2.76, 3.72 ms | 1.04, 1.45, 2.55 ms |
+
+Probes over water end at its surface. Over rugged ground they pass through open air at 16 and 64 blocks
+without meeting anything and cost most only at 256. No place measured here is dearer than the dwell tour's
+places for any class, so the tier costs taken from them stand. The check found no difference in either run. A
+built-up area is still unmeasured.
+
 ### The tier benchmark
 
 Measured 2026-11-18 and 19 on an RTX 3060 12 GB, driver 610.88, window 1280 by 720, with
