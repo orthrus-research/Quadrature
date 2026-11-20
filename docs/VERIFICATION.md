@@ -1689,10 +1689,13 @@ user's to install, so the repeat across one is a step left:
 
 1. With the new driver installed, confirm its version (`nvidia-smi --query-gpu=driver_version
    --format=csv`) and that the capability dump's driver fingerprint has changed.
-2. Play one tour on an instance that holds a stored result from 610.88, with
+2. Play one tour on an instance that holds a stored result from 610.88 at the current benchmark
+   version (`quadrature-driver-01`, stored 2026-11-20 at version 6), with
    `-Dquadrature.tierBench.firstLaunch=true` and the light's and the scene's switches: the log
    must say the first-launch path runs because the stored result is under another key, the
-   same GPU and another driver, and that the band holds to the stored tiers.
+   same GPU and another driver, and that the band holds to the stored tiers. The tiers applied at
+   startup on that launch are still 610.88's ("Tiers at startup, as chosen last"); play one more
+   tour, whose startup must apply the new run's tiers and whose benchmark must not run again.
 3. Play the forest tour with `-Dquadrature.tierBench=calibrate` on that instance and on a
    freshly prepared one, and set the scores beside 610.88's at the same places: the driver's
    effect is the difference of the medians against the spread at one place, and a tier may move
