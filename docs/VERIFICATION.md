@@ -1970,6 +1970,27 @@ check predictions written before it arrives, in this order, on a fresh instance 
    (`quadrature.tier.memoryLimitMiB`). The memory tier is read from the eviction count and the 1% low over
    the tour, as at run time.
 
+**Rented cards, the gate and the extensions (2026-11-20).** Consumer cards rented by the hour (Vast,
+Linux containers with the driver's graphics libraries) give the client's OpenGL on the GPU through VirtualGL's
+EGL back end on a virtual display: each reported "OpenGL 4.6.0 NVIDIA", compatibility profile, renderer the
+GeForce itself (without VirtualGL, the display renders in software). Each card's full extension list and
+standard limits were set beside the RTX 3060's own dump from Windows (driver 610.88):
+
+| Card | Driver | Gate | Extensions Quadrature names, missing | Limits apart |
+|---|---|---|---|---|
+| RTX 3060 12 GB | 610.57 (Linux) | Accepted | None | None |
+| RTX 2070 8 GB (Turing) | 595.99 (Linux) | Accepted | `GL_EXT_shader_realtime_clock`, `GL_NV_primitive_shading_rate` | `GL_MAX_TEXTURE_BUFFER_SIZE` 134,217,728 (half) |
+| RTX 2060 12 GB (Turing) | 580.178 (Linux) | Accepted | The same two | The same |
+
+- **The Linux RTX 3060 matches the Windows one** in every extension and limit Quadrature names; the extensions apart
+  are each system's own (Win32 interop, multi-GPU and legacy vertex-array ones on Windows; EGL image ones on Linux),
+  and Linux has the file-descriptor interop (`GL_EXT_memory_object_fd`, `GL_EXT_semaphore_fd`) in place of Win32's.
+  A rented Linux card stands for its Windows self in what the gate and the capability set read.
+- **Turing passes the gate and lacks exactly the two optional extensions** D22 gives fallbacks for, so a Turing run
+  exercises those fallbacks, which the RTX 3060 never does.
+- **What a rented Linux card cannot test yet:** the handoff to Vulkan imports memory and semaphores by Win32 handles,
+  and the DLSS shim is a Windows library. Vulkan 1.4 is present on all three.
+
 The RTX 3060's side of step 3, measured 2026-11-20 on a fresh instance of the 32 km world (the forest tour,
 own terrain, LOW's groups given outright: scale 0.67 with the temporal pass, distant reach 256, the light's one
 layer; near terrain at radius 12), with `quadrature.tier.memoryLimitMiB=8192` and the first-launch path:
