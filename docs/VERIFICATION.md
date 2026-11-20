@@ -79,6 +79,68 @@ makes runs of different settings comparable view for view. It also gives the med
 all of a log's reports, the statistic stage reports were read by before 2026-11-18, which
 mixes settled views with the loading between them.
 
+## Recorded results
+
+Formal results are kept in one SQLite database, `.local/results/results.sqlite`, through
+`tools/results.py`. A run records what ran (client jar, Cubature, Riven, options, tour, window,
+radius) and where (operating system, host, card and driver, the last two read from the client
+log's platform line), and its measurements one value a row: the tier benchmark's probes, each
+captured view's stage times and the per-frame scores of a `frames.py compare` report. A finding
+states a result in a sentence or two, is established, a hypothesis, refuted or superseded, and
+names the runs it rests on.
+
+```sh
+python tools/results.py add-run LABEL --client-log LOG --tour TOUR --tiers JSONL [--tiers-skip N] [run fields]
+python tools/results.py add-run LABEL --frames REPORT --against REFERENCE_LABEL
+python tools/results.py add-finding ID --title T --statement S --status established --runs A,B [--supersedes ID]
+python tools/results.py runs | findings | show LABEL_OR_ID
+python tools/results.py query "SELECT ..."
+```
+
+A tier benchmark record holds every tour an instance played; `--tiers-skip` leaves out the lines
+earlier tours wrote. `query` opens the database read-only and adds `median(x)`: a place's repeated
+probes carry the odd clock dip, which a mean takes in.
+
+The database also keeps what machines cost. A machine is ours or a rented host by the provider's
+machine id, with its specs (card, effective cores, CPU, memory, PCIe and memory bandwidth,
+network). An offer is a host's listing seen on the market at a moment, with its price; a rental
+holds each phase's time (to running, to SSH, upload, bootstrap, the plan's work, fetch), the bytes
+moved, its price when rented and once created, and its outcome; charges are what the provider
+billed, by instance, day and kind (GPU, disk, bandwidth). A run names its machine or rental.
+
+```sh
+python tools/results.py add-machine local NAME --gpu G --cpu-cores-effective N [spec fields]
+python tools/results.py add-offers SNAPSHOT | add-rental RECORD | add-charges CHARGES
+python tools/results.py link-run LABEL --machine PROVIDER:KEY | --rental PROVIDER:INSTANCE
+python tools/results.py costs
+```
+
+The view `rental_cost` sets each rental's specs, time and price beside its estimated cost (time by
+price) and its billed cost; `run_cost` shares a rental's cost among its runs and counts the places
+each benchmarked, so the cost of a measurement can be compared across hosts. Offers are recorded with
+the provider's own field names.
+
+Every request made to the provider is kept in `api_call`: the time it was sent (UTC, to the
+millisecond), the endpoint, the request body (never a credential), the status, how long it took,
+and the response, compressed (`inflate(response)` gives its JSON). Each offer a listing returned is
+an observation at that time, with the price split as listed: the host's price for the card
+(`dph_base`), the default disk's hourly cost, the floor for an interruptible rental (`min_bid`)
+and discounts. `offer_price` adds the hour and weekday of each observation and the machine's specs
+and host; `price_change` lists each listing's changes of price or bid floor between consecutive
+observations. A model of the average price is a grouping of `offer_price`, for example by card,
+effective cores and hour:
+
+```sql
+SELECT gpu, cpu_cores_effective >= 8 AS cores_8, hour, count(*) AS n, median(dph) AS dph, median(min_bid) AS bid
+FROM offer_price WHERE observed >= '2026-11-20' GROUP BY 1, 2, 3;
+```
+
+The search samples: one request returns part of the matching offers and the next another part,
+so a snapshot asks each card several times. A listing changes price between observations minutes
+apart (a host's price and the interruptible floor both move), so a price series needs snapshots
+taken regularly. `prune-responses --before TIME` drops old response bodies and keeps the
+observations taken from them.
+
 ## Measured repeatability
 
 Measured 2026-11-13: the forest tour (`forests-2485331`, 17 views, 1280 by 720) captured
