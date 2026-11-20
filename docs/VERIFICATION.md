@@ -1269,6 +1269,23 @@ translucent layer (`quadrature.terrain.translucent=game`, the control).
   cubes of half-block centers with many equal distances, and fails that test where its rule for equal
   distances is reversed.
 
+### Layers kept per state
+
+The mesher asks each block which layers it draws in (`Block.canRenderInLayer`), four times a block
+with the translucent layer. Another mod's handler of that call can be dear: GTCEu Reloaded's reads
+Forge's mod list and looks up the block's model each call, 3 to 5% of the build threads' CPU in the
+cross-mod diagnostics. Since 2026-11-20 each mesher asks once a state and keeps the answers, dropped
+when resources reload. Measured on a fresh instance of seed 2485331 at scale four, the forest tour,
+own terrain:
+
+- **Builds take 6.4% less CPU.** With `quadrature.terrain.layerCache=alternate`, the answers are kept
+  for every other build and asked for the rest, timed apart by the build threads' own CPU over one
+  tour: 1.148 ms a build kept against 1.227 ms asked, over 49,196 and 49,192 builds. The gap held
+  through the tour, 4 to 6.4% at every point read.
+- **The answers do not change.** With `quadrature.terrain.layerCache.check=true` every kept answer
+  was asked again, 221,995,009 times over the tour: none differed. The two tours' pictures pass all
+  17 views against each other.
+
 ### Cubes arriving around the player
 
 Cubature ranks the cubes it sends each player near (within two cubes on every axis), then those in
@@ -1779,6 +1796,8 @@ Each is a system property, read once, and costs nothing when unset.
 | Property | Effect |
 |---|---|
 | `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected; for each cube only Quadrature draws, which of the game's conditions left it out; for each cube only the game draws, whether a mesh is held, whether the cube is loaded and whether the view sees it |
+| `quadrature.terrain.layerCache=off` | The mesher asks each block for its layers every time instead of once a state; `=alternate` keeps them for every other build and times both kinds apart (Layers kept per state) |
+| `quadrature.terrain.layerCache.check=true` | Every kept answer is asked again and differences counted; `LAYER CHECK FAILED` in the terrain line on any |
 | `quadrature.terrain.arrivals=true` | Once a second, logs the cubes around the player the client does not hold yet, at its level, above and below, near and far (Cubes arriving around the player) |
 | `quadrature.textures.still=true` | Animated textures stay at the first frame stitched, so water and lava look the same in every capture; for comparing runs, set in all of them (Measured repeatability) |
 | `quadrature.terrain.visibility=all` | Quadrature draws every meshed cube in the view's volume and reach, with no search |

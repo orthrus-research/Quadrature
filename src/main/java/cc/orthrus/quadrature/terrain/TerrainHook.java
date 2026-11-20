@@ -515,6 +515,12 @@ public final class TerrainHook {
     /** Starts own terrain if it was asked for; call only where Cubature is installed. */
     public static void start() {
         Terrain.start();
+        // Reloaded resources bring new models, and with them perhaps another answer to which layers a block draws in.
+        net.minecraft.client.resources.IResourceManager resources = net.minecraft.client.Minecraft.getMinecraft().getResourceManager();
+        if (resources instanceof net.minecraft.client.resources.IReloadableResourceManager) {
+            ((net.minecraft.client.resources.IReloadableResourceManager) resources)
+                .registerReloadListener(manager -> CubeMesher.layerGenerationNow++);
+        }
     }
 
     /** Whether own terrain was asked for on the command line. */

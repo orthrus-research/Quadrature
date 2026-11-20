@@ -2470,6 +2470,17 @@ public final class Terrain
                 translucentDrawnLastFrame, translucentFirstSorts, translucentSorts,
                 frames == 0 ? 0.0 : translucentSortNanos / 1e6 / frames);
         }
+        if (CubeMesher.LAYER_CACHE == CubeMesher.LAYERS_ALTERNATE) {
+            long kept = CubeMesher.ALTERNATE_BUILDS[0].sum();
+            long asked = CubeMesher.ALTERNATE_BUILDS[1].sum();
+            line += String.format("; layers kept: %.3f ms of the build threads' own CPU a build over %d builds, asked: %.3f "
+                    + "over %d", kept == 0 ? 0.0 : CubeMesher.ALTERNATE_CPU[0].sum() / 1e6 / kept, kept,
+                asked == 0 ? 0.0 : CubeMesher.ALTERNATE_CPU[1].sum() / 1e6 / asked, asked);
+        }
+        if (CubeMesher.LAYER_CHECK) {
+            line += String.format("; layer check: %d answers kept and asked again, %d differ%s", CubeMesher.LAYER_CHECKS.sum(),
+                CubeMesher.LAYER_DIFFERENCES.sum(), CubeMesher.LAYER_DIFFERENCES.sum() > 0 ? " (LAYER CHECK FAILED)" : "");
+        }
         long cpuBuilds = CubeMesher.CPU_BUILDS.sum();
         line += String.format("; the build threads' own CPU %.3f ms a build over %d builds, empty ones included",
             cpuBuilds == 0 ? 0.0 : CubeMesher.CPU_NANOS.sum() / 1e6 / cpuBuilds, cpuBuilds);

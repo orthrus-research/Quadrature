@@ -7,6 +7,7 @@ import cc.orthrus.quadrature.core.terrain.CubeConnectivity;
 import cc.orthrus.quadrature.core.terrain.FaceRecord;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.objects.Reference2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
 import io.github.opencubicchunks.cubicchunks.api.client.IClientBuildWork;
@@ -52,6 +53,74 @@ final class CubeMesher {
     private boolean translucentStarted;
     private boolean translucentDrawing;
     private int translucentCount;
+    /**
+     * Each state's layers as its block answers {@code canRenderInLayer}, asked once a state and kept: bit {@code i} for
+     * {@code LAYERS[i]}, bit 3 for the translucent layer. Another mod's handler of that call may be dear (GTCEu
+     * Reloaded's looks up the block's model every call), and the mesher would ask it four times a block. Dropped when
+     * resources reload, since models, and so a mod's answer, may change then.
+     * {@code -Dquadrature.terrain.layerCache=off} asks every time; {@code =alternate} keeps answers for every other build,
+     * timing both kinds apart; {@code -Dquadrature.terrain.layerCache.check=true} asks every time as well and counts the
+     * answers that differ from those kept.
+     */
+    private final Reference2ByteOpenHashMap<IBlockState> layerMasks = new Reference2ByteOpenHashMap<>();
+    private int layerGeneration = -1;
+    private boolean keepLayers = LAYER_CACHE != LAYERS_ASKED;
+    private long buildsBegun;
+    static final int LAYERS_KEPT = 0, LAYERS_ASKED = 1, LAYERS_ALTERNATE = 2;
+    static final int LAYER_CACHE = layerCacheMode(System.getProperty("quadrature.terrain.layerCache"));
+    static final boolean LAYER_CHECK = Boolean.getBoolean("quadrature.terrain.layerCache.check");
+    /** Bumped when resources reload: every mesher drops the layers it kept. */
+    static volatile int layerGenerationNow;
+    static final java.util.concurrent.atomic.LongAdder LAYER_CHECKS = new java.util.concurrent.atomic.LongAdder();
+    static final java.util.concurrent.atomic.LongAdder LAYER_DIFFERENCES = new java.util.concurrent.atomic.LongAdder();
+    /** Under {@code alternate}: the build threads' own CPU and builds with layers kept, and with layers asked. */
+    static final java.util.concurrent.atomic.LongAdder[] ALTERNATE_CPU = {new java.util.concurrent.atomic.LongAdder(),
+        new java.util.concurrent.atomic.LongAdder()};
+    static final java.util.concurrent.atomic.LongAdder[] ALTERNATE_BUILDS = {new java.util.concurrent.atomic.LongAdder(),
+        new java.util.concurrent.atomic.LongAdder()};
+
+    private static int layerCacheMode(String value) {
+        return "off".equals(value) ? LAYERS_ASKED : "alternate".equals(value) ? LAYERS_ALTERNATE : LAYERS_KEPT;
+    }
+
+    private static final int TRANSLUCENT_BIT = 1 << 3;
+
+    /** The layers a state draws in: kept, or asked of its block. */
+    private int layers(Block block, IBlockState state) {
+        if (!keepLayers) {
+            return askLayers(block, state);
+        }
+        byte kept = layerMasks.getOrDefault(state, (byte) -1);
+        if (kept < 0) {
+            kept = (byte) askLayers(block, state);
+            layerMasks.put(state, kept);
+        } else if (LAYER_CHECK) {
+            LAYER_CHECKS.increment();
+            int asked = askLayers(block, state);
+            if (asked != kept) {
+                LAYER_DIFFERENCES.increment();
+                if (LAYER_DIFFERENCES.sum() <= 5) {
+                    Quadrature.LOGGER.warn("A block's layers changed since they were kept: {} kept {} asked {}", state,
+                        kept, asked);
+                }
+            }
+        }
+        return kept;
+    }
+
+    private int askLayers(Block block, IBlockState state) {
+        int mask = 0;
+        for (int layer = 0; layer < LAYERS.length; layer++) {
+            if (block.canRenderInLayer(state, LAYERS[layer])) {
+                mask |= 1 << layer;
+            }
+        }
+        if (translucent != null && block.canRenderInLayer(state, BlockRenderLayer.TRANSLUCENT)) {
+            mask |= TRANSLUCENT_BIT;
+        }
+        return mask;
+    }
+
     private final long[] opaque = new long[64];
     /** Whether each cube's cells are noted for the light scene. */
     private final boolean keepCells;
@@ -165,11 +234,23 @@ final class CubeMesher {
     BuiltCube build(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ, long sequence, IClientBuildWork.Task<?> task)
         throws InterruptedException {
         long cpuBegan = THREADS.getCurrentThreadCpuTime();
+        if (LAYER_CACHE == LAYERS_ALTERNATE) {
+            keepLayers = (buildsBegun++ & 1) == 0;
+        }
+        if (layerGeneration != layerGenerationNow) {
+            layerGeneration = layerGenerationNow;
+            layerMasks.clear();
+        }
         try {
             return timedBuild(snapshot, cubeX, cubeY, cubeZ, sequence, task);
         } finally {
-            CPU_NANOS.add(THREADS.getCurrentThreadCpuTime() - cpuBegan);
+            long cpu = THREADS.getCurrentThreadCpuTime() - cpuBegan;
+            CPU_NANOS.add(cpu);
             CPU_BUILDS.increment();
+            if (LAYER_CACHE == LAYERS_ALTERNATE) {
+                ALTERNATE_CPU[keepLayers ? 0 : 1].add(cpu);
+                ALTERNATE_BUILDS[keepLayers ? 0 : 1].increment();
+            }
         }
     }
 
@@ -293,8 +374,9 @@ final class CubeMesher {
                         if (state.getRenderType() == EnumBlockRenderType.INVISIBLE) {
                             continue;
                         }
+                        int layers = layers(block, state);
                         for (int layer = 0; layer < LAYERS.length; layer++) {
-                            if (!block.canRenderInLayer(state, LAYERS[layer])) {
+                            if ((layers & 1 << layer) == 0) {
                                 continue;
                             }
                             ForgeHooksClient.setRenderLayer(LAYERS[layer]);
@@ -339,7 +421,7 @@ final class CubeMesher {
                                 CHECK_WALK_NANOS.add(System.nanoTime() - began);
                             }
                         }
-                        if (translucent != null && block.canRenderInLayer(state, BlockRenderLayer.TRANSLUCENT)) {
+                        if ((layers & TRANSLUCENT_BIT) != 0) {
                             ForgeHooksClient.setRenderLayer(BlockRenderLayer.TRANSLUCENT);
                             if (!translucentStarted) {
                                 translucentStarted = true;

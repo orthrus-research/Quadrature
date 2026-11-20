@@ -806,6 +806,14 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   renderer.
 - Added: 2026-11-20
 
+### Layers kept per state
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/CubeMesher.java` (`layers`), the reload listener in `TerrainHook.start`
+- Source: original. Facts used: Forge's `Block.canRenderInLayer(IBlockState, BlockRenderLayer)`, answered per state, and
+  the game's `IReloadableResourceManager.registerReloadListener`; that GTCEu Reloaded's handler of the call reads the
+  mod list and the block's model each call, from the cross-mod diagnostics' samples.
+- Taken: nothing beyond the facts. Checked in game by asking every kept answer again (VERIFICATION, layers kept per state).
+- Added: 2026-11-20
+
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,
