@@ -1831,6 +1831,29 @@ no motion, so pixels that move there carry an entity's own.
   windows with the most moving pixels (97,000 to 470,000) it was 0.044 against 0.056 to 0.092;
   in windows of a few hundred pixels, where the golems barely moved, the two were about equal,
   and in one of 469 pixels the camera's read nearer.
+- **Against native, the moving body is nearer.** One subject does repeat between runs: the
+  player's own body seen from behind, which the motion helper moves by ticks (helper 0.2.2 adds
+  third person and a flying creative player, since a spectator is not drawn). The camera follows
+  it, so it holds still on screen while the world moves, which the camera's motion alone gets
+  wrong. On a fresh instance, the helper's pan (80 ticks moving 3 blocks and turning 18 degrees,
+  40 held, a cut) at 1920 by 1080 was captured every tick natively and at 0.67 with the temporal
+  pass, by the camera's motion and by entity motion. The instance's first run is left out: its
+  light differs from every later run's, as the forest's does (measured repeatability). Scored by
+  PSNR over the box around the body, against each of two later native runs:
+
+  | Against | Phase | Camera's motion | Entity motion |
+  |---|---|---|---|
+  | Native, run 4 | Moving | 23.15 dB | 23.50 dB |
+  | | Held | 23.34 dB | 23.61 dB |
+  | | After the cut | 24.31 dB | 24.76 dB |
+  | Native, run 5 | Moving | 22.72 dB | 23.05 dB |
+  | | Held | 22.78 dB | 23.00 dB |
+  | | After the cut | 23.80 dB | 24.13 dB |
+
+  Entity motion stands 0.22 to 0.45 dB nearer in every phase against both; over the whole frame,
+  where the body is a small part, 0.02 to 0.11 dB. The two native runs stand 29.0 dB apart on
+  the body while moving, the frames drawn at partial ticks 0.06 and 0.12, and the same after the
+  cut: the scaled runs' distance is the scale's.
 
 ### The four together
 
