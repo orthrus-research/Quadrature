@@ -440,9 +440,10 @@ frame over 2 ms of the light's GPU time counted by the layers that drew part of 
 
 - **A larger spread removes nearly every slow frame**, those where both layers begin a box together and those
   that redraw dirty tiles, which take the same share. The spread is 32 since this run.
-- **The first frame's 15 ms is not the box.** It stands at either spread, and on the first frame almost no mesh
-  has arrived; it is the driver's work on a first use, which drawing a tile through each depth program while
-  the world is attached, behind the loading screen, is the next thing to try.
+- **The first frame's 15 ms is not the box.** It stands at either spread, and the first frame draws no cube at all:
+  no mesh has arrived, so only the frame's state is set and its tiles cleared. The time lies in that setup and those
+  clears, a first use in the driver; timestamps between them, on the first frames after world entry, are the next
+  thing to read.
 
 ### The light's depth kept, and the scene for lighting
 
