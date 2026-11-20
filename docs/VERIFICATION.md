@@ -1144,6 +1144,32 @@ clock, from start to end.
   both changes also had the game's threads doing 60% less beside it. The walk's vertices are the
   dispatcher's, as the face check shows; what it saves is left to measures a run's other load does not
   move: the build threads' own CPU, and the face check timing both ways on the same blocks.
+
+### The light matrix from a table of the cube
+
+`TableLighter` fills Forge's smooth lighter's matrix from a table of the cube, each cell asked once.
+Checked first offline against Forge's own lighter, by a program kept with the run's evidence: random worlds of
+proxy states in four mixes of opacity, light, occlusion and covered sides, every block of 40 cubes a seed
+lit both ways, every value of the matrix compared bit for bit: 491,520 blocks over three seeds, none
+differing; with a fill rule or the corner rule changed by one character, 144,827 and 155,025 of 163,840
+differ, so the comparison sees a wrong matrix.
+
+Then in the game, 2026-11-19, a jar from tree 362b8b38 (commit 3c9fddc with the table, the build
+threads' own CPU in the terrain line, and the face check timing both ways), on the generating cave tour
+of seed 8675309, each run on a fresh instance with Cubature cb64f367:
+
+- **The same vertices.** With the face check every cube is meshed through the game's dispatcher and
+  through the walk, which lights from the table: 92,566 cubes, none differing in any layer.
+- **No time saved that shows.** On those same blocks, one after the other on the same threads, the
+  dispatcher took 107,725 ms and the walk with the table 107,668 ms, the walk's notes for face records
+  included. The table's own share is not separated by this run; a check run with
+  `quadrature.terrain.lightTable=off`, its walk time over its own dispatcher time, separates it.
+- **Without the check**, a build took 1.291 ms on the clock and 1.220 ms of its thread's CPU over 97,555
+  builds; the game's rebuilds left the opaque layers out in all 126,663, 50.7 s on its threads, 29.3 s of
+  their CPU, and 0.76 s on the client thread.
+
+The table and the walk are kept for being exact and for what the walk does not allocate; neither is
+counted as a saving of time.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1666,3 +1692,26 @@ A settled frame is one with no cube waiting to be meshed.
   in view 07 and the settled horizon difference are unexplained.
 - One tour, one machine (RTX 3060), one resolution.
 - Captured frames and references are kept out of the repository.
+
+### When another card is measured
+
+PLAN's capability work items 1 and 8 wait for a Turing card and an RTX 3050 8 GB. Each card's first runs
+check predictions written before it arrives, in this order, on a fresh instance of the forest tour:
+
+1. **The capability dump** (`-Dquadrature.capabilities=true`): the client's `quadrature-capabilities.txt`,
+   set beside the RTX 3060's line by line. Expected to differ on a Turing card: the mesh shader limits
+   (smaller task and mesh payloads), sparse page sizes, and memory; expected the same: every extension
+   the capability set names (D20). A missing capability is a gate refusal, recorded as such, not worked
+   around.
+2. **The tier benchmark** (`-Dquadrature.tierBench`): its stored result against the prediction the
+   calibration makes from the card's published speed relative to the RTX 3060 (ARCHITECTURE, 12.1.1, the
+   four clusters). A score more than the band away from the prediction means a probe stands for its groups
+   less well on this card than on the reference, which is looked for probe by probe before the tiers are
+   trusted.
+3. **The lowest tier's budgets** (D22): LOW's groups at 1920 by 1080 and 2560 by 1440 under the card's own
+   8 GB, measured, against the budgets scaled from the RTX 3060 under an enforced 8 GB
+   (`quadrature.tier.memoryLimitMiB`). The memory tier is read from the eviction count and the 1% low over
+   the tour, as at run time.
+
+A card is recorded under its own heading here, with its driver branch, and the four clusters' bounds are
+revised from it.

@@ -29,10 +29,12 @@ public abstract class MixinRenderChunkLayers {
 
     @Inject(method = "rebuildChunk", at = @At("HEAD"))
     private void quadrature$decide(float x, float y, float z, ChunkCompileTaskGenerator generator, CallbackInfo callback,
-        @Share("leaveOut") LocalBooleanRef leaveOut, @Share("started") LocalLongRef started) {
+        @Share("leaveOut") LocalBooleanRef leaveOut, @Share("started") LocalLongRef started,
+        @Share("cpuStarted") LocalLongRef cpuStarted) {
         // Once a rebuild, so every block of it follows one rule.
         leaveOut.set(GameChunkRebuilds.leavesOutOpaque(((RenderChunk) (Object) this).getWorld()));
         started.set(System.nanoTime());
+        cpuStarted.set(GameChunkRebuilds.threadCpu());
     }
 
     @WrapOperation(method = "rebuildChunk", at = @At(value = "INVOKE", remap = false,
@@ -47,7 +49,9 @@ public abstract class MixinRenderChunkLayers {
 
     @Inject(method = "rebuildChunk", at = @At("RETURN"))
     private void quadrature$rebuilt(float x, float y, float z, ChunkCompileTaskGenerator generator, CallbackInfo callback,
-        @Share("leaveOut") LocalBooleanRef leaveOut, @Share("started") LocalLongRef started) {
-        GameChunkRebuilds.rebuilt(System.nanoTime() - started.get(), leaveOut.get());
+        @Share("leaveOut") LocalBooleanRef leaveOut, @Share("started") LocalLongRef started,
+        @Share("cpuStarted") LocalLongRef cpuStarted) {
+        GameChunkRebuilds.rebuilt(System.nanoTime() - started.get(), GameChunkRebuilds.threadCpu() - cpuStarted.get(),
+            leaveOut.get());
     }
 }

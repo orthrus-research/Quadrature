@@ -763,6 +763,20 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   nothing for face records. Its vertices were shown the same as the game's dispatcher's by the face check.
 - Added: 2026-11-19
 
+### The light matrix from a table of the cube
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/TableLighter.java`
+- Source: original. Facts used: Forge's smooth lighter's interface (`VertexLighterSmoothAo`, the matrix its
+  `BlockInfo` exposes to it, which it reads per vertex and which is not reproduced); the rule by which
+  `BlockInfo.updateLightMatrix` fills that matrix from the 27 cells around a block, read from Forge's source
+  for Cleanroom 0.6.13 and checked against Cleanroom 0.7.14's class file: the four questions asked of each cell
+  (opacity below 15, packed light, ambient occlusion value), the raise beyond a side the block does not cover,
+  and, per corner and axis, the mean of a face cell, two edge cells and a corner cell with dark opaque cells
+  filled in a fixed order. Written in Quadrature's own terms and structure: each cell asked once per cube
+  through the world the walk reads, the rule as one function of four cells.
+- Taken: the rule, as behavior, so that the matrix is the same to the bit; checked offline against Forge's own
+  lighter over 491,520 blocks of random worlds and in the game by the face check over 92,566 cubes
+  (VERIFICATION, the light matrix from a table of the cube). No code from another renderer.
+- Added: 2026-11-19
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

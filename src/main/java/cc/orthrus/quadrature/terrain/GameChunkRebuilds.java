@@ -45,14 +45,23 @@ public final class GameChunkRebuilds {
         return layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED || layer == BlockRenderLayer.CUTOUT;
     }
 
-    /** Counts one finished rebuild and the time it took. */
-    public static void rebuilt(long nanos, boolean leftOut) {
+    private static final java.lang.management.ThreadMXBean THREADS = java.lang.management.ManagementFactory.getThreadMXBean();
+    private static final LongAdder WORKER_CPU = new LongAdder();
+
+    /** The calling thread's own CPU time so far, in nanoseconds. */
+    public static long threadCpu() {
+        return THREADS.getCurrentThreadCpuTime();
+    }
+
+    /** Counts one finished rebuild, the time it took on the clock and its thread's own CPU time. */
+    public static void rebuilt(long nanos, long cpuNanos, boolean leftOut) {
         if (Minecraft.getMinecraft().isCallingFromMinecraftThread()) {
             CLIENT_REBUILDS.increment();
             CLIENT_NANOS.add(nanos);
         } else {
             WORKER_REBUILDS.increment();
             WORKER_NANOS.add(nanos);
+            WORKER_CPU.add(cpuNanos);
         }
         if (leftOut) {
             LEFT_OUT.increment();
@@ -68,9 +77,10 @@ public final class GameChunkRebuilds {
         }
         long workerNanos = WORKER_NANOS.sum();
         long clientNanos = CLIENT_NANOS.sum();
-        return String.format("game chunk rebuilds: %d on its threads, %.1f ms in all (%.3f ms each); %d on the client "
-                + "thread, %.1f ms in all (%.3f ms each); %d with the opaque layers left out%s",
-            workers, workerNanos / 1e6, workers == 0 ? 0.0 : workerNanos / 1e6 / workers, client, clientNanos / 1e6,
+        return String.format("game chunk rebuilds: %d on its threads, %.1f ms in all (%.3f ms each), %.1f ms of their own "
+                + "CPU; %d on the client thread, %.1f ms in all (%.3f ms each); %d with the opaque layers left out%s",
+            workers, workerNanos / 1e6, workers == 0 ? 0.0 : workerNanos / 1e6 / workers, WORKER_CPU.sum() / 1e6, client,
+            clientNanos / 1e6,
             client == 0 ? 0.0 : clientNanos / 1e6 / client, LEFT_OUT.sum(), BUILD_OPAQUE ? " (the game builds them, as asked)" : "");
     }
 }

@@ -115,7 +115,21 @@ final class QuadWalk {
         usable = dispatcher.getBlockModelRenderer().getClass() == ForgeBlockModelRenderer.class;
         colors = minecraft.getBlockColors();
         flat = new VertexLighterFlat(minecraft.getBlockColors());
-        smooth = new VertexLighterSmoothAo(minecraft.getBlockColors());
+        smooth = TableLighter.ON ? new TableLighter(minecraft.getBlockColors()) : new VertexLighterSmoothAo(minecraft.getBlockColors());
+    }
+
+    /** Starts a cube: the smooth lighter's table of the light around its blocks starts empty. */
+    void beginCube(IBlockAccess world, int minX, int minY, int minZ) {
+        if (smooth instanceof TableLighter table) {
+            table.beginCube(world, minX, minY, minZ);
+        }
+    }
+
+    /** Ends a cube, letting go of its world. */
+    void endCube() {
+        if (smooth instanceof TableLighter table) {
+            table.endCube();
+        }
     }
 
     /** Whether the game would light a model through its pipeline, so that this may stand in for it. */

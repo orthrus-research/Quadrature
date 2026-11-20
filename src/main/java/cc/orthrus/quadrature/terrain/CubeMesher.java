@@ -139,8 +139,34 @@ final class CubeMesher {
      * @param task     the pool's task, asked now and then whether to stop; null for a build on the client thread
      * @return the cube built, or null when the task stopped it
      */
+    /**
+     * The build threads' own CPU time over every build, and the builds counted: unlike a build's time on the clock it
+     * leaves out waits for a core, so it compares runs whose other threads take more or less of the machine.
+     */
+    static final java.util.concurrent.atomic.LongAdder CPU_NANOS = new java.util.concurrent.atomic.LongAdder();
+    static final java.util.concurrent.atomic.LongAdder CPU_BUILDS = new java.util.concurrent.atomic.LongAdder();
+    /**
+     * Under the face check, the time spent drawing blocks through the game's dispatcher and through the walk (with its
+     * notes for face records, and the light matrix from the cube's table unless that is off): the same blocks, one
+     * after the other on one thread, so the two compare with every other load on the machine the same for both.
+     */
+    static final java.util.concurrent.atomic.LongAdder CHECK_DISPATCHER_NANOS = new java.util.concurrent.atomic.LongAdder();
+    static final java.util.concurrent.atomic.LongAdder CHECK_WALK_NANOS = new java.util.concurrent.atomic.LongAdder();
+    private static final java.lang.management.ThreadMXBean THREADS = java.lang.management.ManagementFactory.getThreadMXBean();
+
     BuiltCube build(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ, long sequence, IClientBuildWork.Task<?> task)
         throws InterruptedException {
+        long cpuBegan = THREADS.getCurrentThreadCpuTime();
+        try {
+            return timedBuild(snapshot, cubeX, cubeY, cubeZ, sequence, task);
+        } finally {
+            CPU_NANOS.add(THREADS.getCurrentThreadCpuTime() - cpuBegan);
+            CPU_BUILDS.increment();
+        }
+    }
+
+    private BuiltCube timedBuild(ICubeSnapshot snapshot, int cubeX, int cubeY, int cubeZ, long sequence,
+        IClientBuildWork.Task<?> task) throws InterruptedException {
         long began = System.nanoTime();
         long geometry = geometry(snapshot);
         if (snapshot.centerEmpty()) {
@@ -221,6 +247,9 @@ final class CubeMesher {
         int minZ = cubeZ << 4;
         // The models and lighters read the world through this, so what they read of the cubes around is known.
         SideReads world = sideReads.begin(snapshot, minX, minY, minZ);
+        if (walk != null) {
+            walk.beginCube(world, minX, minY, minZ);
+        }
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         java.util.Arrays.fill(opaque, 0);
         java.util.Arrays.fill(checkCounts, 0);
@@ -278,6 +307,10 @@ final class CubeMesher {
                                     // The state number is noted only for face records, which this walk does not keep.
                                     walk.render(dispatcher, world, state.getActualState(world, pos), pos, builders[layer],
                                         LightScene.index(x, y, z), layer, 0);
+                                } else if (FACE_CHECK) {
+                                    long began = System.nanoTime();
+                                    dispatcher.renderBlock(state, pos, world, builders[layer]);
+                                    CHECK_DISPATCHER_NANOS.add(System.nanoTime() - began);
                                 } else {
                                     dispatcher.renderBlock(state, pos, world, builders[layer]);
                                 }
@@ -287,7 +320,9 @@ final class CubeMesher {
                                 }
                             }
                             if (FACE_CHECK) {
+                                long began = System.nanoTime();
                                 walk(dispatcher, world, state, pos, layer, LightScene.index(x, y, z), minX, minY, minZ);
+                                CHECK_WALK_NANOS.add(System.nanoTime() - began);
                             }
                         }
                     }
@@ -295,6 +330,9 @@ final class CubeMesher {
             }
         } finally {
             ForgeHooksClient.setRenderLayer(null);
+            if (walk != null) {
+                walk.endCube();
+            }
         }
         if (FACE_CHECK) {
             compare(cubeX, cubeY, cubeZ);

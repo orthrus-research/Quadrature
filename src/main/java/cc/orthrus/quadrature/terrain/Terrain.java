@@ -2276,6 +2276,9 @@ public final class Terrain
             superseded, emptyUnread, sameShape, dirty.size(), lastSubmitNanos / 1e6,
             frames == 0 ? 0.0 : submitNanos / 1e6 / frames, mostSubmitNanos / 1e6, reprioritized, poolNanosThisFrame / 1e6,
             frames == 0 ? 0.0 : poolNanos / 1e6 / frames, mostPoolNanos / 1e6);
+        long cpuBuilds = CubeMesher.CPU_BUILDS.sum();
+        line += String.format("; the build threads' own CPU %.3f ms a build over %d builds, empty ones included",
+            cpuBuilds == 0 ? 0.0 : CubeMesher.CPU_NANOS.sum() / 1e6 / cpuBuilds, cpuBuilds);
         line += ALL_NEIGHBORS ? "; every touching change rebuilds"
             : String.format("; touching changes: %d rebuilt, %d passed by as unread", touchingRebuilt, touchingPassed);
         if (CAUSES) {
@@ -2326,6 +2329,11 @@ public final class Terrain
         if (CubeMesher.FACE_CHECK || FACES) {
             line += "; " + (FACES ? "faces: " + FaceBuilder.summary(faceTotals, rectangles.count())
                 : CubeMesher.checkSummary(checkTotals, faceTotals, rectangles.count()));
+            if (CubeMesher.FACE_CHECK) {
+                line += String.format("; blocks drawn through the game's dispatcher %.1f ms, through the walk %.1f ms (light "
+                        + "matrix from the cube's table: %s)", CubeMesher.CHECK_DISPATCHER_NANOS.sum() / 1e6,
+                    CubeMesher.CHECK_WALK_NANOS.sum() / 1e6, TableLighter.ON ? "on" : "off");
+            }
             if (faceTotals[FaceBuilder.QUADS] >= FACE_SHARE_QUADS && FaceBuilder.recordShare(faceTotals) < FACE_SHARE_LEAST) {
                 // Terrain is mostly whole faces: so few records means the builder refuses what it should take.
                 Quadrature.LOGGER.error("FACE RECORDS FAILED: {} of quads became records where at least {} is "
