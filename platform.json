@@ -15,9 +15,9 @@
   },
   "cubature": {
     "version": "1.12.2-0.1.4.0",
-    "commit": "19f9961a8f6e700bc539f2a1613183b9399246ae",
-    "jar": "Cubature-1.12.2-0.1.4.0-19f9961a-cleanroom.jar",
-    "sha256": "37da448876803e0c01283ef89ec95993b909345b55f1e41335558f3b946dbf9f"
+    "commit": "30bd6d77f356c38921f89e2dbe45e4e34a9ed1ff",
+    "jar": "Cubature-1.12.2-0.1.4.0-30bd6d77-cleanroom.jar",
+    "sha256": "9ea070f2e39e17b3e435d07cab360a294a32866bfd34b010f77487a31afcb837"
   },
   "graphics": {
     "api": "OpenGL",
