@@ -1390,12 +1390,12 @@ figures are taken as the top state's, as the other items' settled runs are.
   shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
   when measured, which can only raise the speeds needed.
 - Distant terrain, the reach group, is its own line since benchmark version 5 (VERIFICATION, distant
-  terrain's cost): 0.646 ms, 0.999 ms a million faces and 0.233 ms a million render pixels, at the
-  faces each tier's reach draws once its tiles are stored, 1.51 million at 256 blocks and 3.51 million
-  at 512, with 384's taken between and 768's past them until measured. A primitive of it costs about
+  terrain's cost): 0.973 ms, 0.928 ms a million faces and 0.181 ms a million render pixels, at the
+  faces each tier's reach draws once its tiles are stored, the mean of two forest places: 1.25, 1.98,
+  2.82 and 4.30 million at 256, 384, 512 and 768 blocks (version 6). A primitive of it costs about
   three times one of opaque terrain, so the reference's figures are its own; the terrain probe's ratio
-  stands for how much faster a machine draws it. At 2560 by 1440 it is each tier's largest group,
-  about 2.5, 3.7, 5.0 and 7.0 ms on the reference card.
+  stands for how much faster a machine draws it. At 2560 by 1440 it takes about 2.4, 3.2, 4.3 and
+  5.6 ms on the reference card, the largest group of every tier.
 - **Rendering below the output costs time at today's frame.** The scaler's passes take, at P0,
   0.98 ms at 2560 by 1440 output from 0.67, 0.97 from 0.77 and 0.96 for the temporal pass alone
   at the output's size (HIGH and MAX), and 1.52, 1.78 and 2.01 ms at 3840 by 2160, with about
@@ -1413,8 +1413,8 @@ figures are taken as the top state's, as the other items' settled runs are.
   LOW draws natively on the card's measured run; a card
   whose terrain runs faster than its memory against the reference's saves less and may draw
   natively. The chosen scales are logged and stored with each run. On the run the unit test holds, this card takes
-  MEDIUM at 2560 by 1440 (6.82 ms of the 7, a fit of 1.03) and LOW at 3840 by 2160 (6.75 ms, a
-  fit of 1.04), distant terrain counted; before it was counted, HIGH and MEDIUM. Its score runs 0.85
+  MEDIUM at 2560 by 1440 (6.42 ms of the 7, a fit of 1.09) and LOW at 3840 by 2160 (6.56 ms, a
+  fit of 1.07), distant terrain counted; before it was counted, HIGH and MEDIUM. Its score runs 0.85
   to 1.14 between places, so at the slowest places these fits fall below one; the band keeps
   whichever tier is stored first.
 - The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's

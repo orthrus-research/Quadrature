@@ -1279,20 +1279,23 @@ faces, while tiles arrive throughout; distant terrain's report now also gives th
 frames it timed. A second turn, on a fresh instance, ran reach 512 at 1280 by 720 and at 2560 by
 1440.
 
-- **The line.** Over 145 windows, each its frames' mean faces against their mean GPU time, weighted
-  by frames: 0.646 ms, 0.999 ms a million faces and 0.233 ms a million render pixels; the windows
-  stand 0.56 ms from it on average. From 1 to 6 million faces, the range a settled reach draws,
-  every million-face band's mean lies within 0.25 ms of the line at 1280 by 720 and 0.6 ms at 2560
-  by 1440; below a million faces, where tiles are arriving, the windows stand above it.
-- **Faces a reach draws once its tiles are stored.** Reach 256: a median of 1.51 million over 30
-  windows. Reach 512: 3.51 million, the one window of each run whose tiles were all stored; the
-  tour moves on before reach 512's 1,400 tiles are all built. 384's and 768's are taken between
-  and past them until measured.
-- **What it does to the tiers.** Counted (benchmark version 5), distant terrain is each tier's
-  largest group, about 2.5, 3.7, 5.0 and 7.0 ms at 2560 by 1440 on the reference card. This card's
-  stored run now takes MEDIUM at 1280 by 720 to 2560 by 1440 (6.82 ms of the 7 there, a fit of
-  1.03) and LOW at 3840 by 2160 (6.75 ms, a fit of 1.04), a tier below its choices before; LOW and
-  MEDIUM keep 0.67 and 0.77 at every output.
+- **The line.** Over the windows of the six runs below, each its frames' mean faces against their
+  mean GPU time, weighted by frames: 0.973 ms, 0.928 ms a million faces and 0.181 ms a million render
+  pixels; the windows stand 0.33 ms from it on average. Fitted on the tour's windows alone it read
+  0.646, 0.999 and 0.233, which fell 0.01 to 0.53 ms short of every place held still: windows taken
+  while tiles arrive weigh less, a frame, than a settled view.
+- **Faces a reach draws once its tiles are stored.** The forest tour moves on before reach 512's
+  1,400 tiles are all built, so two more turns held two forest places, a woodland and a highland,
+  about four minutes each at every reach, on the same instance. The faces (medians of 31 to 55
+  windows a place and reach) are 0.96 and 1.53 million at 256, 1.30 and 2.65 at 384, 1.87 and 3.76
+  at 512, 2.21 and 6.39 at 768; the tier model takes each reach's mean, 1.25, 1.98, 2.82 and 4.30
+  million. The line comes within 0.08 ms over and 0.36 ms under each held place's time (2.18 to
+  7.43 ms).
+- **What it does to the tiers.** Counted (benchmark version 6), distant terrain is about 2.4, 3.2,
+  4.3 and 5.6 ms at 2560 by 1440 on the reference card. This card's stored run now takes HIGH at
+  1280 by 720, MEDIUM at 1920 by 1080 and 2560 by 1440 (6.42 ms of the 7 there, a fit of 1.09) and
+  LOW at 3840 by 2160 (6.56 ms, a fit of 1.07), a tier below its choices before from 1920 by 1080
+  up; LOW and MEDIUM keep 0.67 and 0.77 at every output.
 
 ### Layers kept per state
 

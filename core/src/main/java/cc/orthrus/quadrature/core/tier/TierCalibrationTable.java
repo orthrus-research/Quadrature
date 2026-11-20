@@ -48,14 +48,16 @@ final class TierCalibrationTable {
      */
     private static final double[] INDIRECT_MS = {0, 0.527, 3.465 / 4, (4.892 + 12.170) / 2 / 4};
     /**
-     * Distant terrain, the reach group, measured 2026-11-20 at reach 512 at 1280 by 720 and 2560 by 1440 on the forest
-     * tour (VERIFICATION, distant terrain's cost): over 145 report windows, each its frames' mean faces against their
-     * mean time, 0.646 ms, 0.999 ms a million faces and 0.233 ms a million render pixels. The faces each tier's reach
-     * draws once its tiles are stored: 1.51 million at 256 (30 windows) and 3.51 million at 512 (two); 384's is taken
-     * between them and 768's past them, by the 2 million each 256 blocks of reach added, until they are measured.
+     * Distant terrain, the reach group, measured 2026-11-20 (VERIFICATION, distant terrain's cost): over the report
+     * windows of six runs, each its frames' mean faces against their mean time, the forest tour at reach 512 at 1280 by
+     * 720 and 2560 by 1440 and two forest places held at each reach at 1280 by 720, 0.973 ms, 0.928 ms a million faces
+     * and 0.181 ms a million render pixels. The faces each tier's reach
+     * draws once its tiles are stored, the mean of two forest places held about four minutes each, a woodland and a
+     * highland (31 to 55 windows a place and reach): 0.96 and 1.53 million at 256, 1.30 and 2.65 at 384, 1.87 and
+     * 3.76 at 512, 2.21 and 6.39 at 768.
      */
-    private static final double[] DISTANT_FACES_MILLIONS = {1.51, 2.51, 3.51, 5.51};
-    private static final double[] DISTANT_LINE = {0.646, 0.999, 0.233};
+    private static final double[] DISTANT_FACES_MILLIONS = {1.25, 1.98, 2.82, 4.30};
+    private static final double[] DISTANT_LINE = {0.973, 0.928, 0.181};
     /** MAX's far shadows: 2,097,152 rays toward a low sun at 256 blocks, 2.59 ms a million; an upper bound. */
     private static final double FAR_SHADOWS_MS = 2.59 * 2.097152;
 

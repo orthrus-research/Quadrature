@@ -72,8 +72,8 @@ final class TierCalibrationTableTest {
         int[][] sizes = {{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
         double[] millis = {1.3117, 1.4817, 1.7203, 3.2143};
         double[] fragments = {2_042_959, 4_440_170, 7_796_303, 17_329_617};
-        // With distant terrain counted (benchmark version 5) the card takes a tier lower than before at every size.
-        Tier[] expected = {Tier.MEDIUM, Tier.MEDIUM, Tier.MEDIUM, Tier.LOW};
+        // With distant terrain counted (benchmark version 6) the card takes a tier lower than before from 1920 by 1080 up.
+        Tier[] expected = {Tier.HIGH, Tier.MEDIUM, Tier.MEDIUM, Tier.LOW};
         for (int o = 0; o < sizes.length; o++) {
             java.util.List<BenchmarkResult.TerrainPoint> terrain = new java.util.ArrayList<>();
             for (int i = 0; i < sizes.length; i++) {
