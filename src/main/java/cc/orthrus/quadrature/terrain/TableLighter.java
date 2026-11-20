@@ -136,6 +136,97 @@ final class TableLighter extends VertexLighterSmoothAo {
         }
     }
 
+    /** Whether quads are lit straight into the buffer ({@link #putQuad}); off with {@code quadrature.terrain.directLight=off}. */
+    static final boolean DIRECT = !"off".equals(System.getProperty("quadrature.terrain.directLight"));
+    private final int[] quadOut = new int[4 * 7];
+    private final float[] lightmapOut = new float[4];
+
+    /**
+     * Lights a quad of the block being lit straight into the buffer, writing what Forge's pipeline writes for it: the
+     * quad's vertices are read as its unpacking reads them, each vertex lit from the matrix by Forge's own per-vertex
+     * methods (the lightmap by {@code calcLightmap}, the occlusion by {@code getAo}), tinted, occluded and shaded in
+     * its order, and packed with its rounding, without the unpacking into floats element by element, the gathering
+     * and the packing back that cost most of a block's meshing (PLAN item 12c). Where the quad is not of the
+     * game's item format, the buffer not of its block format, colors are left out, anaglyph is on, or the quad's first
+     * normal asks for one to be made, nothing is written and the quad goes through Forge's pipeline.
+     *
+     * @return whether the quad was written
+     */
+    boolean putQuad(net.minecraft.client.renderer.block.model.BakedQuad quad, net.minecraft.client.renderer.BufferBuilder buffer) {
+        if (!DIRECT || quad.getFormat() != net.minecraft.client.renderer.vertex.DefaultVertexFormats.ITEM
+            || buffer.getVertexFormat() != net.minecraft.client.renderer.vertex.DefaultVertexFormats.BLOCK
+            || buffer.isColorDisabled() || net.minecraft.client.renderer.EntityRenderer.anaglyphEnable) {
+            return false;
+        }
+        int[] from = quad.getVertexData();
+        if (from.length < 4 * 7) {
+            return false;
+        }
+        // Forge uses the quad's normals unless the first vertex's is (-1, -1, -1), when it makes one.
+        int firstNormal = from[6];
+        if (normal(firstNormal, 0) == -1 && normal(firstNormal, 8) == -1 && normal(firstNormal, 16) == -1) {
+            return false;
+        }
+        int tint = quad.hasTintIndex() ? quad.getTintIndex() : -1;
+        int multiplier = tint != -1 ? blockInfo.getColorMultiplier(tint) : -1;
+        boolean diffuse = quad.shouldApplyDiffuseLighting();
+        float shx = blockInfo.getShx();
+        float shy = blockInfo.getShy();
+        float shz = blockInfo.getShz();
+        for (int v = 0; v < 4; v++) {
+            int in = v * 7;
+            float px = Float.intBitsToFloat(from[in]) + shx;
+            float py = Float.intBitsToFloat(from[in + 1]) + shy;
+            float pz = Float.intBitsToFloat(from[in + 2]) + shz;
+            int color = from[in + 3];
+            float r = (float) (color & 0xFF) / 255;
+            float g = (float) (color >>> 8 & 0xFF) / 255;
+            float b = (float) (color >>> 16 & 0xFF) / 255;
+            float a = (float) (color >>> 24 & 0xFF) / 255;
+            int packedNormal = from[in + 6];
+            float nx = normal(packedNormal, 0);
+            float ny = normal(packedNormal, 8);
+            float nz = normal(packedNormal, 16);
+            float x = px - .5f + nx * .5f;
+            float y = py - .5f + ny * .5f;
+            float z = pz - .5f + nz * .5f;
+            calcLightmap(lightmapOut, x, y, z);
+            if (tint != -1) {
+                r *= (float) (multiplier >> 0x10 & 0xFF) / 0xFF;
+                g *= (float) (multiplier >> 0x8 & 0xFF) / 0xFF;
+                b *= (float) (multiplier & 0xFF) / 0xFF;
+            }
+            float occlusion = getAo(x, y, z);
+            r *= occlusion;
+            g *= occlusion;
+            b *= occlusion;
+            if (diffuse) {
+                float shade = net.minecraftforge.client.model.pipeline.LightUtil.diffuseLight(nx, ny, nz);
+                r *= shade;
+                g *= shade;
+                b *= shade;
+            }
+            int out = v * 7;
+            quadOut[out] = Float.floatToRawIntBits(px);
+            quadOut[out + 1] = Float.floatToRawIntBits(py);
+            quadOut[out + 2] = Float.floatToRawIntBits(pz);
+            quadOut[out + 3] = (Math.round(r * 255) & 0xFF) | (Math.round(g * 255) & 0xFF) << 8
+                | (Math.round(b * 255) & 0xFF) << 16 | (Math.round(a * 255) & 0xFF) << 24;
+            quadOut[out + 4] = Float.floatToRawIntBits(Float.intBitsToFloat(from[in + 4]));
+            quadOut[out + 5] = Float.floatToRawIntBits(Float.intBitsToFloat(from[in + 5]));
+            quadOut[out + 6] = (Math.round(lightmapOut[0] * 32767) & 0xFFFF) | (Math.round(lightmapOut[1] * 32767) & 0xFFFF) << 16;
+        }
+        buffer.addVertexData(quadOut);
+        // As Forge's buffer consumer does, with its offset kept at the origin by the walk.
+        buffer.putPosition(0, 0, 0);
+        return true;
+    }
+
+    /** One component of a packed normal, as Forge's unpacking reads a signed byte. */
+    private static float normal(int packed, int shift) {
+        return ((float) (byte) (packed >>> shift)) / 127;
+    }
+
     /** The light at one corner of one face, from four cells of the 3x3x3 around the block. */
     private float cornerLight(int[] light, boolean[][][] clearAround, int face, int edgeA, int edgeB, int corner) {
         boolean faceClear = clearAt(clearAround, face);

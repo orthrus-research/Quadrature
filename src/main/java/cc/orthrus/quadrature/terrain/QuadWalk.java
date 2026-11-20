@@ -266,16 +266,22 @@ final class QuadWalk {
     }
 
     private void pipe(List<BakedQuad> list, VertexLighterFlat lighter, BufferBuilder buffer, int cell) {
+        TableLighter direct = lighter instanceof TableLighter table ? table : null;
         if (!notes) {
             for (int i = 0, size = list.size(); i < size; i++) {
-                list.get(i).pipe(lighter);
+                BakedQuad quad = list.get(i);
+                if (direct == null || !direct.putQuad(quad, buffer)) {
+                    quad.pipe(lighter);
+                }
             }
             return;
         }
         for (int i = 0, size = list.size(); i < size; i++) {
             BakedQuad quad = list.get(i);
             int before = buffer.getVertexCount();
-            quad.pipe(lighter);
+            if (direct == null || !direct.putQuad(quad, buffer)) {
+                quad.pipe(lighter);
+            }
             if (buffer.getVertexCount() != before + 4) {
                 // A quad the lighter left out, or one that is no quad: nothing to note.
                 continue;

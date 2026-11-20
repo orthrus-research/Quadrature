@@ -1208,6 +1208,19 @@ of seed 8675309, each run on a fresh instance with Cubature cb64f367:
 
 The table and the walk are kept for being exact and for what the walk does not allocate; neither is
 counted as a saving of time.
+
+**Quads lit straight into the buffer, 2026-11-20.** A recording of the meshing pool (forest tour, recorder chunks of
+1 MiB, 14,534 samples) put Forge's per-vertex pipeline at 42% of it once the table had taken the light matrix: each
+element of each vertex unpacked to floats, gathered, lit and packed back. TableLighter.putQuad writes what that
+pipeline writes, reading the quad's integers and calling Forge's own per-vertex light and occlusion. Offline against
+Forge's pipeline: 53,934 of 60,000 random quads in random worlds written directly (the rest ask for a normal to be
+made and go through Forge), every one the same byte for byte. In the game, with a jar from tree b31fc380 on the
+generating cave tour on fresh instances:
+
+- **The same vertices.** The face check meshed 91,227 cubes both ways, none differing in any layer.
+- **A sixth less time on the same blocks.** The walk took 0.833 of the dispatcher's time (91,958 against 110,444 ms),
+  where with the table alone it took 0.9995.
+- **Without the check** a build took 1.233 ms on the clock and 1.167 ms of its thread's CPU over 105,075 builds.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE

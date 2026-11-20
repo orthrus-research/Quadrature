@@ -776,6 +776,14 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: the rule, as behavior, so that the matrix is the same to the bit; checked offline against Forge's own
   lighter over 491,520 blocks of random worlds and in the game by the face check over 92,566 cubes
   (VERIFICATION, the light matrix from a table of the cube). No code from another renderer.
+- Since 2026-11-20 the same class lights a quad straight into the buffer (`putQuad`). Facts used: how Forge's
+  pipeline reads an item-format quad and writes a block-format vertex, read from Forge's source for Cleanroom
+  0.6.13 (`LightUtil.putBakedQuad`, `unpack` and `pack`, `QuadGatheringTransformer`, `VertexLighterFlat.processQuad`
+  and `VertexBufferConsumer.put`): each element's conversion and rounding, the order of tint, occlusion and diffuse
+  shading, and the buffer's `addVertexData` and `putPosition`. The per-vertex light and occlusion are Forge's own
+  methods, called and not reproduced. Checked offline against Forge's pipeline over 60,000 random quads in random
+  worlds, every quad written directly the same byte for byte, and with a rounding factor or a factor of the
+  occlusion changed slightly, 116 and 431 quads differ.
 - Added: 2026-11-19
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
