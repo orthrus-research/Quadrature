@@ -51,9 +51,10 @@ Own terrain needs a cubic world, so it runs in an instance with Cubature, not in
 client: start the game with `-Dquadrature.terrain=own`. The build takes Cubature's API from one
 JAR, pinned in `platform.json` by commit and hash and kept in `pins/`, which is not in the
 repository; the build stops if the file is missing or is not the one pinned. `./gradlew
-refreshCubature` copies the JAR built in the sibling checkout (`../Cubature`, which must be
-clean) into `pins/` and prints the commit and hash to record. Instances are prepared with the
-same file. Adding `-PtestMemoryFloorMiB=<n>`
+refreshCubature` builds that JAR at the pinned commit (`-PcubatureCommit=<commit>` to move the
+pin) in a worktree of the sibling checkout (`../Cubature`), with the commit's own compile-only
+inputs, so what the checkout has out plays no part; it prints the commit and hash to record.
+Instances are prepared with the same file. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 

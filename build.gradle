@@ -62,46 +62,98 @@ tasks.register('verifyCubature') {
     inputs.property('pinned', pin.sha256)
     doLast {
         if (!jar.exists()) {
-            throw new GradleException("Cubature's pinned JAR is missing at ${jar}. Build ../Cubature at commit " +
-                "${pin.commit} and run ./gradlew refreshCubature.")
+            throw new GradleException("Cubature's pinned JAR is missing at ${jar}. Run ./gradlew refreshCubature " +
+                "to build it at commit ${pin.commit}.")
         }
         def found = sha256Of(jar)
         if (found != pin.sha256) {
             throw new GradleException("${jar} has sha256 ${found}; platform.json pins ${pin.sha256}. Run " +
-                "./gradlew refreshCubature to copy the sibling checkout's build, or record the new commit and " +
-                "hash in platform.json.")
+                "./gradlew refreshCubature to build the pinned commit, or record the new commit and hash in " +
+                "platform.json.")
         }
     }
 }
 tasks.named('compileJava') { dependsOn 'verifyCubature' }
 
-// Copies the Cubature JAR built in the sibling checkout (or the one named with -PcubatureCheckout)
-// into pins/, and prints the commit and hash to record in platform.json. The checkout must be clean,
-// so that the pin names a commit; build it there first, since this cannot tell what the JAR was built from.
+// Builds the Cubature JAR for pins/ at the commit platform.json pins (-PcubatureCommit to move the pin),
+// from the sibling checkout (or -PcubatureCheckout), in a worktree of that checkout that is removed after:
+// what the checkout has out or changed plays no part. The commit's own compile-only inputs are fetched
+// into the worktree and named to its build. Prints the commit, JAR name and hash to record in platform.json.
 tasks.register('refreshCubature') {
     def pin = platform.cubature
-    def checkout = file(providers.gradleProperty('cubatureCheckout').getOrElse('../Cubature'))
-    def commitText = providers.exec { commandLine 'git', '-C', checkout.path, 'rev-parse', 'HEAD' }.standardOutput.asText
-    def statusText = providers.exec { commandLine 'git', '-C', checkout.path, 'status', '--porcelain' }.standardOutput.asText
+    def named = providers.gradleProperty('cubatureCheckout').map { file(it) }
+    def root = rootDir
+    def wanted = providers.gradleProperty('cubatureCommit').getOrElse(pin.commit)
+    def scratch = layout.buildDirectory.dir('cubature-pin').get().asFile
+    def javaHome = System.getProperty('java.home')
+    def pins = file('pins')
     doLast {
-        def commit = commitText.get().trim()
-        if (!statusText.get().trim().isEmpty()) {
-            throw new GradleException("${checkout} has uncommitted changes; a pin must name a commit.")
+        // The sibling of the main checkout, wherever this worktree of Quadrature sits.
+        def common = new ProcessBuilder('git', '-C', root.path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            .start()
+        def commonDir = common.inputStream.text.trim()
+        def checkout = named.getOrElse(new File(common.waitFor() == 0 ? new File(commonDir).parentFile : root, '../Cubature')
+            .canonicalFile)
+        def run = { List command, File directory, File log, Map<String, String> environment ->
+            def builder = new ProcessBuilder(command*.toString()).directory(directory).redirectErrorStream(true)
+            builder.redirectOutput(ProcessBuilder.Redirect.appendTo(log))
+            builder.environment().putAll(environment)
+            // Riven's tools export this; an older Cubature build would read Riven's dev/pins through it.
+            builder.environment().remove('RIVEN_WORKSPACE')
+            def code = builder.start().waitFor()
+            if (code != 0) {
+                throw new GradleException("${command.join(' ')} failed in ${directory} (exit ${code}); see ${log}")
+            }
         }
-        // Cubature names its JAR by version alone; the pin's copy carries the commit it was built from.
-        def built = new File(checkout, "cleanroom/build/cleanroom/libs/Cubature-${pin.version}-cleanroom.jar")
-        if (!built.exists()) {
-            throw new GradleException("No build at ${built}; run ./gradlew build in ${checkout}/cleanroom first.")
+        def git = { Object... arguments ->
+            def command = (['git', '-C', checkout.path] + arguments.toList())*.toString()
+            def process = new ProcessBuilder(command).redirectErrorStream(true).start()
+            def text = process.inputStream.text.trim()
+            [process.waitFor(), text]
         }
-        def name = "Cubature-${pin.version}-${commit.take(8)}-cleanroom.jar"
-        def jar = file("pins/${name}")
-        jar.parentFile.mkdirs()
-        java.nio.file.Files.copy(built.toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        def found = sha256Of(jar)
-        logger.lifecycle("Copied ${built} to ${jar}\n  commit ${commit}\n  jar ${name}\n  sha256 ${found}")
-        logger.lifecycle(commit == pin.commit && found == pin.sha256 && name == pin.jar ? 'This is what platform.json pins.'
-            : "platform.json pins ${pin.jar} at commit ${pin.commit}, sha256 ${pin.sha256}: record the values above " +
-                'there to build against this JAR.')
+        def (found, commit) = git('rev-parse', '--verify', "${wanted}^{commit}")
+        if (found != 0) {
+            throw new GradleException("${checkout} has no commit ${wanted}: fetch it there first.")
+        }
+        // A folder per run: Windows can hold a just-built tree's files for a while (an indexer, a scanner), so one
+        // that cannot be removed yet is left for a later run to sweep and blocks nothing.
+        scratch.listFiles()?.findAll { it.isDirectory() }?.each { it.deleteDir() }
+        git('worktree', 'prune')
+        def work = new File(scratch, "${commit.take(12)}-${ProcessHandle.current().pid()}")
+        def drop = {
+            if (work.exists()) { git('worktree', 'remove', '--force', work.path) }
+            git('worktree', 'prune')
+            if (work.exists() && !work.deleteDir()) { logger.lifecycle("Could not remove ${work} yet; a later run sweeps it.") }
+        }
+        scratch.mkdirs()
+        def log = new File(scratch, "${commit.take(12)}.log")
+        log.text = ''
+        def (added, addText) = git('worktree', 'add', '--detach', work.path, commit)
+        if (added != 0) { throw new GradleException("git worktree add failed: ${addText}") }
+        try {
+            def gradlew = new File(work, "cleanroom/${System.getProperty('os.name').startsWith('Windows') ? 'gradlew.bat' : 'gradlew'}")
+            def inputs = new File(work, 'cleanroom/build-inputs')
+            run(['python', '-B', 'tools/fetch_build_inputs.py', '--target', inputs.path], work, log, [:])
+            run([gradlew.path, 'assemble', '--no-daemon', '--no-watch-fs', '--console=plain',
+                 "-Porg.gradle.java.installations.paths=${javaHome}", "-PcubicBuildInputs=${inputs.path}"],
+                new File(work, 'cleanroom'), log, [JAVA_HOME: javaHome])
+            def built = new File(work, 'cleanroom/build/cleanroom/libs').listFiles()
+                .findAll { it.name ==~ /Cubature-.+-cleanroom\.jar/ }
+            if (built.size() != 1) { throw new GradleException("Expected one Cubature JAR in the build, found ${built}") }
+            // Cubature names its JAR by version alone; the pin's copy carries the commit it was built from.
+            def version = (built[0].name =~ /^Cubature-(.+)-cleanroom\.jar$/)[0][1]
+            def name = "Cubature-${version}-${commit.take(8)}-cleanroom.jar"
+            def jar = new File(pins, name)
+            pins.mkdirs()
+            java.nio.file.Files.copy(built[0].toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            def hash = sha256Of(jar)
+            logger.lifecycle("Built ${jar}\n  commit ${commit}\n  jar ${name}\n  sha256 ${hash}")
+            logger.lifecycle(commit == pin.commit && hash == pin.sha256 && name == pin.jar ? 'This is what platform.json pins.'
+                : "platform.json pins ${pin.jar} at commit ${pin.commit}, sha256 ${pin.sha256}: record the values above " +
+                    'there to build against this JAR.')
+        } finally {
+            drop()
+        }
     }
 }
 
