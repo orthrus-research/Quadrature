@@ -31,6 +31,8 @@ import io.github.opencubicchunks.cubicchunks.api.client.ICubeSnapshot;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSource;
 import io.github.opencubicchunks.cubicchunks.api.client.ICubeSourceListener;
 
+import cc.orthrus.quadrature.core.terrain.TouchingSides;
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ShortOpenHashMap;
@@ -255,10 +257,10 @@ public final class Terrain
         Double.parseDouble(System.getProperty("quadrature.shadow.turn", "0.1"))));
     /**
      * About how many frames a layer of the light's depth drawn anew is drawn over, and the share of a
-     * layer's cost a frame may spend drawing tiles again for changed meshes: 8 unless
+     * layer's cost a frame may spend drawing tiles again for changed meshes: 32 unless
      * {@code quadrature.shadow.spread} is set.
      */
-    private static final int SHADOW_SPREAD = Math.max(1, Integer.getInteger("quadrature.shadow.spread", 8));
+    private static final int SHADOW_SPREAD = Math.max(1, Integer.getInteger("quadrature.shadow.spread", 32));
     /** The layers of the light's depth: the near one first where it is drawn, then the wide one. */
     private final LightLayer[] lightLayers = SHADOW ? lightLayers() : new LightLayer[0];
     private final int[] lightRange = new int[4];
@@ -299,6 +301,8 @@ public final class Terrain
     private long tableVersion;
     private long searchedVersion = -1;
     private boolean attached;
+    /** The world whose opaque layers are drawn from own meshes, for the game's chunk-mesh threads (12a). */
+    private volatile Object attachedWorld;
 
     // Diagnostics, each absent unless its property is set.
     private final SelectionComparison comparison = SelectionComparison.ENABLED ? new SelectionComparison() : null;
@@ -313,6 +317,94 @@ public final class Terrain
     /** Cubes found empty from what the source knows, with no snapshot. */
     private long emptyUnread;
     private long leftForNeighbor;
+
+    /**
+     * {@code -Dquadrature.terrain.causes=true}: why each cube was handed in to be built, and whether a rebuild drew
+     * anything other than the mesh it replaced. Events since a cube's last hand-in are kept as bits; a hand-in is
+     * counted under the first of load, resend, blocks, light, biomes and neighbor it carries.
+     */
+    private static final boolean CAUSES = Boolean.getBoolean("quadrature.terrain.causes");
+    private static final String[] CAUSE_NAMES = {"load", "resend", "blocks", "light", "biomes", "neighbor"};
+    private final Long2ByteOpenHashMap causes = new Long2ByteOpenHashMap();
+    private final Long2ByteOpenHashMap buildCauses = new Long2ByteOpenHashMap();
+    /** Events by cause, as the cube source reported them. */
+    private final long[] causeEvents = new long[CAUSE_NAMES.length];
+    /** Hand-ins by their first cause, and those with none recorded (a build given again its place in the order). */
+    private final long[] handedInBy = new long[CAUSE_NAMES.length];
+    private long handedInWithout;
+    /** Builds of a cube built before, by first cause, and of them those that draw the same as what they replaced. */
+    private final long[] rebuiltBy = new long[CAUSE_NAMES.length];
+    private final long[] sameBy = new long[CAUSE_NAMES.length];
+
+    /**
+     * Side-aware rebuilds, unless {@code -Dquadrature.terrain.neighbors=all}: a change in a cube reaches the cubes
+     * touching it only where their last build read it ({@link SideReads}). The source's own NEIGHBOR changes carry
+     * the whole cube and no side, so they are not followed; each cube's own arrival, departure and change, whose
+     * bounds say which faces it reached, are followed instead, by the same rule the source uses to raise them.
+     */
+    private static final boolean ALL_NEIGHBORS = "all".equals(System.getProperty("quadrature.terrain.neighbors"));
+    /** {@code -Dquadrature.terrain.byHeight=true}: the terrain line counts meshes held by cubes above or below the player's. */
+    private static final boolean BY_HEIGHT = Boolean.getBoolean("quadrature.terrain.byHeight");
+    /** What each cube's last build read of the cubes around it ({@link BuiltCube#reads}); -1 where not known. */
+    private final Long2LongOpenHashMap readsOf = new Long2LongOpenHashMap();
+    {
+        readsOf.defaultReturnValue(-1L);
+    }
+    /** Changes that reached a touching cube: those that rebuilt it, and those passed by as unread there. */
+    private long touchingRebuilt;
+    private long touchingPassed;
+
+    /**
+     * A cube arrived, left or changed within the given bounds: each loaded cube touching it at a face, edge or
+     * corner the bounds reach is rebuilt if its last build read this cube (for light alone, its light), or if it has
+     * no build yet or one in flight, whose reads are not known.
+     */
+    private void touchingChanged(int x, int y, int z, int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
+        boolean lightAlone) {
+        int reached = TouchingSides.reached(minX, minY, minZ, maxX, maxY, maxZ);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if ((reached & TouchingSides.bit(dx, dy, dz)) == 0 || !source.isLoaded(x + dx, y + dy, z + dz)) {
+                        continue;
+                    }
+                    long key = CubeKey.of(x + dx, y + dy, z + dz);
+                    // The changed cube lies at minus this offset from the touching one.
+                    int side = TouchingSides.bit(-dx, -dy, -dz);
+                    long reads = readsOf.get(key);
+                    boolean needed;
+                    if (reads == -1L || !decided.containsKey(key) || tasks.containsKey(key)) {
+                        needed = true;
+                    } else {
+                        int sides = lightAlone ? BuiltCube.lightSides(reads)
+                            : BuiltCube.blockSides(reads) | BuiltCube.lightSides(reads);
+                        needed = (sides & side) != 0;
+                    }
+                    if (needed) {
+                        touchingRebuilt++;
+                        touch(key);
+                        if (CAUSES) {
+                            note(key, 5);
+                        }
+                        dirty.add(key);
+                        unsettle(key);
+                    } else {
+                        touchingPassed++;
+                    }
+                }
+            }
+        }
+    }
+
+
+    private void note(long key, int cause) {
+        causeEvents[cause]++;
+        causes.put(key, (byte) (causes.get(key) | 1 << cause));
+    }
+
+    private static int firstCause(byte bits) {
+        return bits == 0 ? -1 : Integer.numberOfTrailingZeros(bits & 0xFF);
+    }
     private long submitted;
     private long buildFailures;
     /** Builds that came back after a newer one or a decision had been put in place. */
@@ -397,12 +489,19 @@ public final class Terrain
         return attached;
     }
 
+    @Override
+    public boolean drawsOpaqueOf(Object world) {
+        return world == attachedWorld;
+    }
+
     // Events from the cube source.
 
     @Override
     public void worldAttached(long worldIdentity) {
         clear();
         attached = true;
+        // The source attaches at the end of a client tick to the world the game holds then.
+        attachedWorld = net.minecraft.client.Minecraft.getMinecraft().world;
         source.forEachLoaded((x, y, z) -> {
             dirty.add(CubeKey.of(x, y, z));
             links.put(CubeKey.of(x, y, z), CubeConnectivity.ALL);
@@ -419,6 +518,7 @@ public final class Terrain
 
     @Override
     public void worldDetached(long worldIdentity) {
+        attachedWorld = null;
         clear();
         attached = false;
     }
@@ -427,7 +527,13 @@ public final class Terrain
     public void cubeLoaded(int x, int y, int z) {
         long key = CubeKey.of(x, y, z);
         touch(key);
+        if (CAUSES) {
+            note(key, links.containsKey(key) ? 1 : 0);
+        }
         dirty.add(key);
+        if (!ALL_NEIGHBORS) {
+            touchingChanged(x, y, z, 0, 0, 0, 15, 15, 15, false);
+        }
         // Until it is meshed nothing is known of it, so it hides nothing.
         if (!links.containsKey(key)) {
             links.put(key, CubeConnectivity.ALL);
@@ -442,6 +548,9 @@ public final class Terrain
         touch(key);
         dirty.remove(key);
         forget(key, x, y, z);
+        if (!ALL_NEIGHBORS) {
+            touchingChanged(x, y, z, 0, 0, 0, 15, 15, 15, false);
+        }
     }
 
     /** A cube is no longer held: its mesh, its build and all that is kept of it go. */
@@ -451,6 +560,11 @@ public final class Terrain
             task.cancel();
         }
         decided.remove(key);
+        readsOf.remove(key);
+        if (CAUSES) {
+            causes.remove(key);
+            buildCauses.remove(key);
+        }
         release(meshes.remove(key));
         links.remove(key);
         slots.release(key);
@@ -477,9 +591,26 @@ public final class Terrain
     @Override
     public void cubeChanged(int x, int y, int z, int kinds, int minX, int minY, int minZ, int maxX, int maxY,
         int maxZ) {
+        int own = kinds & ~ICubeSourceListener.NEIGHBOR;
+        if (!ALL_NEIGHBORS && own == 0) {
+            // A touching cube's change alone: followed from that cube's own event, where its side is known.
+            return;
+        }
         touch(CubeKey.of(x, y, z));
+        if (CAUSES) {
+            long key = CubeKey.of(x, y, z);
+            for (int kind = 0; kind < 4; kind++) {
+                // BLOCKS, LIGHT, BIOMES and NEIGHBOR are the source's bits 0 to 3, causes 2 to 5 here.
+                if ((kinds & 1 << kind) != 0 && (ALL_NEIGHBORS || kind < 3)) {
+                    note(key, kind + 2);
+                }
+            }
+        }
         dirty.add(CubeKey.of(x, y, z));
         unsettle(CubeKey.of(x, y, z));
+        if (!ALL_NEIGHBORS) {
+            touchingChanged(x, y, z, minX, minY, minZ, maxX, maxY, maxZ, own == ICubeSourceListener.LIGHT);
+        }
     }
 
     private void clear() {
@@ -494,6 +625,9 @@ public final class Terrain
         }
         tasks.clear();
         decided.clear();
+        readsOf.clear();
+        causes.clear();
+        buildCauses.clear();
         settled.clear();
         settledVersion++;
         if (scene != null) {
@@ -616,6 +750,10 @@ public final class Terrain
                 task.cancel();
             }
             emptyUnread++;
+            if (CAUSES) {
+                // Settled without a build: what brought it here is spent.
+                causes.remove(key);
+            }
             empty(key, x, y, z, ++sequence);
             return;
         }
@@ -629,6 +767,16 @@ public final class Terrain
         }
         long order = ++sequence;
         long priority = priority(x, y, z);
+        if (CAUSES) {
+            byte bits = causes.remove(key);
+            int cause = firstCause(bits);
+            if (cause < 0) {
+                handedInWithout++;
+            } else {
+                handedInBy[cause]++;
+            }
+            buildCauses.put(key, bits);
+        }
         long began = System.nanoTime();
         tasks.put(key, work.submit(priority, x, y, z, false, IClientBuildWork.STALE_ON_CENTER,
             (snapshot, task) -> build(snapshot, x, y, z, order, task)));
@@ -644,7 +792,12 @@ public final class Terrain
             mesher = new CubeMesher(scene != null, materials, rectangles);
         }
         try {
-            return mesher.build(snapshot, x, y, z, order, task);
+            BuiltCube built = mesher.build(snapshot, x, y, z, order, task);
+            if (CAUSES && built != null) {
+                // Hashed here, on the build's thread, so the client thread only compares.
+                built.content();
+            }
+            return built;
         } finally {
             idleMeshers.offer(mesher);
         }
@@ -744,6 +897,8 @@ public final class Terrain
     /** A cube known to hold nothing: no mesh, its faces all open to each other, settled. */
     private void empty(long key, int x, int y, int z, long order) {
         decided.put(key, order);
+        // All air draws nothing whatever lies around it: no touching cube's change can change that.
+        readsOf.put(key, 0L);
         release(meshes.remove(key));
         emptied++;
         setLinks(key, CubeConnectivity.ALL);
@@ -760,7 +915,9 @@ public final class Terrain
         int x = built.x;
         int y = built.y;
         int z = built.z;
+        boolean builtBefore = decided.containsKey(key);
         decided.put(key, built.sequence);
+        readsOf.put(key, built.reads);
         setLinks(key, built.links);
         if (built.census != null) {
             for (int i = 0; i < faceCensus.length; i++) {
@@ -805,6 +962,16 @@ public final class Terrain
             }
         }
         CubeMesh old = meshes.remove(key);
+        if (CAUSES) {
+            int cause = firstCause(buildCauses.remove(key));
+            if (builtBefore && cause >= 0) {
+                rebuiltBy[cause]++;
+                boolean same = old == null ? !built.any : built.any && old.content == built.content();
+                if (same) {
+                    sameBy[cause]++;
+                }
+            }
+        }
         // A mesh of the same shape leaves the light's depth as it was: only its light moved.
         boolean kept = SHADOW && built.any && old != null && old.geometry == built.geometry;
         release(old, !kept);
@@ -869,6 +1036,9 @@ public final class Terrain
             }
             mesh.placedAt = meshVersion;
             mesh.geometry = built.geometry;
+            if (CAUSES) {
+                mesh.content = built.content();
+            }
             meshes.put(key, mesh);
             vertices += mesh.vertices();
             bytes += mesh.bytes();
@@ -1351,6 +1521,47 @@ public final class Terrain
      * copied over the front once it is whole. A frame with nothing due draws nothing and sweeps nothing;
      * every layer is published all the same, through a view made from its box for this frame's origin.
      */
+    /**
+     * {@code -Dquadrature.shadow.splitFirst=true}: the first three frames that draw the light's depth put GPU timestamps
+     * after its state is set, after each layer's tiles are attached and cleared, after each layer's draws and copies, and
+     * at its end, read back at once (a stall, those frames only) and logged as the time between them (open question 1).
+     */
+    private static final boolean SPLIT_FIRST = Boolean.getBoolean("quadrature.shadow.splitFirst");
+    private final int[] splitQueries = new int[16];
+    private final String[] splitLabels = new String[16];
+    private int splitCount;
+    private int splitFramesLogged;
+
+    private void split(String label) {
+        if (!SPLIT_FIRST || splitFramesLogged >= 3 || splitCount >= splitQueries.length) {
+            return;
+        }
+        if (splitQueries[splitCount] == 0) {
+            splitQueries[splitCount] = org.lwjgl.opengl.GL15.glGenQueries();
+        }
+        org.lwjgl.opengl.GL33.glQueryCounter(splitQueries[splitCount], org.lwjgl.opengl.GL33.GL_TIMESTAMP);
+        splitLabels[splitCount++] = label;
+    }
+
+    private void logSplit() {
+        if (!SPLIT_FIRST || splitFramesLogged >= 3 || splitCount < 2) {
+            splitCount = 0;
+            return;
+        }
+        StringBuilder line = new StringBuilder("Light's depth, frame ").append(lightFrames).append(", GPU between stamps:");
+        long first = org.lwjgl.opengl.GL33.glGetQueryObjectui64(splitQueries[0], org.lwjgl.opengl.GL15.GL_QUERY_RESULT);
+        long last = first;
+        for (int i = 1; i < splitCount; i++) {
+            long at = org.lwjgl.opengl.GL33.glGetQueryObjectui64(splitQueries[i], org.lwjgl.opengl.GL15.GL_QUERY_RESULT);
+            line.append(String.format(" %s %.3f ms;", splitLabels[i], (at - last) / 1e6));
+            last = at;
+        }
+        line.append(String.format(" in all %.3f ms", (last - first) / 1e6));
+        Quadrature.LOGGER.info(line.toString());
+        splitFramesLogged++;
+        splitCount = 0;
+    }
+
     private void drawLight() {
         long start = System.nanoTime();
         shadowMaps.beginFrame(mainView.originX(), mainView.originY(), mainView.originZ(), towardLight[0],
@@ -1366,6 +1577,8 @@ public final class Terrain
             if (layer.plan.next() != null) {
                 began = beginLight(began);
                 drawTiles(layer, true);
+                // Which layers drew part of a new box, for the frames whose GPU time passes 2 ms (open question 2b).
+                shadow.tagFrame(layer.near ? 1 : 2);
             } else if (SHADOW_CHECK && lightFrames % SHADOW_CHECK_FRAMES == SHADOW_CHECK_FRAMES - 1
                 && !layer.plan.frontDirty() && layer.plan.front() != null) {
                 began = beginLight(began);
@@ -1375,9 +1588,11 @@ public final class Terrain
         if (began) {
             long mark = System.nanoTime();
             shadow.end();
+            split("state put back");
             program.end();
             DriverMessages.leave();
             lightParts[6] += System.nanoTime() - mark;
+            logSplit();
         }
         for (LightLayer layer : lightLayers) {
             LightLayerPlan plan = layer.plan;
@@ -1415,7 +1630,9 @@ public final class Terrain
         if (!began) {
             long mark = System.nanoTime();
             DriverMessages.enter("shadow");
+            split("start");
             shadow.begin(lightFrames);
+            split("state set");
             lightParts[6] += System.nanoTime() - mark;
             shadowMaps.objects(shadow.texture(), shadow.compareSampler(), shadow.depthSampler());
             shadowMaps.polygonOffset(ShadowTarget.POLYGON_OFFSET[0], ShadowTarget.POLYGON_OFFSET[1]);
@@ -1461,6 +1678,7 @@ public final class Terrain
         mark = now;
         shadow.attach(next, layer.index);
         shadow.clear(layer.rectangles, LightTiles.rectangles(tiles, box.texels(), layer.rectangles));
+        split((layer.near ? "near" : "wide") + (next ? " new box" : " front") + " attached and cleared");
         now = System.nanoTime();
         lightParts[2] += now - mark;
         mark = now;
@@ -1479,14 +1697,23 @@ public final class Terrain
         }
         if (next) {
             layer.nextCubes += layer.chosen.count();
+            layer.boxCubes += layer.chosen.count();
             if (plan.nextDrawn(tiles)) {
-                shadow.publish(layer.index);
+                // Every tile of the box was cleared before it was drawn: a box that drew no cube is a clear layer, so the
+                // published layer is cleared rather than copied over (a whole layer's first copy took 7.4 ms of GPU).
+                if (layer.boxCubes == 0) {
+                    shadow.clearLayer(layer.index);
+                } else {
+                    shadow.publish(layer.index);
+                }
+                layer.boxCubes = 0;
                 plan.publish();
             }
         } else {
             layer.frontCubes += layer.chosen.count();
             plan.frontDrawn(tiles);
         }
+        split((layer.near ? "near" : "wide") + " drawn and copied");
         lightParts[5] += System.nanoTime() - mark;
     }
 
@@ -2052,7 +2279,9 @@ public final class Terrain
                 org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_ALPHA_TEST);
             }
             DriverMessages.enter("shadow");
+            split("start");
             shadow.begin(lightFrames);
+            split("state set");
             shadow.attach(true, layer.index);
             layer.rectangles[0] = 0;
             layer.rectangles[1] = 0;
@@ -2108,6 +2337,43 @@ public final class Terrain
             superseded, emptyUnread, sameShape, dirty.size(), lastSubmitNanos / 1e6,
             frames == 0 ? 0.0 : submitNanos / 1e6 / frames, mostSubmitNanos / 1e6, reprioritized, poolNanosThisFrame / 1e6,
             frames == 0 ? 0.0 : poolNanos / 1e6 / frames, mostPoolNanos / 1e6);
+        if (BY_HEIGHT && mainView != null) {
+            // What a smaller vertical radius would leave out (open question 3b): meshes held and their vertices by
+            // how many cubes above or below the player's cube they lie.
+            int eye = (int) Math.floor(mainView.originY()) >> 4;
+            int[] held = new int[14];
+            long[] heldVertices = new long[14];
+            for (it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<CubeMesh> entry : meshes.long2ObjectEntrySet()) {
+                int away = Math.min(Math.abs(CubeKey.y(entry.getLongKey()) - eye), 13);
+                held[away]++;
+                heldVertices[away] += entry.getValue().vertices();
+            }
+            StringBuilder byHeight = new StringBuilder("; meshes held by cubes above or below the player's, and their k vertices:");
+            for (int away = 0; away < held.length; away++) {
+                byHeight.append(away == 13 ? " 13+ " : " " + away + " ").append(held[away]).append('/').append(heldVertices[away] / 1000);
+            }
+            line += byHeight;
+        }
+        long cpuBuilds = CubeMesher.CPU_BUILDS.sum();
+        line += String.format("; the build threads' own CPU %.3f ms a build over %d builds, empty ones included",
+            cpuBuilds == 0 ? 0.0 : CubeMesher.CPU_NANOS.sum() / 1e6 / cpuBuilds, cpuBuilds);
+        line += ALL_NEIGHBORS ? "; every touching change rebuilds"
+            : String.format("; touching changes: %d rebuilt, %d passed by as unread", touchingRebuilt, touchingPassed);
+        if (CAUSES) {
+            StringBuilder causeLine = new StringBuilder("; build causes: events");
+            for (int i = 0; i < CAUSE_NAMES.length; i++) {
+                causeLine.append(' ').append(CAUSE_NAMES[i]).append(' ').append(causeEvents[i]);
+            }
+            causeLine.append("; handed in by first cause");
+            for (int i = 0; i < CAUSE_NAMES.length; i++) {
+                causeLine.append(' ').append(CAUSE_NAMES[i]).append(' ').append(handedInBy[i]);
+            }
+            causeLine.append(" none ").append(handedInWithout).append("; rebuilt, and of them drawing the same as before:");
+            for (int i = 0; i < CAUSE_NAMES.length; i++) {
+                causeLine.append(' ').append(CAUSE_NAMES[i]).append(' ').append(rebuiltBy[i]).append('/').append(sameBy[i]);
+            }
+            line += causeLine;
+        }
         if (arena == null) {
             return line + String.format("; own buffers; placing %.3f ms each, %.3f ms last frame, %.3f ms most",
                 placed == 0 ? 0.0 : placeNanos / 1e6 / placed, lastPlaceNanos / 1e6, mostPlaceNanos / 1e6);
@@ -2141,6 +2407,11 @@ public final class Terrain
         if (CubeMesher.FACE_CHECK || FACES) {
             line += "; " + (FACES ? "faces: " + FaceBuilder.summary(faceTotals, rectangles.count())
                 : CubeMesher.checkSummary(checkTotals, faceTotals, rectangles.count()));
+            if (CubeMesher.FACE_CHECK) {
+                line += String.format("; blocks drawn through the game's dispatcher %.1f ms, through the walk %.1f ms (light "
+                        + "matrix from the cube's table: %s)", CubeMesher.CHECK_DISPATCHER_NANOS.sum() / 1e6,
+                    CubeMesher.CHECK_WALK_NANOS.sum() / 1e6, TableLighter.ON ? "on" : "off");
+            }
             if (faceTotals[FaceBuilder.QUADS] >= FACE_SHARE_QUADS && FaceBuilder.recordShare(faceTotals) < FACE_SHARE_LEAST) {
                 // Terrain is mostly whole faces: so few records means the builder refuses what it should take.
                 Quadrature.LOGGER.error("FACE RECORDS FAILED: {} of quads became records where at least {} is "
@@ -2209,6 +2480,9 @@ public final class Terrain
                     + "of CPU %d, over 1 ms of GPU %d, over 2 ms %d", mostShadowNanosSince / 1e6, mostShadowFrameSince,
                 shadow.takeGpuMillisMostSince(), shadow.gpuMostFrameSince(), shadowCpuOverOne, shadow.gpuFramesOverOne(),
                 shadow.gpuFramesOverTwo());
+            long[] byBoxes = shadow.framesOverTwoByBoxes();
+            line += String.format("; of the frames over 2 ms, a new box drawn in by neither layer %d, the near only %d, the "
+                + "wide only %d, both %d", byBoxes[0], byBoxes[1], byBoxes[2], byBoxes[3]);
             double frames = Math.max(1, shadowFrames);
             line += String.format("; CPU a frame that drew, mean: sweep %.3f ms, tiles %.3f ms, clears %.3f ms, commands %.3f ms, "
                     + "draws %.3f ms, copies %.3f ms, state and timers %.3f ms; the slowest since the last line: %.3f, %.3f, %.3f, "

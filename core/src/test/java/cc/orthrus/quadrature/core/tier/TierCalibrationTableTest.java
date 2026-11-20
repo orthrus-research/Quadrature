@@ -26,6 +26,25 @@ final class TierCalibrationTableTest {
         }
     }
 
+    /** The scaler's and DLSS's lines pass through the points measured at 2560 by 1440 and 3840 by 2160. */
+    @Test
+    void theScalersAndDlsssCostsMeetTheirMeasurements() {
+        double[] mp = {2560 * 1440 / 1e6, 3840 * 2160 / 1e6};
+        double[][] measured = {{0.982, 1.520}, {0.972, 1.781}, {0.957, 2.010}, {0.957, 2.010}};
+        for (Tier tier : Tier.values()) {
+            double scale = TierBenchmark.renderScale(tier);
+            TierCalibration.Cost cost = TierCalibration.CURRENT.costs().get(tier.ordinal()).stream()
+                .filter(c -> c.name().startsWith("own temporal anti-aliasing")).findFirst().orElseThrow();
+            for (int o = 0; o < 2; o++) {
+                assertEquals(measured[tier.ordinal()][o], cost.ms(mp[o] * scale * scale, mp[o]), 1e-9, tier + " at " + mp[o]);
+            }
+        }
+        TierCalibration.Dlss dlss = TierCalibration.CURRENT.dlss();
+        assertEquals(2.653, dlss.ms(mp[0]), 1e-9);
+        assertEquals(5.482, dlss.ms(mp[1]), 1e-9);
+        assertTrue(Double.isFinite(dlss.handoffMs()), "the handoff is measured and counted");
+    }
+
     @Test
     void theBudgetAndBandsAreSane() {
         TierCalibration calibration = TierCalibration.CURRENT;
@@ -44,9 +63,8 @@ final class TierCalibrationTableTest {
      * This card's own result, measured on the GPU (VERIFICATION, the tier benchmark: run 25 of the r16 tour, 2026-11-19,
      * the calibrated jar), at each output: the tiers the calibration in force chooses for it. At 1280 by 720, the
      * window it ran in, it chose HIGH, and the table it ran with chose HIGH at 1920 by 1080 and 2560 by 1440 and MEDIUM
-     * at 3840 by 2160. At 3840 by 2160 it stands near the boundary between LOW and MEDIUM: MEDIUM's fit is 1.07 with the
-     * scaler's gaps between passes held fixed, as measured, and would be 1.01 were they to follow the output's pixels; a
-     * measurement of the scaler at that output settles it. The run's trace was timed on the walk that read the bricks'
+     * at 3840 by 2160. With the scaler measured at 3840 by 2160 as well as 2560 by 1440 (VERIFICATION, the scaler's
+     * costs), MEDIUM's fit there is 1.11 and HIGH's at 2560 by 1440 1.24; the choices stand. The run's trace was timed on the walk that read the bricks'
      * coarser bits, and is scaled to the walk as shipped by the same factor as the reference, so its ratio stands.
      */
     @Test

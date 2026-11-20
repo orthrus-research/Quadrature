@@ -75,6 +75,8 @@ final class QuadWalk {
     private final VertexLighterSmoothAo smooth;
     private final VertexBufferConsumer consumer = new VertexBufferConsumer();
     private final boolean usable;
+    /** Whether each quad drawn is noted for face records; a walk for plain vertex meshes notes nothing. */
+    private final boolean notes;
 
     /** The quads noted since {@link #begin}, in the order their vertices were written. */
     private BakedQuad[] quads = new BakedQuad[256];
@@ -105,13 +107,29 @@ final class QuadWalk {
     private int layer;
     private int stateNumber;
 
-    QuadWalk() {
+    /** @param notes whether each quad drawn is noted for face records ({@link #count} and the rest) */
+    QuadWalk(boolean notes) {
+        this.notes = notes;
         Minecraft minecraft = Minecraft.getMinecraft();
         BlockRendererDispatcher dispatcher = minecraft.getBlockRendererDispatcher();
         usable = dispatcher.getBlockModelRenderer().getClass() == ForgeBlockModelRenderer.class;
         colors = minecraft.getBlockColors();
         flat = new VertexLighterFlat(minecraft.getBlockColors());
-        smooth = new VertexLighterSmoothAo(minecraft.getBlockColors());
+        smooth = TableLighter.ON ? new TableLighter(minecraft.getBlockColors()) : new VertexLighterSmoothAo(minecraft.getBlockColors());
+    }
+
+    /** Starts a cube: the smooth lighter's table of the light around its blocks starts empty. */
+    void beginCube(IBlockAccess world, int minX, int minY, int minZ) {
+        if (smooth instanceof TableLighter table) {
+            table.beginCube(world, minX, minY, minZ);
+        }
+    }
+
+    /** Ends a cube, letting go of its world. */
+    void endCube() {
+        if (smooth instanceof TableLighter table) {
+            table.endCube();
+        }
     }
 
     /** Whether the game would light a model through its pipeline, so that this may stand in for it. */
@@ -248,10 +266,22 @@ final class QuadWalk {
     }
 
     private void pipe(List<BakedQuad> list, VertexLighterFlat lighter, BufferBuilder buffer, int cell) {
+        TableLighter direct = lighter instanceof TableLighter table ? table : null;
+        if (!notes) {
+            for (int i = 0, size = list.size(); i < size; i++) {
+                BakedQuad quad = list.get(i);
+                if (direct == null || !direct.putQuad(quad, buffer)) {
+                    quad.pipe(lighter);
+                }
+            }
+            return;
+        }
         for (int i = 0, size = list.size(); i < size; i++) {
             BakedQuad quad = list.get(i);
             int before = buffer.getVertexCount();
-            quad.pipe(lighter);
+            if (direct == null || !direct.putQuad(quad, buffer)) {
+                quad.pipe(lighter);
+            }
             if (buffer.getVertexCount() != before + 4) {
                 // A quad the lighter left out, or one that is no quad: nothing to note.
                 continue;

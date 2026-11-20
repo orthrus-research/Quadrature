@@ -201,11 +201,13 @@ final class ShadowTarget {
                 }
                 if (lastGpuNanos > 2_000_000) {
                     gpuOverTwo++;
+                    overTwoByBoxes[stampTags[ring] & 3]++;
                 }
             }
         }
         GL33.glQueryCounter(stamps[ring][0], GL33.GL_TIMESTAMP);
         stampFrames[ring] = frame;
+        stampTags[ring] = 0;
 
         // Every piece of state the draws depend on is set, and none is read: what is put back comes from
         // the game's cache by way of the mirror, or is the world pass's neutral value.
@@ -270,6 +272,13 @@ final class ShadowTarget {
     }
 
     /** Copies a layer of the scratch, drawn whole, over the published layer. */
+    /** Clears a published layer whole to the farthest depth: what copying a scratch with nothing drawn in it gives. */
+    void clearLayer(int layer) {
+        attach(false, layer);
+        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL45.glClearNamedFramebufferfv(framebuffer, GL11.GL_DEPTH, 0, far);
+    }
+
     void publish(int layer) {
         GL43.glCopyImageSubData(scratch, GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, texture, GL30.GL_TEXTURE_2D_ARRAY, 0, 0, 0,
             layer, SIDE, SIDE, 1);
@@ -396,10 +405,25 @@ final class ShadowTarget {
         return gpuOverTwo;
     }
 
+    /**
+     * Notes that a layer drew part of a new box in the frame being stamped: bit 0 the near layer, bit 1 the wide one.
+     * Call between {@link #begin} and the frame's end.
+     */
+    void tagFrame(int layers) {
+        stampTags[ring] |= layers;
+    }
+
+    /** Frames over 2 ms of GPU by the layers that drew part of a new box in them: neither, near, wide, both. */
+    long[] framesOverTwoByBoxes() {
+        return overTwoByBoxes.clone();
+    }
+
     private long mostGpuNanosSince;
     private long mostGpuFrameSince;
     private long gpuOverOne;
     private long gpuOverTwo;
+    private final int[] stampTags = new int[RING];
+    private final long[] overTwoByBoxes = new long[4];
 
     /**
      * A diagnostic: writes a published layer as a gray image, nearer the light brighter and nothing drawn

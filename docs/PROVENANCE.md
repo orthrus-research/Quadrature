@@ -392,6 +392,29 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   names.
 - Added: 2026-11-13
 
+### Cross-mod diagnostics
+- Code: `tools/diagnostics.py`
+- Source: original. Facts used: the JDK's JFR event names and fields as its `jfr` tool prints
+  them (`jdk.ExecutionSample`, `jdk.ThreadCPULoad`, `jdk.ObjectAllocationSample`,
+  `jdk.Compilation`, `jdk.Deoptimization` and the rest) and the HotSpot options
+  `DebugNonSafepoints` and `FlightRecorderOptions`; Mixin's documented naming of merged handler
+  methods; the logs and frame records of Cubature, Quadrature, Riven's launcher and the motion
+  helper.
+- Taken: nothing. Charging a sample to the nearest owned frame with libraries transparent, keeping
+  the engine's time with the mod frame below it, and splitting each thread's measured CPU by its
+  samples are this project's own.
+- Added: 2026-11-19
+
+### Mod index
+- Code: `tools/mod_index.py`
+- Source: original. Facts used: the Java class file format (constant pool, members, the
+  `RuntimeVisibleAnnotations` and `RuntimeInvisibleAnnotations` attributes), from the Java Virtual
+  Machine Specification; the names and members of Mixin's, MixinExtras' and Forge's annotations
+  and the Mixin configuration and refmap formats, as published.
+- Taken: nothing from the indexed mods. The tool reads names and annotation values; it does not
+  decompile or execute mod code.
+- Added: 2026-11-19
+
 ### Mod survey
 - Code: `tools/mod_survey.py`
 - Source: original. Facts used: the Java class file format (constant pool), from the Java
@@ -678,6 +701,90 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Taken: nothing beyond the interfaces named.
 - Added: 2026-11-18
 
+### DLSS Super Resolution through NGX and the shim
+- Code: `quadrature-nvidia/src/main/native/ngx_shim.cpp`, the `ngxShim` task in
+  `quadrature-nvidia/build.gradle`, `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/Ngx.java`,
+  the DLSS batch in `StandIn.java`, the extension and loader hand-over in `VulkanDevice.java`,
+  the options and timing in `VulkanHandoff.java`
+- Source: NVIDIA, DLSS Super Resolution Programming Guide 310.6.0 (Vulkan initialization with a
+  project identifier and engine type, the instance and device extension requirements asked
+  before creation, capability parameters, optimal settings, feature creation and evaluation,
+  render presets, feature flags, resource states and shutdown) and the declarations of the SDK
+  310.9.16's headers the shim includes; Java's Foreign Function and Memory API (Java 25).
+- Taken: NGX's interface as declared, called as the guide describes; nothing of the SDK is in
+  the tree (D19): the shim is compiled against a copy the builder supplies, and what it builds
+  is never committed or put in the JAR.
+- Not taken: any code from NVIDIA's samples or anyone's integration; none were opened.
+- Added: 2026-11-19
+### DLSS taking the scaler's picture
+- Code: `Handoff.Evaluation`, `evaluates` and `evaluate` in
+  `core/src/main/java/cc/orthrus/quadrature/core/handoff/Handoff.java`, `SharedImageSizes.of` with a
+  render size, `Jitter.phasesFor` in `core/src/main/java/cc/orthrus/quadrature/core/scale/Jitter.java`,
+  the evaluation in `src/main/java/cc/orthrus/quadrature/frame/TemporalScaler.java` and
+  `HandoffHost.java`, the scaled copies and mode choice in
+  `quadrature-nvidia/src/main/java/cc/orthrus/quadrature/nvidia/VulkanHandoff.java`, `Ngx.qualityFor`,
+  the offset and optional stamp in `StandIn.java`, and the render-size range in `ngx_shim.cpp`
+- Source: NVIDIA, DLSS Super Resolution Programming Guide 310.6.0: 3.1.2 (LDR color), 3.2.2
+  (the optimal settings' render-size range), 3.6.1 and 3.6.2 (motion vectors from the current
+  pixel to its place in the previous frame, in render pixels from the top left, unjittered unless
+  flagged), 3.7.1.1 (eight phases times the scale's square), 3.7.3 (the offset in render pixels,
+  -0.5 to 0.5, in the motion vectors' axes) and 3.8.1 (inverted depth); the OpenGL 4.6 and Vulkan
+  specifications for which rows each API counts first.
+- Taken: those conventions, which the scaler's motion target and offsets already met; the
+  phase rule; the quality modes' ratios.
+- Not taken: any code from NVIDIA's samples or anyone's integration; none were opened.
+- Added: 2026-11-19
+### Side-aware rebuilds: a touching cube's change rebuilds only what read it
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/SideReads.java`, the reads kept in `BuiltCube` and
+  `CubeMesher`, the following of touching changes in `Terrain.java`,
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/TouchingSides.java`
+- Source: original. Facts used: Cubature's cube source contract (`ICubeSourceListener`'s change kinds and
+  bounds, and its rule, in CUBE-SOURCE.md section 3, that a change in a cube's outermost layer or its arrival
+  or removal raises a change for each loaded cube touching it); that the block renderer lights a block only
+  for a face that passes the face test, as Quadrature's own `QuadWalk` does in following it.
+- Taken: the touching rule as the contract states it.
+- Added: 2026-11-19
+
+### The game's chunk rebuild without the opaque layers own terrain draws
+- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinRenderChunkLayers.java`,
+  `src/main/java/cc/orthrus/quadrature/terrain/GameChunkRebuilds.java`, the attached world in `Terrain.java`
+- Source: original. Facts used: the game's `RenderChunk.rebuildChunk` as Forge and Cleanroom 0.7.14 patch it
+  (a loop over every layer that asks the block's `canRenderInLayer` before beginning, rendering and uploading a
+  layer; the visibility graph and the block entity lists found before that test), read from the decompiled
+  sources and Cleanroom's patch; the readers of a compiled chunk's layers in `RenderGlobal` (the layer draw
+  own terrain replaces, the translucency resort, and the debug screen's count); MixinExtras' `WrapOperation`
+  and `Share`, as documented by MixinExtras.
+- Taken: nothing beyond the facts. No code from another renderer.
+- Added: 2026-11-19
+
+### The walk as the default mesher for model blocks
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/CubeMesher.java`, `QuadWalk.java`
+- Source: original: the walk of "The walk over a model's quads", used for plain vertex meshes as well, noting
+  nothing for face records. Its vertices were shown the same as the game's dispatcher's by the face check.
+- Added: 2026-11-19
+
+### The light matrix from a table of the cube
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/TableLighter.java`
+- Source: original. Facts used: Forge's smooth lighter's interface (`VertexLighterSmoothAo`, the matrix its
+  `BlockInfo` exposes to it, which it reads per vertex and which is not reproduced); the rule by which
+  `BlockInfo.updateLightMatrix` fills that matrix from the 27 cells around a block, read from Forge's source
+  for Cleanroom 0.6.13 and checked against Cleanroom 0.7.14's class file: the four questions asked of each cell
+  (opacity below 15, packed light, ambient occlusion value), the raise beyond a side the block does not cover,
+  and, per corner and axis, the mean of a face cell, two edge cells and a corner cell with dark opaque cells
+  filled in a fixed order. Written in Quadrature's own terms and structure: each cell asked once per cube
+  through the world the walk reads, the rule as one function of four cells.
+- Taken: the rule, as behavior, so that the matrix is the same to the bit; checked offline against Forge's own
+  lighter over 491,520 blocks of random worlds and in the game by the face check over 92,566 cubes
+  (VERIFICATION, the light matrix from a table of the cube). No code from another renderer.
+- Since 2026-11-20 the same class lights a quad straight into the buffer (`putQuad`). Facts used: how Forge's
+  pipeline reads an item-format quad and writes a block-format vertex, read from Forge's source for Cleanroom
+  0.6.13 (`LightUtil.putBakedQuad`, `unpack` and `pack`, `QuadGatheringTransformer`, `VertexLighterFlat.processQuad`
+  and `VertexBufferConsumer.put`): each element's conversion and rounding, the order of tint, occlusion and diffuse
+  shading, and the buffer's `addVertexData` and `putPosition`. The per-vertex light and occlusion are Forge's own
+  methods, called and not reproduced. Checked offline against Forge's pipeline over 60,000 random quads in random
+  worlds, every quad written directly the same byte for byte, and with a rounding factor or a factor of the
+  occlusion changed slightly, 116 and 431 quads differ.
+- Added: 2026-11-19
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

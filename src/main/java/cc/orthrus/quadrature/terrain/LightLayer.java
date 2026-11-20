@@ -40,6 +40,8 @@ final class LightLayer {
 
     long frontCubes;
     long nextCubes;
+    /** Cubes drawn into the box being drawn into the scratch since the last was published; none means the scratch is clear. */
+    long boxCubes;
     int lastDraws;
 
     LightLayer(int index, String name, boolean near, double turnCosine, int spread) {

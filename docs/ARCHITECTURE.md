@@ -277,8 +277,12 @@ with it on.
     would cover the whole of a box about to be replaced. A box being drawn is begun again
     where the player has gone once they are an eighth of its side from it.
   - A frame spends on a layer's tiles at most a share of what covers the whole layer,
-    counted in cubes: a new box is drawn over about 8 frames (`quadrature.shadow.spread`),
-    and dirty tiles are drawn nearest the center first within the same share a frame.
+    counted in cubes: a new box is drawn over about 32 frames (`quadrature.shadow.spread`),
+    and dirty tiles are drawn nearest the center first within the same share a frame. At 8
+    frames, 565 frames of a forest tour with both layers passed 2 ms of the light's GPU time,
+    at 32 frames 10 (VERIFICATION, the light's depth by tiles): a box then takes about a
+    quarter of a second at 120 frames a second to be whole, which nothing that reads the
+    light's depth yet shows.
   - A frame with nothing due draws nothing and searches nothing.
 - **What is drawn:** the three opaque layers of every meshed cube in the box, from the
   same pages and by the same indirect draws as the player's view, each cube under the
@@ -387,7 +391,8 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
      `quadrature.scale.sharpness` (0.2) of the difference from a bilinear read; held inside the
      four central texels' range. No kernel is steered along edges (D23; research R4, 7b.2). A
      work group of 8 by 8 output pixels reads the 12 by 12 source texels it reaches once into
-     shared memory. At scale 1 a copy takes its place;
+     shared memory. At scale 1 a copy takes its place. A barrier for framebuffer access, texture
+     fetches and texture updates, what follows, makes the picture's writes visible;
   5. the drawn depth stretched over the game's whole depth buffer by a nearest blit, for what
      mods draw last against the world;
   6. the offset taken out of the projection on the stack, so what is drawn after it, the hand
@@ -412,8 +417,9 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
 The frame stays OpenGL; where DLSS is chosen, it is evaluated by Vulkan on images the two
 APIs share (D21), in a separately licensed module (D19). The handoff is built in measurement
 form behind `-Dquadrature.handoff=measure` (PLAN, capability and tier work, item 7), with a
-stand-in where DLSS would evaluate; the bridge itself is not. Research R1, 1.9 has the rules
-it follows. **Built, behind a switch.**
+stand-in where DLSS would evaluate or, with `-Dquadrature.handoff.evaluate=dlss`, DLSS Super
+Resolution itself; the bridge itself is not. Research R1, 1.9 has the rules it follows.
+**Built, behind a switch.**
 
 - **The seam.** `Handoff` in `core`: it opens beside the current context, runs one round trip
   a frame at the end of the world pass, after the hand and before the interface, where DLSS's
@@ -445,29 +451,70 @@ it follows. **Built, behind a switch.**
   value; OpenGL waits for that value on the GPU. One semaphore and rising values serve both
   directions; two binary semaphores are an option. Batches are recorded once per set of images
   and slot of a six-deep ring, and a slot is reused after its fence.
-- **What the measurement adds.** The game still renders at output resolution, so OpenGL fills
-  the render-resolution inputs with scaled copies from the game's framebuffer, clears the
-  motion image (the motion vectors of 4.8 exist only beside the scaler, which the handoff does
-  not run with) and copies the output back.
+- **What the measurement adds.** Without the scaler the game renders at output resolution, so
+  OpenGL fills the render-resolution inputs with scaled copies from the game's framebuffer,
+  clears the motion image (the motion vectors of 4.8 exist only beside the scaler) and copies
+  the output back.
   In the bridge, OpenGL draws into the shared images directly and the post effects read the
   output, so these copies are timed apart from the handoff. The parts take turns in segments
   of 120 frames (nothing, the round trip alone, with the stand-in, the copies alone, all of
   it); OpenGL and Vulkan timestamps are put on the client's clock; a stamp written into the
   motion image and carried back by the stand-in checks every 600 frames, and after each world
   change and resize, that the output came from that frame.
-- **Not beside the scaler.** The handoff reads the game's framebuffer as the world pass leaves
-  it and takes its size as the output's, and with the scaler's switches on (4.8) the world is
-  drawn into a smaller framebuffer standing in for the game's. Until one design takes the
-  scaler's color, depth and motion at render resolution as the handoff's inputs and the
-  window's framebuffer as its output, the handoff turns itself off at its first frame, with a
-  message, whenever the scaler is on, and the scaler runs.
+- **DLSS through NGX.** NGX's entry points come as a static library in NVIDIA's SDK, so the
+  module has a shim of its own, `quadrature_ngx.dll` from `src/main/native/ngx_shim.cpp`, which
+  links it and offers ten flat C functions; `Ngx` calls them through the Foreign Function and
+  Memory API. `./gradlew :quadrature-nvidia:ngxShim -PdlssSdk=<folder>` builds it with clang-cl
+  into the module's `build/native`; the shim and NVIDIA's runtime libraries are loaded from
+  paths the run names (`shim`, and `dlssPath` for `nvngx_dlss.dll`, by default the shim's own
+  folder), never from the JAR. Before the Vulkan instance and device are made, NGX is asked
+  which extensions DLSS needs, and they are enabled beside the handoff's, with buffer device
+  addresses, which NGX uses and its extension list does not name; NGX then starts on
+  the handoff's device with the project's identifier as an engine of its own, handed the
+  loader's two lookups, and the handoff stops with NGX's reason where DLSS is not available.
+  The feature is made for each set of images, in the quality mode and render preset the
+  options name (`quality`, `preset`), with render-resolution motion and, where `depthInverted`
+  says so, reversed depth. The DLSS batch is recorded for every submission, since NGX records
+  that frame's evaluation into it: it acquires the images as the stand-in's batch does, places
+  two more timestamps around NGX's commands, then runs the stand-in on the output's first
+  pixel alone, which carries the stamp the check reads, and releases them. A world change
+  starts DLSS's history afresh. NGX is shut down after the queue is idle and before the device
+  goes.
+- **Beside the scaler, DLSS takes the scaler's picture.** With the scaler's switches on (4.8)
+  the world is drawn into a smaller framebuffer standing in for the game's, so at the end of the
+  world pass the game's framebuffer already holds the scaler's output. A handoff that evaluates
+  DLSS (`evaluates`, answered from the settings before anything opens) is then called from the
+  scaler's composite instead (`Handoff.Evaluation`), after the motion pass: the drawn picture,
+  its depth renderbuffer, the motion target, the frame's sub-pixel offset, whether history
+  applies, whether depth is reversed, and the game's framebuffer as the output. It copies the
+  three inputs into the shared images at the size they were drawn, evaluates with the offset in
+  render pixels (`jitterSign` multiplies each axis, 1 unless set), copies DLSS's output into the
+  game's framebuffer, and the scaler's temporal and scale passes do not run; the drawn depth is
+  stretched over the game's and the offset taken out of the projection as before. The motion
+  target already holds what DLSS reads: where each pixel's point lay a frame earlier minus where
+  it lies, in render pixels, without the offset, and since both APIs see the same rows, the
+  numbers carry over unchanged. DLSS's mode follows the scaler's ratio (Quality near two thirds,
+  Performance at one half, DLAA at one) unless `quality` names one, and the handoff stops with
+  NGX's accepted range where the drawn size lies outside it. Once the handoff makes the picture,
+  the scaler cycles through eight offsets per output pixel, 8 over the scale's square (18 at
+  0.67, 32 at 0.5), unless `quadrature.taa.phases` is set. No stamp is carried: the output's
+  first pixel is the picture's. The scaler's own history starts afresh if it makes the picture
+  again. A handoff that measures the game's framebuffer, the stand-in, is turned away without
+  opening, with a message, and the scaler runs; so is any handoff when the scaler runs without
+  its temporal pass, which makes the offset and the motion.
 
 Measured on the RTX 3060 (VERIFICATION.md, the handoff from OpenGL to Vulkan): the round trip
 alone costs 0.36 to 0.37 ms of GPU time at P0 at 1080p and 1440p, about half each way, and the
 client 0.06 ms a frame; the four images take 32 and 57 MiB, the Vulkan device 5 to 6 MiB more.
+DLSS in Performance mode (VERIFICATION.md, DLSS through the handoff) takes 1.54 and 2.20 ms of
+its own at 1080p and 1440p with preset K and 2.55 and 4.53 ms with preset M, at P0; the round
+trip around it adds 0.30 to 0.34 ms.
 
-Not built: DLSS's evaluation, jitter, exposure, the bridge as a stage with declared resources
-in the pass graph, and the motion vectors it needs from every draw (D21).
+Not built: the bridge as a stage with declared resources in the pass graph, OpenGL drawing
+into the shared images directly in place of the copies, a texture LOD bias for the render
+scale, and the motion vectors DLSS needs from every draw (D21): the scaler's motion is the
+camera's, from depth, so what moves on its own (entities, particles) carries none. DLSS takes
+the game's frame as LDR, which needs no exposure value.
 
 ## 5. Scene sources
 
@@ -532,12 +579,15 @@ the driver and never mapped, each also the store of a buffer texture read with
   numbers: the first holds what the state does to light and three are kept for color.
   Room is taken for every cube of the box: 61.0 MiB of cells, 7.6 MiB of lists and
   0.5 MiB for the table.
-- **Room for every cube is more than is used.** With the lookup and occupancy bricks the
-  buffers take 77.8 MiB, inside the 128 MiB the shading work allows for materials and
-  visibility. The buffers are to be sized to about one and a half times the most slots
-  seen in use, once that has been measured in different places: forest, a cave system, a
-  built-up area, ocean. Only the forest tour has been measured: 6,406 slots at most. The
-  most slots in use is published and logged.
+- **Room for every cube stays.** With the lookup and occupancy bricks the buffers take
+  77.8 MiB, inside the 128 MiB the shading work allows for materials and visibility. The
+  most slots in use at reach twelve (VERIFICATION, the light scene's slots by place): 6,406
+  in forest, 9,262 over reef, kelp and shallows, 5,377 among fins, tower karst and tsingy
+  standing in for a built-up area, and 11,632 in a cave system, where every view from 150
+  blocks below the sea down to a lava river holds 8,656 to 10,304 of the box's 15,625 cubes
+  as bricks. One and a half times the caves' figure is
+  more than the box, so the buffers keep room for every cube. The most slots in use is
+  published and logged.
 - **Copying is bounded:** at most 64 bricks a frame, with their cells and lists, bricks
   before the entries that name them, and the whole lookup in one call when many entries
   change. Cubes are taken from the scene 512 a frame, so that a jump of the box's origin,
@@ -656,6 +706,20 @@ Two streams (research R2, sections 4.1 and 4.2). **Default.**
   with each result and defined on the context thread. **Built.**
 - A cube the source says holds only air is settled without a snapshot or a build.
   **Built.**
+- **A change reaches a touching cube only where its last build read it.** A build reads
+  the world through a wrapper of its snapshot that notes, for each of the 26 cubes around,
+  whether it read their blocks (states, block entities, biomes) and whether it read their
+  light. The game's renderers read the light around a block only for a face they draw, so a
+  hidden block reads its face neighbors' states alone and nothing of its edges and corners.
+  The source's own changes of a touching cube carry the whole cube and no side, so they are
+  not followed; each cube's own arrival, departure and bounded change are, by the source's
+  rule for which touching cubes a change reaches (`TouchingSides` in `core`). A touching
+  cube is rebuilt if its last build read the changed one (only its light, for a change of
+  light alone), if it has no build yet, or if one is in flight; all air reads nothing.
+  Rebuilds that drew what they replaced fell by three quarters, and builds by a third while
+  the world generates around the player, with the pictures unchanged (VERIFICATION,
+  side-aware rebuilds). `-Dquadrature.terrain.neighbors=all` follows every touching change
+  as before. **Built.**
 - A build copies what it made into arrays of its own, so a result the pool drops leaves
   nothing to free; it allocates nothing on the heap per face. The context thread copies a
   result's vertices into one native staging buffer as it places them. **Built.**
@@ -1274,9 +1338,9 @@ again. A tier's cost on the reference card, in ms at 2560 by 1440 output, agains
 | Indirect light's rays as item 4 schedules them, on the walk as shipped: MEDIUM every probe a frame, HIGH and MAX a quarter; MAX's far shadows, an upper bound | | 0.53 | 0.87 | 2.13 + 5.43 |
 | Shading, 0.19 ms a render megapixel (the stage handed over in a folder) | 0.31 | 0.42 | 0.70 | 0.70 |
 | The game's other drawing, 0.33 ms a render megapixel (the stage reports) | 0.55 | 0.72 | 1.22 | 1.22 |
-| Own temporal anti-aliasing, with the scaler below the output's resolution, at 0.67 and 0.77 (item 6, its plain kernel): 0.28 ms between its passes held fixed, the passes by output megapixel | 1.20 | 1.06 | 0.41 | 0.41 |
-| **In all, 2560 by 1440** | **2.63** | **3.71** | **5.09** | **12.15** |
-| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.26 / 0.38 / 0.71 | 0.40 / 0.53 / 0.95 | 0.54 / 0.73 / 1.41 | 1.55 / 1.74 / 2.45 |
+| Own temporal anti-aliasing, with the scaler below the output's resolution at 0.67 and 0.77, its passes measured at 2560 by 1440 and 3840 by 2160 and carried as a line between (the scaler's costs) | 0.98 | 0.97 | 0.96 | 0.96 |
+| **In all, 2560 by 1440** | **2.42** | **3.62** | **5.64** | **12.70** |
+| The speed a machine needs, 1920 by 1080 / 2560 by 1440 / 3840 by 2160 | 0.26 / 0.35 / 0.60 | 0.40 / 0.52 / 0.91 | 0.59 / 0.81 / 1.57 | 1.60 / 1.81 / 2.60 |
 
 The rays' figures are item 4's last measurement, of the walk that reads no coarser bits
 ([VERIFICATION.md](VERIFICATION.md), rays through the scene). That run sampled no clocks; its
@@ -1290,28 +1354,38 @@ figures are taken as the top state's, as the other items' settled runs are.
 - Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
   shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
   when measured, which can only raise the speeds needed.
-- **Rendering below the output costs time at today's frame.** The scaler stage, its plain
-  kernel, takes 1.20 ms at 2560 by 1440 output from 0.67 and 1.06 from 0.77, and 0.67 of the
-  resolution saves 0.98 ms of the world's drawing (item 6): a render below the output pays only
-  once a tier's resolution-dependent work passes about 2.2 ms at 0.67 and 2.6 ms at 0.77. Render
-  scale stays a preset of each tier, never a lever the selection turns; whether LOW and MEDIUM
-  keep 67% and 77% is D23's to decide. At 3840 by 2160 output LOW and MEDIUM pay about 2.3 and
-  2.0 ms for a scaler that a render at 100% would not need. The stage's passes are carried in
-  proportion to the output's megapixels from 2560 by 1440, the one output measured, and the
-  0.28 ms between them, barriers and program changes, is held fixed: MEDIUM takes 6.62 ms of the
-  7 at 3840 by 2160, and this card MEDIUM there, with a fit of 1.07 on the run the unit test
-  holds. Were the gaps to follow the pixels too, MEDIUM would take 6.97 ms and this card MEDIUM
-  still, with a fit of 1.01. **This card at 3840 by 2160 is a boundary case**, open until
-  the scaler is measured at that output: its score runs 0.85 to 1.14 between places, and a place
-  low in that range takes LOW there. The band keeps whichever tier is stored first.
+- Not counted, though measured: distant terrain, the reach group. It took 2.2 to 2.6 ms of GPU a
+  frame at 1280 by 720 for 1.4 to 1.6 million faces ([DISTANT.md](DISTANT.md), section 9), and 2.3 ms
+  in the cross-mod diagnostics' full stack; the opaque-terrain probe's line gives under 1 ms for as many
+  primitives, so distant terrain costs about three times as much a primitive and the terrain probe
+  cannot stand for it. It enters the table as its own line, by faces drawn at each tier's reach and by
+  render pixels, once its cost is measured at two reaches and two resolutions; at its one measurement it
+  is the largest group a tier holds.
+- **Rendering below the output costs time at today's frame.** The scaler's passes take, at P0,
+  0.98 ms at 2560 by 1440 output from 0.67, 0.97 from 0.77 and 0.96 for the temporal pass alone
+  at the output's size (HIGH and MAX), and 1.52, 1.78 and 2.01 ms at 3840 by 2160, with about
+  0.01 ms between the passes (VERIFICATION, the scaler's costs). For two and a quarter times the
+  pixels they take 1.55, 1.83 and 2.10 times as long, not in proportion, so each tier's is
+  carried as a line through its two outputs. A render below the output pays only once a tier's resolution-dependent work passes
+  about 1.8 ms at 0.67 and 2.4 ms at 0.77 at 2560 by 1440, and 2.8 and 4.4 ms at 3840 by 2160,
+  were all of it to follow the pixels; on the short tour at 3840 by 2160 the world's terrain
+  took 2.36 ms at the output's size, and 2.81 and 3.29 ms with the scaler at 0.67 and 0.77.
+  Render scale stays a preset of each tier, never a lever the selection turns; whether LOW and
+  MEDIUM keep 67% and 77% is D23's to decide. On the run the unit test holds, this card takes
+  HIGH at 2560 by 1440 (5.65 ms of the 7, a fit of 1.24) and MEDIUM at 3840 by 2160 (6.31 ms, a
+  fit of 1.11). Its score runs 0.85 to 1.14 between places, so at the slowest places MEDIUM's
+  fit at 3840 by 2160 falls below one; the band keeps whichever tier is stored first.
 - The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's
   arenas 128 to 704 MiB, distant terrain's reach about 40 to 250 MiB by DISTANT's survey, the
   light's layers with their scratch 32 to 256 MiB, the light scene's lookup and bricks 8.6, 15.0
   and 23.1 MiB with MAX's states within radius 12, 39 MiB, and 30.5 MiB a render megapixel and
   15.3 an output megapixel for targets and history).
-- DLSS is offered where the speed tier leaves room for it (D21): at NVIDIA's published 1.45 ms
-  at 1920 by 1080 for this card, preset K in Performance mode, 0.70 ms an output megapixel,
-  scaled by the probes' combined ratio; the handoff to Vulkan is added once measured.
+- DLSS is offered where the speed tier leaves room for it (D21), at its cost measured taking
+  the scaler's picture through the handoff on this card, preset K in Performance mode: 2.65 ms
+  at 2560 by 1440 and 5.48 ms at 3840 by 2160, the copies, the round trip and NGX's work, carried
+  as 0.39 ms fixed and 0.61 ms an output megapixel and scaled by the probes' combined ratio. It
+  is counted above the tier's cost, although it takes the place of the scaler's temporal and
+  scale passes.
 - The trace probe times MEDIUM's own batch, 65,536 rays: a small batch runs at about half to
   seven tenths of a large one's rate, so the probe gives a card's ratio to the reference, and
   HIGH's and MAX's costs are item 4's own timings of their batches.

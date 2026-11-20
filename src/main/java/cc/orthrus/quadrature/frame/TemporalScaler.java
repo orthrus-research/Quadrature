@@ -76,7 +76,10 @@ public final class TemporalScaler {
     private static final float REACTIVE = number("quadrature.taa.reactive", 0.5f);
     /** Per pixel of motion a frame, how far this frame's weight goes toward a third. */
     private static final float MOVING = number("quadrature.taa.moving", 1f / 16);
-    private static final int PHASES = Math.max(1, (int) number("quadrature.taa.phases", 8));
+    /** Whether {@code -Dquadrature.taa.phases} sets the offsets in a cycle, which then stay as set. */
+    private static final boolean PHASES_SET = System.getProperty("quadrature.taa.phases") != null;
+    /** The offsets in a cycle: eight, or as many as the handoff's evaluation wants once it takes the picture. */
+    private static int phases = Math.max(1, (int) number("quadrature.taa.phases", 8));
     private static final float SHARPNESS = number("quadrature.scale.sharpness", 0.2f);
     /** {@code -Dquadrature.taa.check=true}: the motion target read back every 600 composites and summarized. */
     private static final boolean CHECK = Boolean.getBoolean("quadrature.taa.check");
@@ -101,6 +104,10 @@ public final class TemporalScaler {
     private static long lastComposite = Long.MIN_VALUE;
     private static long composites;
     private static long historyKept;
+    /** Composites whose picture the handoff made, in place of the temporal and scale passes. */
+    private static long evaluated;
+    /** The temporal history was not written last frame, since the handoff made the picture: none is kept. */
+    private static boolean historyStale;
 
     private static int outputWidth;
     private static int outputHeight;
@@ -142,7 +149,8 @@ public final class TemporalScaler {
     private static int depthNow;
     private static int depthTerrain;
 
-    private static final String[] PASSES = {"terrain depth", "depth copy", "motion", "temporal", "scale", "depth stretch"};
+    private static final String[] PASSES = {"terrain depth", "depth copy", "motion", "temporal", "scale", "depth stretch",
+        "handoff"};
     private static final PassClock clock = new PassClock(PASSES.length);
 
     private TemporalScaler() {
@@ -181,7 +189,7 @@ public final class TemporalScaler {
                     SCALE_SETTING, RenderScale.LEAST);
             }
             Quadrature.LOGGER.info("Scaler: render scale {}, temporal pass {}{}.", SCALE,
-                TAA ? "on" : "off", TAA ? String.format(" (least weight %.3f, reactive %.2f, %d offsets)", LEAST, REACTIVE, PHASES) : "");
+                TAA ? "on" : "off", TAA ? String.format(" (least weight %.3f, reactive %.2f, %d offsets)", LEAST, REACTIVE, phases) : "");
         }
         if (minecraft.gameSettings.anaglyph || !OpenGlHelper.isFramebufferEnabled() || minecraft.world == null) {
             // Two passes a frame, or no framebuffer of the game's to stand in for: drawn as the game draws.
@@ -196,7 +204,7 @@ public final class TemporalScaler {
         frames++;
         active = true;
         if (TAA) {
-            double[] offset = Jitter.offset(frames, PHASES);
+            double[] offset = Jitter.offset(frames, phases);
             offsetX = offset[0];
             offsetY = offset[1];
             float[] matrix = Jitter.matrix(offsetX, offsetY, drawnWidth, drawnHeight);
@@ -365,15 +373,17 @@ public final class TemporalScaler {
         try {
             int picture = game.framebufferTexture;
             int source = drawn.framebufferTexture;
+            int groupsX = (drawnWidth + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP;
+            int groupsY = (drawnHeight + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP;
+            boolean kept = false;
+            boolean madeByHandoff = false;
             if (TAA) {
                 clock.begin(1);
                 GL43.glCopyImageSubData(drawn.depthBuffer, GL30.GL_RENDERBUFFER, 0, 0, 0, 0, depthNow, GL11.GL_TEXTURE_2D, 0, 0, 0, 0,
                     drawnWidth, drawnHeight, 1);
                 clock.end(1);
                 double[] toPrevious = lastComposite == frames - 1 ? Reprojection.currentToPrevious(previous, current) : null;
-                boolean kept = toPrevious != null;
-                int groupsX = (drawnWidth + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP;
-                int groupsY = (drawnHeight + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP;
+                kept = toPrevious != null;
 
                 clock.begin(2);
                 GL20.glUseProgram(motionProgram);
@@ -390,13 +400,37 @@ public final class TemporalScaler {
                 clock.end(2);
                 GL42.glMemoryBarrier(GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
 
+                // A handoff that evaluates the picture (DLSS) makes the output from the drawn picture, its depth, its
+                // motion and this frame's offset, in place of the temporal and scale passes.
+                if (HandoffHost.REQUESTED) {
+                    clock.begin(6);
+                    madeByHandoff = HandoffHost.evaluate(drawn.framebufferObject, drawn.depthBuffer, motion, drawnWidth,
+                        drawnHeight, offsetX, offsetY, !kept, DepthCalls.active(), game.framebufferObject, outputWidth,
+                        outputHeight);
+                    clock.end(6);
+                }
+            }
+            if (madeByHandoff) {
+                evaluated++;
+                historyStale = true;
+                if (evaluated == 1 && !PHASES_SET) {
+                    int wanted = Jitter.phasesFor(Math.min(1, (double) drawnWidth / outputWidth));
+                    if (wanted > phases) {
+                        phases = wanted;
+                    }
+                    Quadrature.LOGGER.info("Scaler: the handoff makes the picture from here; {} offsets a cycle.", phases);
+                }
+            } else if (TAA) {
+                // The history is the temporal pass's own: after frames the handoff made, it starts afresh.
+                boolean historyValid = kept && !historyStale;
+                historyStale = false;
                 clock.begin(3);
                 int next = historyIndex ^ 1;
                 GL20.glUseProgram(temporalProgram);
                 GL41.glProgramUniform2f(temporalProgram, 1, drawnWidth, drawnHeight);
                 GL41.glProgramUniform2f(temporalProgram, 2, (float) offsetX, (float) offsetY);
                 GL41.glProgramUniform1i(temporalProgram, 3, DepthCalls.active() ? 1 : 0);
-                GL41.glProgramUniform1i(temporalProgram, 4, kept ? 1 : 0);
+                GL41.glProgramUniform1i(temporalProgram, 4, historyValid ? 1 : 0);
                 GL41.glProgramUniform1f(temporalProgram, 5, LEAST);
                 GL41.glProgramUniform1f(temporalProgram, 6, REACTIVE);
                 GL41.glProgramUniform1i(temporalProgram, 7, terrainDepthCopied ? 1 : 0);
@@ -413,29 +447,32 @@ public final class TemporalScaler {
                 historyIndex = next;
                 source = history[next];
                 composites++;
-                historyKept += kept ? 1 : 0;
+                historyKept += historyValid ? 1 : 0;
                 if (CHECK && composites % 600 == 0) {
                     checkMotion(kept);
                 }
             }
 
-            clock.begin(4);
-            GL42.glBindImageTexture(0, picture, 0, false, 0, GL15.GL_WRITE_ONLY, RGBA8);
-            if (drawnWidth != outputWidth || drawnHeight != outputHeight) {
-                GL20.glUseProgram(scaleProgram);
-                GL41.glProgramUniform2f(scaleProgram, 1, drawnWidth, drawnHeight);
-                GL41.glProgramUniform2f(scaleProgram, 2, outputWidth, outputHeight);
-                GL41.glProgramUniform1f(scaleProgram, 3, SHARPNESS);
-            } else {
-                GL20.glUseProgram(copyProgram);
-                GL41.glProgramUniform2f(copyProgram, 1, outputWidth, outputHeight);
+            if (!madeByHandoff) {
+                clock.begin(4);
+                GL42.glBindImageTexture(0, picture, 0, false, 0, GL15.GL_WRITE_ONLY, RGBA8);
+                if (drawnWidth != outputWidth || drawnHeight != outputHeight) {
+                    GL20.glUseProgram(scaleProgram);
+                    GL41.glProgramUniform2f(scaleProgram, 1, drawnWidth, drawnHeight);
+                    GL41.glProgramUniform2f(scaleProgram, 2, outputWidth, outputHeight);
+                    GL41.glProgramUniform1f(scaleProgram, 3, SHARPNESS);
+                } else {
+                    GL20.glUseProgram(copyProgram);
+                    GL41.glProgramUniform2f(copyProgram, 1, outputWidth, outputHeight);
+                }
+                bind(ScalerShaders.UNIT_A, source, nearest);
+                GL43.glDispatchCompute((outputWidth + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP,
+                    (outputHeight + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP, 1);
+                clock.end(4);
             }
-            bind(ScalerShaders.UNIT_A, source, nearest);
-            GL43.glDispatchCompute((outputWidth + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP,
-                (outputHeight + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP, 1);
-            clock.end(4);
-            // What follows draws into the picture, reads it as a texture or copies it out.
-            GL42.glMemoryBarrier(GL42.GL_ALL_BARRIER_BITS);
+            // What follows draws into the picture (framebuffer), reads it as a texture (texture fetch) or copies it out
+            // (texture update); nothing reads it through an image or a buffer.
+            GL42.glMemoryBarrier(GL42.GL_FRAMEBUFFER_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT | GL42.GL_TEXTURE_UPDATE_BARRIER_BIT);
 
             // The drawn depth over the game's whole depth buffer, for what mods draw last against the world.
             clock.begin(5);
@@ -670,8 +707,9 @@ public final class TemporalScaler {
             return "scaler failed and is off";
         }
         StringBuilder line = new StringBuilder(String.format("scaler: drawn %d by %d of %d by %d (scale %.2f), temporal %s, "
-            + "history kept in %d of %d composites; passes at the median, GPU:", drawnWidth, drawnHeight, outputWidth, outputHeight, SCALE,
-            TAA ? "on" : "off", historyKept, composites));
+            + "history kept in %d of %d composites, %d pictures made by the handoff; passes at the median, GPU:", drawnWidth, drawnHeight,
+            outputWidth, outputHeight, SCALE,
+            TAA ? "on" : "off", historyKept, composites, evaluated));
         for (int i = 0; i < PASSES.length; i++) {
             line.append(String.format(" %s %.3f", PASSES[i], clock.median(i) / 1e6));
         }

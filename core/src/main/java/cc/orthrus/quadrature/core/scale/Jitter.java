@@ -27,6 +27,19 @@ public final class Jitter {
     }
 
     /**
+     * The offsets a cycle needs so that every output pixel is still covered by eight of them when the world
+     * is drawn at {@code scale} of the output on each side: eight over the scale's square, rounded up (DLSS's
+     * guide, 3.7.1.1: 18 at two thirds, 32 at one half).
+     */
+    public static int phasesFor(double scale) {
+        if (!(scale > 0) || scale > 1) {
+            throw new IllegalArgumentException("scale " + scale + " is not in (0, 1]");
+        }
+        // The small allowance keeps a quotient that floating point lifts just past a whole number from taking one more.
+        return (int) Math.ceil(8 / (scale * scale) - 1e-6);
+    }
+
+    /**
      * The offset for a frame, in pixels of the drawn rectangle.
      *
      * @param frame  any count of frames; only its remainder by {@code phases} matters

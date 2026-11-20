@@ -60,6 +60,44 @@ final class BindingRelease {
 sourceSets.main.java.srcDir(constants)
 tasks.named('compileJava') { dependsOn 'generateBindingRelease' }
 
+// The NGX shim (D19): NGX's entry points come as a static library, so a small DLL of the module's own links them
+// and the Java side calls it through the Foreign Function and Memory API. It is built only on request, against a
+// DLSS SDK the builder names with -PdlssSdk=<folder> and Vulkan headers from VULKAN_SDK (or -PvulkanSdk), with
+// clang-cl (or -PnativeCompiler). It lands in build/native and never in the JAR; the handoff loads it from a path.
+def shimSource = file('src/main/native/ngx_shim.cpp')
+def shimOut = layout.buildDirectory.dir('native')
+tasks.register('ngxShim', Exec) {
+    group = 'build'
+    description = 'Builds the NGX shim, quadrature_ngx.dll, against the DLSS SDK named by -PdlssSdk.'
+    def sdk = providers.gradleProperty('dlssSdk')
+    def vulkanSdk = providers.gradleProperty('vulkanSdk').orElse(providers.environmentVariable('VULKAN_SDK'))
+    def compiler = providers.gradleProperty('nativeCompiler').orElse('clang-cl')
+    inputs.file(shimSource)
+    inputs.property('dlssSdk', sdk.orElse(''))
+    inputs.property('vulkanSdk', vulkanSdk.orElse(''))
+    outputs.dir(shimOut)
+    workingDir shimOut
+    doFirst {
+        if (!sdk.present) {
+            throw new GradleException('ngxShim needs -PdlssSdk=<the DLSS SDK folder>; the SDK never enters this tree (D19).')
+        }
+        if (!vulkanSdk.present) {
+            throw new GradleException('ngxShim needs the Vulkan headers: set VULKAN_SDK or pass -PvulkanSdk=<folder>.')
+        }
+        def root = file(sdk.get())
+        def library = new File(root, 'lib/Windows_x86_64/x64/nvsdk_ngx_d.lib')
+        if (!library.isFile()) {
+            throw new GradleException("The DLSS SDK at -PdlssSdk has no lib/Windows_x86_64/x64/nvsdk_ngx_d.lib.")
+        }
+        shimOut.get().asFile.mkdirs()
+        // NGX's library is built against the dynamic C runtime (/MD); its registry and window lookups need
+        // advapi32 and user32. NGX is handed the loader's lookups, so nothing links the Vulkan loader.
+        commandLine compiler.get(), '/nologo', '/LD', '/MD', '/O2', '/EHsc', '/std:c++17', '/W3', '-Wno-missing-braces',
+            "/I${new File(root, 'include')}", "/I${new File(vulkanSdk.get(), 'Include')}", shimSource.absolutePath,
+            '/Fequadrature_ngx.dll', '/link', library.absolutePath, 'advapi32.lib', 'user32.lib'
+    }
+}
+
 jar {
     // The binding's classes. Its only versioned entry is its module descriptor, and its macOS entries are
     // checksums of a native library this module never loads.

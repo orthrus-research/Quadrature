@@ -51,7 +51,8 @@ import java.util.Map;
  * The measurement form of the GL to Vulkan handoff (D21): a Vulkan device beside the game's context on
  * the same GPU, color, depth and motion images at render resolution and an output image at output
  * resolution, all allocated by Vulkan and imported by OpenGL, and a round trip each frame in which OpenGL
- * signals, Vulkan runs a stand-in where DLSS would evaluate, and OpenGL waits for it and finishes.
+ * signals, Vulkan evaluates, and OpenGL waits for it and finishes. The evaluation is a stand-in where DLSS would
+ * evaluate, or, with {@code evaluate=dlss}, DLSS Super Resolution itself through NGX and the shim the builder makes.
  *
  * <p>The parts of the handoff take turns by {@link HandoffSchedule}, so each is measured over the same run.
  * Every frame records OpenGL timestamps around its parts and, with a round trip, Vulkan timestamps around
@@ -74,6 +75,19 @@ public final class VulkanHandoff implements Handoff {
     private VulkanDevice vulkan;
     private SharedSemaphores semaphores;
     private StandIn standIn;
+    /** DLSS through NGX, or null when the stand-in evaluates. */
+    private Ngx ngx;
+    private int dlssQuality;
+    private String evaluation = "stand-in";
+    /** The quality option as set; empty, the evaluation of the scaler's picture takes the mode from its ratio. */
+    private String qualitySetting = "";
+    /** Multipliers on the scaler's offset as DLSS takes it, x then y ({@code jitterSign}, "1,1" unless set). */
+    private double jitterSignX = 1;
+    private double jitterSignY = 1;
+    /** Evaluating the scaler's picture ({@link #evaluate}) rather than measuring the game's framebuffer. */
+    private boolean forScaler;
+    /** Whether the scaler's depth was reversed when the images and DLSS's feature were last made. */
+    private boolean depthInvertedMade;
     private SharedImage color;
     private SharedImage depth;
     private SharedImage motion;
@@ -175,17 +189,59 @@ public final class VulkanHandoff implements Handoff {
             recreateOnWorldChange = host.option("world", "keep").equals("recreate");
             checkEvery = Integer.parseInt(host.option("check", "600"));
             reportEvery = Integer.parseInt(host.option("report", "6000"));
+            String evaluate = host.option("evaluate", "standin");
+            int dlssPreset = 0;
+            int dlssFlags = 0;
+            if (evaluate.equals("dlss")) {
+                String shim = host.option("shim", "");
+                if (shim.isEmpty()) {
+                    throw new IllegalStateException("evaluate=dlss needs the NGX shim's path in the shim option.");
+                }
+                Path shimPath = Path.of(shim).toAbsolutePath();
+                String folder = host.option("dlssPath", "");
+                qualitySetting = host.option("quality", "");
+                dlssQuality = Ngx.quality(qualitySetting.isEmpty() ? "performance" : qualitySetting);
+                String[] signs = host.option("jitterSign", "1,1").split(",");
+                if (signs.length != 2) {
+                    throw new IllegalArgumentException("jitterSign=" + host.option("jitterSign", "") + " is not two numbers.");
+                }
+                jitterSignX = Double.parseDouble(signs[0].trim());
+                jitterSignY = Double.parseDouble(signs[1].trim());
+                dlssPreset = Ngx.preset(host.option("preset", "default"));
+                boolean inverted = Boolean.parseBoolean(host.option("depthInverted", "false"));
+                dlssFlags = Ngx.MOTION_LOW_RESOLUTION | (inverted ? Ngx.DEPTH_INVERTED : 0);
+                ngx = new Ngx(shimPath, host.outputDirectory(), folder.isEmpty() ? shimPath.getParent() : Path.of(folder));
+                evaluation = String.format(Locale.ROOT, "DLSS Super Resolution (quality %s, preset %s, depth %s; for the "
+                        + "scaler's picture, offsets taken as x %+.0f, y %+.0f)",
+                    qualitySetting.isEmpty() ? "performance, or from the scaler's ratio" : qualitySetting,
+                    host.option("preset", "default"), inverted ? "inverted" : "not inverted, or as the scaler's", jitterSignX,
+                    jitterSignY);
+            } else if (!evaluate.equals("standin")) {
+                throw new IllegalArgumentException("evaluate=" + evaluate + " is not one of standin, dlss.");
+            }
             List<DeviceIdentity> glDevices = glIdentity();
             for (DeviceIdentity identity : glDevices) {
                 host.info("OpenGL device " + identity.describe());
             }
             Gl.clearErrors();
             availableAtOpenKiB = availableKiB();
+            Ngx dlss = ngx;
             vulkan = new VulkanDevice(host, glDevices, host.option("device", "match"), host.option("queue", "graphics"),
-                Boolean.parseBoolean(host.option("validation", "false")));
+                Boolean.parseBoolean(host.option("validation", "false")),
+                dlss == null ? List.of() : dlss.instanceExtensions(),
+                (instance, physical) -> dlss == null ? List.of() : dlss.deviceExtensions(instance.address(), physical.address()),
+                dlss != null);
+            if (dlss != null) {
+                dlss.init(vulkan.instance.address(), vulkan.physical.address(), vulkan.device.address(),
+                    VulkanDevice.getInstanceProcAddr(), vulkan.getDeviceProcAddr());
+                String unavailable = dlss.unavailable();
+                if (unavailable != null) {
+                    throw new IllegalStateException(unavailable + ".");
+                }
+            }
             availableWithDeviceKiB = availableKiB();
             semaphores = new SharedSemaphores(vulkan, timelineWanted);
-            standIn = new StandIn(vulkan, semaphores);
+            standIn = new StandIn(vulkan, semaphores, dlss, dlssQuality, dlssPreset, dlssFlags);
             for (int[] row : glQueries) {
                 GL15.glGenQueries(row);
             }
@@ -215,9 +271,9 @@ public final class VulkanHandoff implements Handoff {
             csv.write(FrameRecord.HEADER);
             csv.newLine();
             Gl.check("opening the handoff");
-            host.info(String.format(Locale.ROOT, "Handoff opened (run %s): %s semaphores, phases %s in turns of %d frames "
-                    + "(first %d not measured), render scale %.4f, output %s, check every %d frames, world change: %s. "
-                    + "GPU memory available %d MiB before the device, %d MiB with it.", run,
+            host.info(String.format(Locale.ROOT, "Handoff opened (run %s): evaluation %s, %s semaphores, phases %s in turns "
+                    + "of %d frames (first %d not measured), render scale %.4f, output %s, check every %d frames, world change: "
+                    + "%s. GPU memory available %d MiB before the device, %d MiB with it.", run, evaluation,
                 semaphores.timeline ? "timeline" : "binary", schedule.order(), schedule.segment(), schedule.settle(), scale,
                 present ? "written into the frame" : "not written into the frame", checkEvery,
                 recreateOnWorldChange ? "images made again" : "images kept", availableAtOpenKiB / 1024,
@@ -287,7 +343,7 @@ public final class VulkanHandoff implements Handoff {
         lastDisturbed = false;
 
         if (color == null || output.width != frame.width() || output.height != frame.height()) {
-            createImages(frame);
+            createImages(frame.width(), frame.height(), frame.depthRenderbuffer(), null);
             record.measured = false;
             lastDisturbed = true;
         }
@@ -337,6 +393,116 @@ public final class VulkanHandoff implements Handoff {
         if (reportEvery > 0 && frames % reportEvery == 0) {
             report("after " + frames + " frames");
             lastDisturbed = true;
+        }
+    }
+
+    @Override
+    public boolean evaluates(Host host) {
+        return host.option("evaluate", "standin").equals("dlss");
+    }
+
+    /**
+     * The scaler's picture, evaluated by DLSS into the output's framebuffer in place of the scaler's temporal and
+     * scale passes: its color, depth and motion copied into the shared images at the size it was drawn, the round
+     * trip with this frame's offset, and DLSS's output copied into the game's framebuffer. No stamp is carried,
+     * since the output's first pixel is the picture's; the picture is the check. Every evaluation is timed as a
+     * whole handoff, under {@code FULL}.
+     */
+    @Override
+    public boolean evaluate(Evaluation e) {
+        if (ngx == null) {
+            return false;
+        }
+        long start = System.nanoTime();
+        long n = e.number();
+        frames++;
+        if (!forScaler) {
+            forScaler = true;
+            standIn.stamp(false);
+            statistics.computeIfAbsent(Phase.FULL, phase -> new PhaseStatistics());
+            event(String.format(Locale.ROOT, "Evaluating the scaler's picture: drawn %dx%d for %dx%d, depth %s, offsets "
+                    + "taken as x %+.0f, y %+.0f", e.renderWidth(), e.renderHeight(), e.outputWidth(), e.outputHeight(),
+                e.depthInverted() ? "reversed" : "not reversed", jitterSignX, jitterSignY));
+        }
+        readBack(n);
+        FrameRecord record = records[(int) (n % RECORDS)];
+        record.reset(n);
+        record.wall = System.currentTimeMillis();
+        record.phase = Phase.FULL;
+        record.measured = true;
+        if (lastFrame == n - 1 && lastStart >= 0 && !lastDisturbed) {
+            record.cpuSincePrevious = start - lastStart;
+        }
+        lastStart = start;
+        lastFrame = n;
+        lastDisturbed = false;
+
+        if (color == null || output.width != e.outputWidth() || output.height != e.outputHeight()
+                || color.width != e.renderWidth() || color.height != e.renderHeight() || depthInvertedMade != e.depthInverted()) {
+            depthInvertedMade = e.depthInverted();
+            createImages(e.outputWidth(), e.outputHeight(), e.depthRenderbuffer(),
+                new RenderSize(e.renderWidth(), e.renderHeight()));
+            record.measured = false;
+            lastDisturbed = true;
+        }
+        if (n % schedule.segment() == 0) {
+            calibrate();
+        }
+        record.glOffset = glOffset;
+        record.vkTicks0 = vkTicks0;
+        record.vkNanos0 = vkNanos0;
+        record.vkCalibrated = vkCalibrated;
+
+        int slot = (int) (n % GL_RING);
+        timestamp(slot, 0);
+        copyInScaled(e);
+        timestamp(slot, 1);
+        standIn.inputs(e.jitterX() * jitterSignX, e.jitterY() * jitterSignY, e.reset());
+        roundTrip(record, true);
+        timestamp(slot, 2);
+        copyOutScaled(e);
+        timestamp(slot, 3);
+        record.cpuHandoff = System.nanoTime() - start;
+        if (reportEvery > 0 && frames % reportEvery == 0) {
+            report("after " + frames + " frames");
+            lastDisturbed = true;
+        }
+        return true;
+    }
+
+    /** OpenGL fills the inputs from the scaler's drawn picture, its depth and its motion, at the size it was drawn. */
+    private void copyInScaled(Evaluation e) {
+        // The motion pass wrote its target with image stores, which a copy reads only after a barrier.
+        org.lwjgl.opengl.GL42.glMemoryBarrier(org.lwjgl.opengl.GL42.GL_ALL_BARRIER_BITS);
+        boolean scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        if (scissor) {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        }
+        int width = e.renderWidth();
+        int height = e.renderHeight();
+        GL45.glBlitNamedFramebuffer(e.framebuffer(), color.glFramebuffer, 0, 0, width, height, 0, 0, width, height,
+            GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+        if (depthFilled) {
+            GL45.glBlitNamedFramebuffer(e.framebuffer(), depth.glFramebuffer, 0, 0, width, height, 0, 0, width, height,
+                GL11.GL_DEPTH_BUFFER_BIT | (depth.stencil ? GL11.GL_STENCIL_BUFFER_BIT : 0), GL11.GL_NEAREST);
+        }
+        if (scissor) {
+            GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        }
+        org.lwjgl.opengl.GL43.glCopyImageSubData(e.motionTexture(), GL11.GL_TEXTURE_2D, 0, 0, 0, 0, motion.glTexture,
+            GL11.GL_TEXTURE_2D, 0, 0, 0, 0, width, height, 1);
+    }
+
+    /** DLSS's output into the game's framebuffer, at the output's size. */
+    private void copyOutScaled(Evaluation e) {
+        boolean scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        if (scissor) {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        }
+        GL45.glBlitNamedFramebuffer(output.glFramebuffer, e.output(), 0, 0, e.outputWidth(), e.outputHeight(), 0, 0,
+            e.outputWidth(), e.outputHeight(), GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+        if (scissor) {
+            GL11.glEnable(GL11.GL_SCISSOR_TEST);
         }
     }
 
@@ -486,27 +652,50 @@ public final class VulkanHandoff implements Handoff {
         lastCheck = n;
     }
 
-    /** Makes the four images for the frame's size, after releasing any old ones. */
-    private void createImages(Frame frame) {
+    /**
+     * Makes the four images for an output, after releasing any old ones.
+     *
+     * @param render the render size the scaler drew at, or null for the measurement's own fraction of the output
+     */
+    private void createImages(int outputWidth, int outputHeight, int depthRenderbuffer, RenderSize render) {
         long start = System.nanoTime();
         long availableBefore = availableKiB();
         boolean again = color != null;
         if (again) {
             releaseImages();
         }
-        int depthFormat = GL45.glGetNamedRenderbufferParameteri(frame.depthRenderbuffer(), GL30.GL_RENDERBUFFER_INTERNAL_FORMAT);
+        int depthFormat = GL45.glGetNamedRenderbufferParameteri(depthRenderbuffer, GL30.GL_RENDERBUFFER_INTERNAL_FORMAT);
         int[] depthFormats = depthFormats(depthFormat);
         if (depthFormat == GL11.GL_DEPTH_COMPONENT) {
             // A texture's storage takes a sized format; the unsized one is taken as 24 bits on both sides.
             depthFormat = 0x81A6;
         }
         // Every size is checked before anything is allocated, so a wrong one is refused with its numbers.
-        SharedImageSizes sizes = SharedImageSizes.of(frame.width(), frame.height(), scale, depthFormats[2]);
+        SharedImageSizes sizes = render == null ? SharedImageSizes.of(outputWidth, outputHeight, scale, depthFormats[2])
+            : SharedImageSizes.of(outputWidth, outputHeight, render, depthFormats[2]);
         String refusal = sizes.refusal();
         if (refusal != null) {
             throw new IllegalStateException(refusal);
         }
-        RenderSize render = sizes.render();
+        render = sizes.render();
+        int quality = dlssQuality;
+        int[] asked = null;
+        if (ngx != null) {
+            if (forScaler && qualitySetting.isEmpty()) {
+                quality = Ngx.qualityFor((double) render.width() / outputWidth);
+            }
+            // The render sizes DLSS takes for this output and mode: optimal, largest, smallest.
+            asked = ngx.optimal(outputWidth, outputHeight, quality);
+            if (forScaler && (render.width() < asked[4] || render.height() < asked[5] || render.width() > asked[2]
+                    || render.height() > asked[3])) {
+                throw new IllegalStateException(String.format(Locale.ROOT, "DLSS in quality mode %s takes a render size "
+                        + "from %dx%d to %dx%d for an output of %dx%d, and the scaler draws %s.", Ngx.qualityName(quality),
+                    asked[4], asked[5], asked[2], asked[3], outputWidth, outputHeight, render));
+            }
+            if (forScaler) {
+                standIn.feature(quality, Ngx.MOTION_LOW_RESOLUTION | (depthInvertedMade ? Ngx.DEPTH_INVERTED : 0));
+            }
+        }
         try {
             color = new SharedImage(vulkan, SharedImage.Role.COLOR, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, GL30.GL_RGBA16F,
                 render.width(), render.height(), SharedImageSizes.COLOR_TEXEL, false, false);
@@ -526,19 +715,24 @@ public final class VulkanHandoff implements Handoff {
             motion = new SharedImage(vulkan, SharedImage.Role.MOTION, VK10.VK_FORMAT_R16G16_SFLOAT, GL30.GL_RG16F,
                 render.width(), render.height(), SharedImageSizes.MOTION_TEXEL, false, false);
             output = new SharedImage(vulkan, SharedImage.Role.OUTPUT, VK10.VK_FORMAT_R16G16B16A16_SFLOAT, GL30.GL_RGBA16F,
-                frame.width(), frame.height(), SharedImageSizes.OUTPUT_TEXEL, false, false);
+                outputWidth, outputHeight, SharedImageSizes.OUTPUT_TEXEL, false, false);
         } catch (RuntimeException e) {
             releaseImages();
             throw e;
         }
         textures.put(0, color.glTexture).put(1, depth.glTexture).put(2, motion.glTexture).put(3, output.glTexture);
         standIn.bind(color, depth, motion, output);
+        if (asked != null) {
+            event(String.format(Locale.ROOT, "DLSS feature made for render %s to output %dx%d in quality mode %s; its "
+                    + "optimal settings ask for render %dx%d and take %dx%d to %dx%d", render, outputWidth, outputHeight,
+                Ngx.qualityName(quality), asked[0], asked[1], asked[4], asked[5], asked[2], asked[3]));
+        }
         Gl.check("making the shared images");
         long elapsed = System.nanoTime() - start;
         long availableAfter = availableKiB();
         long total = color.size() + depth.size() + motion.size() + output.size();
         imageReport = String.format(Locale.ROOT, "render %s, output %dx%d; %s; %s; %s; %s; %.2f MiB in all (texels %.2f MiB)",
-            render, frame.width(), frame.height(), color.describe(), depth.describe(), motion.describe(), output.describe(),
+            render, outputWidth, outputHeight, color.describe(), depth.describe(), motion.describe(), output.describe(),
             total / 1048576.0, sizes.total() / 1048576.0);
         recreations++;
         checkDue = true;
@@ -624,7 +818,7 @@ public final class VulkanHandoff implements Handoff {
         }
         long[] vk = null;
         if (record.vkSlot >= 0) {
-            long[] ticks = new long[2];
+            long[] ticks = new long[4];
             if (standIn.timestamps(record.vkSlot, ticks)) {
                 vk = ticks;
             } else {
@@ -656,6 +850,9 @@ public final class VulkanHandoff implements Handoff {
         }
         if (vk != null) {
             record.vkWork = Math.round((vk[1] - vk[0]) * vulkan.timestampPeriod);
+            if (vk[2] >= 0 && vk[3] >= 0) {
+                record.ngxWork = Math.round((vk[3] - vk[2]) * vulkan.timestampPeriod);
+            }
             if (record.vkCalibrated) {
                 long vkStart = record.vkNanos0 + Math.round((vk[0] - record.vkTicks0) * vulkan.timestampPeriod);
                 long vkEnd = record.vkNanos0 + Math.round((vk[1] - record.vkTicks0) * vulkan.timestampPeriod);
@@ -681,6 +878,10 @@ public final class VulkanHandoff implements Handoff {
     public void worldChanged() {
         worldChanges++;
         checkDue = true;
+        if (standIn != null) {
+            // DLSS's history belongs to the world it was built in.
+            standIn.resetHistory();
+        }
         if (recreateOnWorldChange && color != null) {
             long start = System.nanoTime();
             releaseImages();
@@ -703,6 +904,7 @@ public final class VulkanHandoff implements Handoff {
         List<String> lines = new ArrayList<>();
         lines.add("Handoff measurement, run " + run + ", " + when + ": " + frames + " frames");
         lines.add("  device: " + vulkan.chosen.describe());
+        lines.add("  evaluation: " + evaluation);
         lines.add(String.format(Locale.ROOT, "  semaphores %s, queue family %d, render scale %.4f, output %s",
             semaphores.timeline ? "timeline" : "binary", vulkan.queueFamily, scale, present ? "presented" : "not presented"));
         lines.add("  images: " + imageReport);
@@ -743,6 +945,14 @@ public final class VulkanHandoff implements Handoff {
             if (standIn != null) {
                 standIn.close();
             }
+            if (ngx != null) {
+                // After the queue is idle and before the device goes: NGX releases its features on the device.
+                try {
+                    ngx.close();
+                } catch (RuntimeException e) {
+                    host.warn("NGX did not shut down cleanly: " + e.getMessage());
+                }
+            }
             if (semaphores != null) {
                 semaphores.close();
             }
@@ -771,6 +981,7 @@ public final class VulkanHandoff implements Handoff {
             host.warn("The handoff's frame file could not be closed: " + e);
         } finally {
             standIn = null;
+            ngx = null;
             semaphores = null;
             vulkan = null;
             noBuffers = textures = signalLayouts = waitLayouts = null;
@@ -782,7 +993,7 @@ public final class VulkanHandoff implements Handoff {
     /** What one frame recorded, until its timestamps are read. Times in nanoseconds; -1 where not measured. */
     private static final class FrameRecord {
         static final String HEADER = "frame,phase,cpu_since_previous,gpu_since_previous,copy_in,round_trip,copy_out,total,"
-            + "vk_work,inbound,outbound,cpu_handoff,cpu_round_trip,cpu_submit,cpu_gl,cpu_fence,wall_ms";
+            + "vk_work,inbound,outbound,cpu_handoff,cpu_round_trip,cpu_submit,cpu_gl,cpu_fence,wall_ms,ngx_work";
 
         long frame = -1;
         /** The wall clock at the frame's start, to match it with a sampler of the GPU's clocks and power state. */
@@ -803,6 +1014,8 @@ public final class VulkanHandoff implements Handoff {
         long copyOut;
         long total;
         long vkWork;
+        /** NGX's own commands within the Vulkan batch, where DLSS evaluated. */
+        long ngxWork;
         long inbound;
         long outbound;
         long cpuHandoff;
@@ -815,7 +1028,8 @@ public final class VulkanHandoff implements Handoff {
             this.frame = frame;
             vkSlot = -1;
             hasClocks = false;
-            cpuSincePrevious = gpuSincePrevious = copyIn = roundTrip = copyOut = total = vkWork = inbound = outbound = -1;
+            cpuSincePrevious = gpuSincePrevious = copyIn = roundTrip = copyOut = total = vkWork = ngxWork = inbound = outbound
+                = -1;
             cpuHandoff = cpuRoundTrip = cpuSubmit = cpuGl = cpuFence = -1;
         }
 
@@ -823,7 +1037,8 @@ public final class VulkanHandoff implements Handoff {
             return frame + "," + phase + "," + cell(cpuSincePrevious) + "," + cell(gpuSincePrevious) + "," + cell(copyIn) + ","
                 + cell(roundTrip) + "," + cell(copyOut) + "," + cell(total) + "," + cell(vkWork) + ","
                 + (hasClocks ? inbound : "") + "," + (hasClocks ? outbound : "") + "," + cell(cpuHandoff) + ","
-                + cell(cpuRoundTrip) + "," + cell(cpuSubmit) + "," + cell(cpuGl) + "," + cell(cpuFence) + "," + wall;
+                + cell(cpuRoundTrip) + "," + cell(cpuSubmit) + "," + cell(cpuGl) + "," + cell(cpuFence) + "," + wall + ","
+                + cell(ngxWork);
         }
 
         private static String cell(long value) {
@@ -840,6 +1055,7 @@ public final class VulkanHandoff implements Handoff {
         final Samples copyOut = new Samples();
         final Samples total = new Samples();
         final Samples vkWork = new Samples();
+        final Samples ngxWork = new Samples();
         final Samples inbound = new Samples();
         final Samples outbound = new Samples();
         final Samples cpuHandoff = new Samples();
@@ -857,6 +1073,7 @@ public final class VulkanHandoff implements Handoff {
                 addIf(total, record.total);
             }
             addIf(vkWork, record.vkWork);
+            addIf(ngxWork, record.ngxWork);
             if (record.hasClocks) {
                 inbound.add(record.inbound);
                 outbound.add(record.outbound);
@@ -882,6 +1099,7 @@ public final class VulkanHandoff implements Handoff {
             line(lines, "GPU copy out", copyOut);
             line(lines, "GPU handoff in all", total);
             line(lines, "Vulkan batch", vkWork);
+            line(lines, "NGX evaluation (within the batch)", ngxWork);
             line(lines, "signal to Vulkan start", inbound);
             line(lines, "Vulkan end to resume", outbound);
             line(lines, "client time in the handoff", cpuHandoff);

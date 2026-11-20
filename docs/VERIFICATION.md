@@ -429,6 +429,23 @@ stage, in which the light's view is drawn.
 - **The driver** reported no error. While the light's view is drawn it repeats its warning
   that texture object 0 is bound to texture units 1 to 3; the depth program reads unit 0.
 
+**Its spikes against the spread, 2026-11-20.** Both layers drawn by tiles, on one fresh forest instance
+(jar from tree ffd9c980), a new box spread over 8 frames in the first run and over 32 in the second, with each
+frame over 2 ms of the light's GPU time counted by the layers that drew part of a new box in it:
+
+| Spread | Frames that drew | GPU a frame that drew, mean | Over all frames | Over 1 ms | Over 2 ms: both, near, wide, neither | Worst |
+|---|---|---|---|---|---|---|
+| 8 | 6,384 of 43,818 | 1.044 ms | 0.152 ms | 2,074 | 565: 251, 13, 2, 299 | 15.76 ms, frame 0 |
+| 32 | 4,884 of 43,945 | 0.475 ms | 0.053 ms | 245 | 10: 9, 0, 1, 0 | 15.38 ms, frame 0 |
+
+- **A larger spread removes nearly every slow frame**, those where both layers begin a box together and those
+  that redraw dirty tiles, which take the same share. The spread is 32 since this run.
+- **The first frame's 15 ms was the copy of an empty box.** Split by timestamps (`quadrature.shadow.splitFirst`), the
+  first frame took 0.005 ms to set state, 0.14 ms a layer to attach and clear, and 7.40 and 7.44 ms to copy each
+  layer's scratch over its published one: no mesh has arrived, so the first box draws no cube and is whole at once.
+  A box that drew no cube now clears the published layer instead, the same texels: the first frame took 0.55 ms
+  in all, and the light's check found 0 of 16,777,216 texels differing in either layer.
+
 ### The light's depth kept, and the scene for lighting
 
 Measured 2026-11-16 on a fresh instance: the game's terrain twice, own terrain, and own
@@ -745,6 +762,26 @@ the seven measured views: the median of the views' medians, and the worst view.
   1.4 GHz or lower, and its times read up to a quarter above a settled card's. For
   calibration the tier benchmark's table at settled clocks supersedes this one.
 
+**The targets' pass alone, and the vertical radius, 2026-11-20.** On one fresh forest instance, a jar from
+tree ffd9c980, own terrain at radius 12 with reversed depth, face records and the light's two layers on both
+runs, the second with the targets for shading as well:
+
+- **The targets cost half the forward draw again.** Opaque terrain took a median 1.768 ms of GPU over the 17
+  views without the targets and 2.679 ms with them (worst views 2.357 and 3.273 ms): the targets' own pass is
+  0.91 ms, 0.52 of the forward draw, as the tier table assumed.
+- **What a smaller vertical radius leaves out** (`quadrature.terrain.byHeight=true`): at the tour's last view
+  the meshes held, by cubes above or below the player's, and their vertices:
+
+  | Cubes away | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 to 12 |
+  |---|---|---|---|---|---|---|---|---|
+  | Meshes | 41 | 544 | 552 | 127 | 197 | 368 | 348 | 1,913 |
+  | Vertices, millions | 0.01 | 9.56 | 7.07 | 0.17 | 0.22 | 0.79 | 0.84 | 3.22 |
+
+  Over the forest, 80% of the vertices lie one or two cubes from the player's height and half the meshes lie
+  seven or more away, mostly cave walls and terrain far below with few faces each: a vertical radius of 6 would
+  leave out 1,913 of 4,045 meshes and 15% of the vertices. Builds, not drawing, are what it saves; the
+  views beyond six cubes in a mountain range or above a chasm are what it would cost.
+
 ### Meshes built on Cubature's build pool
 
 Measured 2026-11-18 on one fresh instance at the lab's baseline, with Cubature at the pinned
@@ -882,6 +919,309 @@ bounded before anything is allocated, and no error leaves the handoff for the ga
 Not measured: DLSS itself, which needs its SDK; a GPU-bound frame, where the round trip's time
 adds to the frame's; a queue of compute alone; binary semaphores.
 
+### DLSS through the handoff
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with the DLSS SDK 310.9.16's
+`nvngx_dlss.dll`, on one fresh instance, behind `-Dquadrature.handoff=measure
+-Dquadrature.handoff.evaluate=dlss` (ARCHITECTURE.md 4.9) in Performance mode at a render scale of
+one half: 960x540 to 1920x1080 and 1280x720 to 2560x1440, the sizes DLSS's optimal settings ask
+for. The handoff's parts took turns in segments of 120 frames as in the handoff's own measurement,
+over a five-view tour that visits the Nether and comes back; the parts that evaluate ran DLSS. An
+`nvidia-smi` sampler every 250 ms tagged each frame with the GPU's power state. P0 held most frames,
+its median graphics clock 1,605 MHz in the 1080p K run and 1,920 to 1,927 MHz in the others. DLSS
+evaluated on the game's frame copied down, with zero motion and no jitter: enough to time it, not to
+judge its picture.
+
+| Median GPU time at P0 | 1080p, preset K | 1080p, preset M | 1440p, preset K | 1440p, preset M |
+|---|---|---|---|---|
+| NGX's own commands | 1.544 ms | 2.553 ms | 2.201 ms | 4.531 ms |
+| their 99th percentile | 3.249 ms | 5.848 ms | 3.587 ms | 8.795 ms |
+| NVIDIA's published cost, RTX 3060 | 1.45 ms | 2.81 ms | 2.39 ms | 5.05 ms |
+| Round trip with DLSS | 1.887 ms | 2.852 ms | 2.514 ms | 4.844 ms |
+| Round trip alone, same run | 0.380 ms | 0.291 ms | 0.285 ms | 0.282 ms |
+| All of it (copies in, round trip, copy out) | 1.985 ms | 2.944 ms | 2.646 ms | 4.979 ms |
+| DLSS's feature, GPU memory | 82 MiB | 124 MiB | 142 MiB | 209 MiB |
+
+- **DLSS costs here what NVIDIA publishes, and the handoff adds its fixed latency.** NGX's own
+  commands come within 0.09 to 0.52 ms of the guide's figures, under them except at 1080p with
+  preset K. The round trip with DLSS exceeds NGX's work by 0.30 to 0.34 ms in every
+  configuration, the handoff's cost measured alone, so the handoff's measurement predicted
+  DLSS's cost through it.
+- **The clock.** NGX's time is the same within 0.3 ms at every graphics clock the sampler saw
+  above 1,000 MHz (1440p, preset M: 4.52 to 4.54 ms from 800 to 1,999 MHz). Either the 250 ms
+  samples do not follow the clock within a frame, or the evaluation does not depend on it; these
+  runs cannot tell which.
+- **The frame interval** at P0 stays at the cap, 8.32 to 8.38 ms, in every part of every run,
+  preset M at 1440p included: under the cap DLSS fits in the frame's slack. The longer intervals
+  at P3 come in the parts without DLSS too (11.3 ms with the handoff off at 1080p).
+- **The client** spends 0.096 to 0.103 ms a frame in recording and submitting the DLSS batch,
+  against 0.015 ms for the stand-in's prerecorded one, since NGX records its evaluation into the
+  batch each frame; the handoff in all takes 0.19 to 0.20 ms a frame.
+- **Memory.** Starting NGX adds about 19 MiB to the Vulkan device (24 MiB against 5 to 6).
+  DLSS's feature is the fall in the driver's available memory over making the images and the
+  feature, less the images' 26.25 and 45.00 MiB; the guide gives 85.8 to 119.3 MB at 1080p and
+  143.5 to 207.4 MB at 1440p.
+- **Checks.** Every stamp check passed, 18 to 22 a run, with no OpenGL error on a checked frame
+  and no result dropped; the stamp is written into the output's first pixel after DLSS, so the
+  check proves the round trip, not DLSS's picture. Over three world changes a run, DLSS's history
+  started afresh each time and the images were kept. NGX's logs show it mapped the project's
+  identifier as an engine of its own, loaded the SDK's `nvngx_dlss.dll` 310.9.16 from the path the
+  run gave, and took the preset asked for in every quality mode.
+- **Validation.** On the first build, Vulkan's validation layer reported 14 messages, all of them
+  NGX using buffer device addresses on a device that had not enabled them: NGX's list of the
+  extensions it needs does not name the feature. With the feature enabled for DLSS, a validated
+  run with three world changes reported nothing. NGX's time on the first build matched the second
+  (1.550 against 1.544 ms at 1080p with preset K).
+### DLSS taking the scaler's picture
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with the DLSS SDK 310.9.16's
+`nvngx_dlss.dll` and preset K, on one fresh instance at 2560x1440 with own terrain, over the
+scaler's short tour (three places far and near and the glowing golem, seven views), scored by
+`tools/frames.py quality` against own terrain at the output's size with both switches off, run in
+the same instance and checked against its settling run. DLSS took the scaler's picture in every
+composite of its runs (17,950 at 0.67, 17,915 at 0.5), with the offset taken as the scaler makes
+it, x +1 and y +1.
+
+| Against native, short tour | Drawn | PSNR | SSIM | Edge detail | GPU for the picture |
+|---|---|---|---|---|---|
+| Own scaler, 0.67 with the temporal pass | 1715x965 | 28.31 dB | 0.811 | 0.513 | 1.03 ms |
+| DLSS, Quality mode, 0.67 | 1715x965 | 30.37 dB | 0.897 | 0.773 | 2.91 ms |
+| DLSS, Performance mode, 0.5 | 1280x720 | 29.21 dB | 0.858 | 0.709 | 2.77 ms |
+
+The GPU time is the sum of the medians of the scaler's passes that ran: the depth copies, motion,
+and either the temporal and scale passes or the handoff, and the depth stretch. The clocks differ:
+while the GPU worked, the own scaler's run sat in P3 for 500 of 574 samples, at a median 1,020 MHz,
+and both DLSS runs in P0 for every frame, at 1,927 MHz.
+
+- **DLSS makes the better picture, at either scale.** At 0.67 it scores 2.06 dB and 0.086 in
+  structural similarity above the own scaler, on every view; at 0.5, drawing 44% fewer pixels,
+  it still scores 0.90 dB above the own scaler at 0.67. The own scaler's scores repeat its
+  measurement on another instance to the third decimal (28.30 dB, 0.811, 0.512).
+- **What it costs.** NGX's own work takes 2.246 ms at 0.67 and 2.215 ms at 0.5, all at P0: set by
+  the output's size, not the drawn one, as in DLSS through the handoff (2.20 ms at this output in
+  Performance mode). The round trip adds 0.26 ms, the copies in 0.14 ms at 0.67 and 0.09 ms at
+  0.5, the copy out 0.09 ms, so the picture costs 1.9 ms more than the own scaler's at 0.67, and
+  the client 0.17 ms a frame. The own scaler's time was taken at about half DLSS's clock, so at
+  equal clocks the difference is larger; and DLSS's load held the card in P0, where the own
+  scaler's let it fall to P3. The frame stayed at the cap, 8.33 ms.
+- **Mode and range.** NGX takes render sizes from 1280x720 to 2560x1440 for this output in
+  Quality mode, so the scaler's 1715x965 at 0.67, a few pixels above Quality's optimal 1707x960,
+  is accepted; 0.5 is Performance mode's optimal size. The scaler cycled through 18 and 32 offsets.
+- **The offset's sign, shown.** With the y offset's sign flipped DLSS scores 27.44 dB and 0.793,
+  and with both flipped 26.57 dB and 0.746, against 30.37 dB and 0.897 as the scaler makes it.
+  Edge detail rises as the sign goes wrong (0.796 and 0.840): misplaced samples alias, which adds
+  gradient, so edge detail alone does not rank a scaler.
+- **Validation.** Over a validated run of the tour, Vulkan's validation layer reported nothing.
+- **The refusals.** With the stand-in asked for beside the scaler, and with DLSS asked for beside
+  a scale of 0.67 without the temporal pass, the handoff was turned away with its message and
+  opened no Vulkan device, and the scaler ran: 7 of 7 views each.
+- **Not measured.** The views are still; a picture in motion is not scored, and the scaler's
+  motion is the camera's, so entities and particles carry none (D21). No texture LOD bias is
+  applied for the scale, which DLSS's guide recommends.
+### The scaler's costs
+
+Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, on one fresh instance with own terrain
+over the scaler's short tour, at 2560x1440 and 3840x2160 (the window ran at the full size). The
+jar, built from tree d06c9696, carried three cuts to the scaler's cost, and with
+`quadrature.scale.compare=true` ran every other 120 composites with the programs and barrier as
+they had been, so both were timed in the same seconds: the temporal pass's nine neighborhood
+weights computed once a frame on the CPU against nine exponentials a pixel, the scale pass's 16
+taps read straight from its shared tile against copied into registers first, and a barrier for
+framebuffer access, texture fetches and texture updates against one for everything. A pass's time
+is the median over the run's reports of each report's median, by power state.
+
+| Median GPU time at P0, ms, with the cut / without | Temporal | Scale (at 1, the copy) | Barrier |
+|---|---|---|---|
+| LOW, 0.67 of 2560x1440 | 0.317 / 0.317 | 0.385 / 0.386 | 0.002 / 0.002 |
+| MEDIUM, 0.77 of 2560x1440 | 0.361 / 0.360 | 0.335 / 0.334 | 0.002 / 0.002 |
+| HIGH, the temporal pass alone at 2560x1440 | 0.493 / 0.493 | 0.095 / 0.095 | 0.001 / 0.001 |
+| LOW, 0.67 of 3840x2160 | 0.483 / 0.484 | 0.607 / 0.609 | 0.001 / 0.001 |
+| MEDIUM, 0.77 of 3840x2160 | 0.643 / 0.646 | 0.617 / 0.617 | 0.001 / 0.001 |
+| HIGH at 3840x2160 | 1.081 / 1.086 | 0.182 / 0.182 | 0.001 / 0.001 |
+
+- **None of the three cuts saves time**: with and without, the passes agree within 0.005 ms at
+  P0 and within 0.011 ms either way at P3. The programs stay as they were; the barrier is
+  narrowed to what follows. With all three cuts the picture at 0.67 of 2560x1440 scored 28.31 dB,
+  SSIM 0.811 and edge detail 0.513 against own terrain at the output's size in the same instance,
+  as the programs before them did on another (DLSS taking the scaler's picture).
+- **The scaler's whole cost** at P0, its two depth copies, motion, the temporal pass, the scale or
+  copy, the barrier, the depth's stretch and what lies between them: LOW 0.982 ms at 2560x1440 and
+  1.520 at 3840x2160, MEDIUM 0.972 and 1.781, HIGH 0.957 and 2.010. The scaler stage takes 0.008
+  to 0.014 ms more than its passes; the 0.28 ms counted between them before came from medians
+  over different mixes of clock states. For two and a quarter times the pixels the passes take
+  1.55 times as long at LOW, 1.83 at MEDIUM and 2.10 at HIGH.
+- **At 3840x2160 the scaler does not pay on today's frame.** Over the short tour's seven views,
+  opaque and translucent terrain took 2.357 ms at the output's size; with the scaler, terrain and
+  the scaler stage took 2.807 ms at 0.67 and 3.293 ms at 0.77. Opaque terrain, mostly a cost per
+  vertex, fell only from 1.189 to 0.949 and 1.104 ms; translucent terrain, the water filling
+  pixels, from 1.168 to 0.424 and 0.521 ms.
+- **DLSS at 3840x2160**, taking the scaler's picture at 0.5 in Performance mode: NGX's own work
+  4.820 ms (NVIDIA gives 5.05), the round trip 5.095 ms, the whole step 5.482 ms, all at P0; the
+  frame held the cap.
+- **The tier model** (ARCHITECTURE 12.1.1) now carries each tier's scaler as a line through its
+  two outputs, and DLSS as 0.39 ms fixed and 0.61 ms an output megapixel from its two steps. On
+  the stored run its unit test holds, this card's choices stand: HIGH to 2560x1440, at 5.65 ms of
+  the 7 there (a fit of 1.24, before 1.37, as HIGH's temporal pass at the output's size had been
+  carried at 0.41 ms), and MEDIUM at 3840x2160, at 6.31 ms (a fit of 1.11, before 1.07). DLSS fits
+  above HIGH at 1920x1080 (1.19) and not at 2560x1440 (0.84).
+- **Not run on its own:** the jar committed, which is the programs before the cuts with the
+  narrowed barrier; each part ran above, the programs in DLSS taking the scaler's picture and the
+  barrier here.
+
+### The light scene's slots by place
+
+Measured 2026-11-19 with a jar built from commit e341eb5, own terrain and the scene's buffers
+(`quadrature.scene=true`, `quadrature.scene.gpu=true`) at reach twelve, a box of 15,625 cubes, on
+fresh instances without distant terrain: seed 8675309 at the default scale for Riven's own tours
+of caves (24 views from a chasm down to a lava river) and of water (reef, kelp and waterweed
+underwater, three shallows), and seed 101 for its rock forms (fin arches, tower karst, tsingy,
+hoodoos, basalt), standing in for a built-up area. The most slots in use over each run, against
+6,406 over the forest tour:
+
+| Run | Most slots in use | Held at the captures |
+|---|---|---|
+| Caves | 11,632 | 3,246 above the chasm to 11,632 in the ink-cap cave at y -52; 8,656 to 10,304 at every view from y -150 down to a lava river at -466 |
+| Water | 9,262 | 2,405 to 9,262 |
+| Rock forms | 5,377 | 529 to 5,377, most at the tsingy |
+
+- **A cave system holds most of the box as bricks**, three quarters of it at the worst view: what
+  lies around a deep view is mixed cubes in every direction. One and a half times 11,632 is
+  17,448, more than the box, so the buffers keep room for every cube (ARCHITECTURE 5.1).
+- **The copy kept up**: at the end of each run no cube or entry waited, and the most one frame's
+  copy took on the client thread was 19.7 ms in the caves and 13.2 ms over water.
+### Why cubes are built
+
+Measured 2026-11-19 with a jar built from tree 915d399b (commit e341eb5 and the build causes) on one
+fresh instance of seed 8675309 without distant terrain, own terrain at reach twelve, with
+`quadrature.terrain.causes=true`: eight views of Riven's underground tour at falling depth (the chasm
+from above to a lava river 466 blocks down), then nine of its standard surface views. Each hand-in is
+counted under the first of the events since the cube's last one: its arrival, a resend, a change of
+blocks, light or biomes, or a change of a cube touching it alone (the source's NEIGHBOR, raised when a
+touching cube arrives, leaves or changes at their boundary, and carrying the whole cube). Each
+rebuild's vertices and records are hashed and compared with the mesh it replaced.
+
+| Hand-ins | Underground, 8 views | Surface, 9 views |
+|---|---|---|
+| In all | 156,085 | 136,579 |
+| First builds, the cube's arrival | 68,036 | 53,431 |
+| A touching cube alone | 86,851 | 82,203 |
+| Light | 1,336 | 1,527 |
+| Resends, blocks, biomes | 0 | 0 |
+| Rebuilds after a touching cube that drew the same as before | 76,129 of 83,203 | 71,648 of 78,485 |
+| Rebuilds after light that drew the same | 485 of 1,156 | 628 of 1,262 |
+
+- **About half of all building is redone for nothing.** A touching cube alone brings 56% of the
+  hand-ins underground and 60% at the surface, and 91% of those rebuilds draw exactly what they
+  replace: 49% and 52% of every build, at 1.2 ms each on Cubature's threads.
+- **The source raised 8.3 and 7.8 NEIGHBOR events a cube's arrival** (872,309 and 1,151,114 events
+  for 105,266 and 147,817 arrivals), merged into a cube's pending hand-in where several come before it.
+- **Underground costs more by its volume:** 19,500 hand-ins a view against 15,200 at the surface,
+  as more of the cubes around a cave view are mixed.
+### Side-aware rebuilds
+
+Measured 2026-11-19 with a jar built from tree 88e42c5b (commit 1bfc3cf and the side-aware rebuilds),
+own terrain at reach twelve with `quadrature.terrain.causes=true`, against the rule before it
+(`quadrature.terrain.neighbors=all`) in the same jar. Caves: eight views of Riven's underground tour,
+seed 8675309, on one instance after a run that generated them, and on a second, fresh instance whose
+first run generated them. Forest: the forest tour on a fresh instance of seed 2485331 at scale four,
+the game's terrain twice (settling, reference), then own terrain with each rule.
+
+| | Builds | Rebuilt for a touching cube | Of them drawing the same | All air settled again | Build time |
+|---|---|---|---|---|---|
+| Caves, generating, old rule | 149,126 | 75,478 | 69,269 | 99,523 | 202 s |
+| Caves, generating, side-aware (another instance) | 99,577 | 27,432 | 18,559 | 20,822 | 163 s |
+| Caves, generated, old rule | 88,875 | 16,987 | 14,156 | 83,409 | 125 s |
+| Caves, generated, side-aware | 79,155 | 6,603 | 2,916 | 22,311 | 109 s |
+| Forest, old rule | 73,349 | 15,482 | 12,915 | 292,910 | 119 s |
+| Forest, side-aware | 63,043 | 5,433 | 3,051 | 70,832 | 103 s |
+
+- **Most of what was redone for nothing is no longer done**: rebuilds that drew the same fell by
+  73% to 79%, and builds in all by a third while the world generates around the player and by 11% to
+  14% through terrain already generated, where far fewer touching changes come. Changes passed by as
+  unread: 835,995 while generating, 787,356 and 1,523,111 through generated caves and forest.
+- **Generation is where touching changes come from**: through the same eight cave views the old rule
+  rebuilt 75,478 cubes for a touching cube while the world generated and 16,987 once it had.
+- **The pictures are unchanged.** Own terrain passes all 17 forest views against the game's own draw
+  with either rule (the side-aware run's worst view 07, 0.0401%), and the two rules' runs pass against
+  each other, 8 of 17 identical byte for byte and the worst view 07 at 0.0311%, within the 0.0387% two
+  runs of one rule differ by. In the caves the two rules' runs pass at seven views, closer than two
+  runs of the old rule; at the eighth, a lava lake, they caught the lava's animated texture at another
+  frame, with the same geometry.
+- **Reading through the wrapper costs nothing measurable**: a build took 1.41 and 1.37 ms through the
+  generated caves and 1.62 and 1.63 ms through the forest, old rule and side-aware. The generating runs,
+  1.36 and 1.64 ms, ran on two instances while their servers generated.
+- **What is still redone for nothing** (2,916 to 18,559 rebuilds) comes from cubes that read the
+  touching cube's side and drew the same anyway: a change's bounds reach a whole face where the cube
+  read one layer of it, and a change of light over the whole cube reaches every side.
+
+### The game's chunk rebuild without the opaque layers, and the walk as the default mesher
+
+Measured 2026-11-19 with a jar built from tree 0cc05c0f (commit 1287618 with PLAN item 12a and the
+walk as the default mesher for model blocks), the forest tour on a fresh instance of seed 2485331 at
+scale four: the game's terrain twice (settling, reference), then own terrain with both changes, then
+own terrain with both switched back (`quadrature.terrain.gameOpaque=build`,
+`quadrature.terrain.mesh=dispatcher`). The game's rebuilds are timed in the rebuild itself, on the
+clock, from start to end.
+
+| | Game's rebuilds on its threads | Each | On the client thread | Quadrature's builds | Each |
+|---|---|---|---|---|---|
+| Game's terrain (reference) | 83,847, 101.4 s | 1.209 ms | 1,027, 0.59 s | | |
+| Own terrain, both changes | 80,973, 44.1 s | 0.545 ms | 970, 0.14 s | 62,817 | 1.609 ms |
+| Own terrain, both switched back | 76,070, 111.1 s | 1.460 ms | 943, 0.65 s | 63,060 | 2.083 ms |
+
+- **The game's rebuilds take 60% less time** (44.1 against 111.1 s over the tour) once they leave out
+  the opaque layers, and those it does at once near the player on the client thread 78% less (0.14
+  against 0.65 s). Every rebuild under own terrain left them out (81,943 of 81,943).
+- **The pictures are unchanged.** Own terrain passes all 17 views against the game's own draw with
+  both changes (worst view 15, 0.0214%) and with both switched back (worst view 07, 0.0257%); the two
+  own-terrain runs are identical byte for byte at 12 views and differ by at most 0.0012% at the rest.
+- **Quadrature's build time is not settled by these runs.** A build took 1.609 ms with both changes and
+  2.083 ms without them, but the configuration without them took 1.62 to 1.63 ms on the side-aware runs
+  of the same day, so a build's time on the clock moves by a quarter between runs, and the run with
+  both changes also had the game's threads doing 60% less beside it. The walk's vertices are the
+  dispatcher's, as the face check shows; what it saves is left to measures a run's other load does not
+  move: the build threads' own CPU, and the face check timing both ways on the same blocks.
+
+### The light matrix from a table of the cube
+
+`TableLighter` fills Forge's smooth lighter's matrix from a table of the cube, each cell asked once.
+Checked first offline against Forge's own lighter, by a program kept with the run's evidence: random worlds of
+proxy states in four mixes of opacity, light, occlusion and covered sides, every block of 40 cubes a seed
+lit both ways, every value of the matrix compared bit for bit: 491,520 blocks over three seeds, none
+differing; with a fill rule or the corner rule changed by one character, 144,827 and 155,025 of 163,840
+differ, so the comparison sees a wrong matrix.
+
+Then in the game, 2026-11-19, a jar from tree 362b8b38 (commit 3c9fddc with the table, the build
+threads' own CPU in the terrain line, and the face check timing both ways), on the generating cave tour
+of seed 8675309, each run on a fresh instance with Cubature cb64f367:
+
+- **The same vertices.** With the face check every cube is meshed through the game's dispatcher and
+  through the walk, which lights from the table: 92,566 cubes, none differing in any layer.
+- **No time saved that shows.** On those same blocks, one after the other on the same threads, the
+  dispatcher took 107,725 ms and the walk with the table 107,668 ms, the walk's notes for face records
+  included. A check run on another fresh instance with `quadrature.terrain.lightTable=off` separates the
+  table's own share, each run's walk time taken over its own dispatcher time: 1.029 without the table
+  (121,364 against 117,952 ms over 95,896 cubes, none differing), 0.9995 with it. The table saves about 3%
+  of the walk's time on the same blocks, about what the walk's notes for face records cost.
+- **Without the check**, a build took 1.291 ms on the clock and 1.220 ms of its thread's CPU over 97,555
+  builds; the game's rebuilds left the opaque layers out in all 126,663, 50.7 s on its threads, 29.3 s of
+  their CPU, and 0.76 s on the client thread.
+
+The table and the walk are kept for being exact and for what the walk does not allocate; neither is
+counted as a saving of time.
+
+**Quads lit straight into the buffer, 2026-11-20.** A recording of the meshing pool (forest tour, recorder chunks of
+1 MiB, 14,534 samples) put Forge's per-vertex pipeline at 42% of it once the table had taken the light matrix: each
+element of each vertex unpacked to floats, gathered, lit and packed back. TableLighter.putQuad writes what that
+pipeline writes, reading the quad's integers and calling Forge's own per-vertex light and occlusion. Offline against
+Forge's pipeline: 53,934 of 60,000 random quads in random worlds written directly (the rest ask for a normal to be
+made and go through Forge), every one the same byte for byte. In the game, with a jar from tree b31fc380 on the
+generating cave tour on fresh instances:
+
+- **The same vertices.** The face check meshed 91,227 cubes both ways, none differing in any layer.
+- **A sixth less time on the same blocks.** The walk took 0.833 of the dispatcher's time (91,958 against 110,444 ms),
+  where with the table alone it took 0.9995.
+- **Without the check** a build took 1.233 ms on the clock and 1.167 ms of its thread's CPU over 105,075 builds.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1022,6 +1362,24 @@ there against 0.18 and 0.41 at 16), and spread over frames; in brackets the earl
 MAX's two cascades were measured together at one length (4.89 ms at 64, 12.17 ms at 256); the line
 above takes half of each. The far-shadow line is per million rays: a whole 2560 by 1440 picture is
 3.7 million.
+
+**Two more kinds of place, 2026-11-19.** The same benchmark and check on the brick-slot tours, each on a
+fresh instance with a jar from tree 362b8b38: open water (seed 8675309, 12 whole sets) and rugged rock forms
+with open caves (seed 101, 14 whole sets). MAX's batch of two million rays, at 16, 64 and 256 blocks:
+
+| Place | Probes | Toward a low sun | Shadows from above |
+|---|---|---|---|
+| The dwell tour's places (above) | 1.1, 4.9, 12.2 ms | 1.4, 3.6, 5.4 ms | |
+| Open water | 0.50, 0.87, 1.01 ms (75% hit) | 1.61, 3.81, 5.31 ms | 1.31, 1.93, 2.54 ms |
+| Rugged rock and open caves | 0.63, 1.63, 9.62 ms | 1.19, 2.76, 3.72 ms | 1.04, 1.45, 2.55 ms |
+| A town of 36 stone buildings, 2026-11-20 | 0.98, 3.97, 8.76 ms | 1.34, 3.44, 4.68 ms | 1.18, 2.10, 3.22 ms |
+
+Probes over water end at its surface. Over rugged ground they pass through open air at 16 and 64 blocks
+without meeting anything and cost most only at 256. No place measured here is dearer than the dwell tour's
+places for any class, so the tier costs taken from them stand. The check found no difference in either run. The
+town, built by its own tour (	own-2485331) on a platform above the forest tour's last places on a fresh instance:
+36 hollow buildings ten blocks square and twelve high with glass bands, streets three to six blocks wide; it too is no
+dearer for any class.
 
 ### The tier benchmark
 
@@ -1339,8 +1697,12 @@ handoff to Vulkan onto the build pool.
 
 Since that jar, the tier benchmark waits for the light scene's copy and turns away a trace far from
 the run's other ratios (5f0cd3a); those paths are unit tested, and no run above traced outside the
-bound. Not run: the handoff's refusal beside the scaler, which turns the handoff off at its first
-frame.
+bound. The handoff's refusal beside the scaler ran later the same day, on that code with the
+DLSS shim beside it: with the scaler at LOW and DLSS asked for, and at HIGH with the stand-in,
+the handoff turned itself off at its first frame with one warning and opened no Vulkan device,
+and the scaler ran, 5 of 5 views each. Since then DLSS takes the scaler's picture instead (DLSS
+taking the scaler's picture).
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.
@@ -1373,6 +1735,8 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.glDebug=true` | Logs the driver's messages of every severity, each distinct one when first seen and again when its count reaches ten, a hundred and so on, marked with whether it arrived during a terrain layer's draw |
 | `quadrature.rays.bench=true` | With the scene's buffers: at a settled view, traces probe and shadow rays at three lengths in each tier's batch, from the scene's buffers and from a copy on the GPU, and logs GPU times, how the rays ended and the driver's moves of each buffer per set. `quadrature.rays.bench.settle`, `.every` and `.warm` set its seconds (3, 20, 2) |
 | `quadrature.rays.check=true` | With the benchmark: traces a sample of each batch's rays again on the CPU over the buffers read back through staging copies, and logs `RAYS CHECK FAILED` where any word differs |
+| `quadrature.terrain.neighbors=all` | Every change of a touching cube rebuilds a cube, as before the side-aware rebuilds: the source's own NEIGHBOR changes are followed and what a build read is not consulted |
+| `quadrature.terrain.causes=true` | Counts each cube's hand-in to be built by the first of its causes (arrival, resend, blocks, light, biomes, a touching cube alone) and whether each rebuild drew the same as the mesh it replaced, by a hash of its vertices made on the build's thread; appended to the terrain's summary |
 | `quadrature.rays.fetch=texture` | The trace reads the lookup and bricks through their buffer textures instead of storage blocks |
 
 An out-of-memory error from the game loop is one the game catches itself: it frees what it can,
@@ -1398,3 +1762,26 @@ A settled frame is one with no cube waiting to be meshed.
   in view 07 and the settled horizon difference are unexplained.
 - One tour, one machine (RTX 3060), one resolution.
 - Captured frames and references are kept out of the repository.
+
+### When another card is measured
+
+PLAN's capability work items 1 and 8 wait for a Turing card and an RTX 3050 8 GB. Each card's first runs
+check predictions written before it arrives, in this order, on a fresh instance of the forest tour:
+
+1. **The capability dump** (`-Dquadrature.capabilities=true`): the client's `quadrature-capabilities.txt`,
+   set beside the RTX 3060's line by line. Expected to differ on a Turing card: the mesh shader limits
+   (smaller task and mesh payloads), sparse page sizes, and memory; expected the same: every extension
+   the capability set names (D20). A missing capability is a gate refusal, recorded as such, not worked
+   around.
+2. **The tier benchmark** (`-Dquadrature.tierBench`): its stored result against the prediction the
+   calibration makes from the card's published speed relative to the RTX 3060 (ARCHITECTURE, 12.1.1, the
+   four clusters). A score more than the band away from the prediction means a probe stands for its groups
+   less well on this card than on the reference, which is looked for probe by probe before the tiers are
+   trusted.
+3. **The lowest tier's budgets** (D22): LOW's groups at 1920 by 1080 and 2560 by 1440 under the card's own
+   8 GB, measured, against the budgets scaled from the RTX 3060 under an enforced 8 GB
+   (`quadrature.tier.memoryLimitMiB`). The memory tier is read from the eviction count and the 1% low over
+   the tour, as at run time.
+
+A card is recorded under its own heading here, with its driver branch, and the four clusters' bounds are
+revised from it.
