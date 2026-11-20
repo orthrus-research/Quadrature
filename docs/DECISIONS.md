@@ -130,9 +130,9 @@ Cubature integrates over a volume; quadrature integrates over a surface. The ren
 the first into the second. Java namespace `cc.orthrus.quadrature`, mod ID `quadrature`.
 
 **D10. Existing support stays until replaced.**
-Cubature's Celeritas, Demonica, vanilla chunk-render and Distant Horizons integrations
-remain supported until the Quadrature phase that replaces each one closes. They are then
-deleted, not moved.
+Cubature's vanilla chunk-render and Distant Horizons integrations remain supported until the
+Quadrature phase that replaces each one closes. They are then deleted, not moved. Demonica, with
+the Celeritas it bundles, is not a target, and Cubature carries no integration with either.
 
 ## 2026-11-18
 

@@ -14,7 +14,7 @@ the replacement is proven. Requirements for each area are in
 | P3 Mod interface and post-processing | Layers, emissive, bloom, stage hooks, state containment | GTCEu: Reloaded's bloom runs on it and its renderer Mixins are deleted |
 | P4 Levels of detail | Distant source, detail levels, streaming, transitions | Distant Horizons and Cubature's integration with it are removed, at parity or better |
 | P5 Shaders | Shading stages, shader format, first shader, the suite | Quadrature's shaders light near terrain, distant terrain, entities and the hand, and can be switched in game |
-| P6 Retirement | Removal of the Celeritas and Demonica integrations; documents updated | No third-party code remains in the render path |
+| P6 Retirement | Removal of the remaining third-party render integrations; documents updated | No third-party code remains in the render path |
 
 The pass graph built in P1 is designed for P5 from the start, so shading stages are added
 to an existing graph and the frame is not rewritten. Levels of detail come before shaders so
