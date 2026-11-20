@@ -1350,6 +1350,13 @@ figures are taken as the top state's, as the other items' settled runs are.
 - Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
   shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
   when measured, which can only raise the speeds needed.
+- Not counted, though measured: distant terrain, the reach group. It took 2.2 to 2.6 ms of GPU a
+  frame at 1280 by 720 for 1.4 to 1.6 million faces ([DISTANT.md](DISTANT.md), section 9), and 2.3 ms
+  in the cross-mod diagnostics' full stack; the opaque-terrain probe's line gives under 1 ms for as many
+  primitives, so distant terrain costs about three times as much a primitive and the terrain probe
+  cannot stand for it. It enters the table as its own line, by faces drawn at each tier's reach and by
+  render pixels, once its cost is measured at two reaches and two resolutions; at its one measurement it
+  is the largest group a tier holds.
 - **Rendering below the output costs time at today's frame.** The scaler's passes take, at P0,
   0.98 ms at 2560 by 1440 output from 0.67, 0.97 from 0.77 and 0.96 for the temporal pass alone
   at the output's size (HIGH and MAX), and 1.52, 1.78 and 2.01 ms at 3840 by 2160, with about

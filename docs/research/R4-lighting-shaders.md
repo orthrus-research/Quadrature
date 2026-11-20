@@ -483,6 +483,35 @@ enabled, that glides the camera along a path set in ticks after a settle (in one
 blocks and 18 degrees over 80 ticks), saves a frame a tick, and closes the client; the near and
 distant terrain join used it on 2026-11-17.
 
+**7b.5 Motion for entities the game draws: a proposal. [P]**
+The game draws entities through fixed-function OpenGL, so they cannot write a motion vector as they
+are drawn, and reprojecting their pixels by the camera alone gives a moving mob the ground's motion.
+What the game does know, per entity and per frame, is enough to give their pixels motion after the
+fact: the position it draws the entity at (its last two tick positions interpolated by the frame's
+partial tick), its body's yaw interpolated the same way, and its bounding box. Proposed, in three parts:
+- *Per entity, two transforms.* At the entity stage, each entity drawn is noted with its interpolated
+  position and yaw this frame, and the same from the frame before, kept by entity id for one frame.
+  An entity with no entry from the frame before (it just came into view) has none, and its pixels
+  keep the camera's motion and the higher share of the current frame they have today.
+- *Which pixels are an entity's.* A pass of Quadrature's own, after the entity stage, takes each pixel
+  whose depth changed during that stage (the mask the temporal pass already keeps), rebuilds its world
+  position from depth, and tests it against the boxes of the entities noted, grown by a block's tenth.
+  The box test keeps the ground under a mob's feet and a wall behind it out, since their depth did not
+  change in the entity stage; the depth test keeps out a terrain pixel that lies inside a box.
+- *The motion.* For a pixel inside an entity's box, its position the frame before is the entity's rigid
+  motion applied to it: taken into the entity's frame by this frame's position and yaw and out again by
+  the last frame's, then projected with the last frame's view, as the camera's reprojection already does
+  for terrain. This covers walking, turning, falling and riding; a limb's own swing is not covered,
+  and is left to the box clip, which already bounds what it can trail.
+
+Costs: a list of a few hundred boxes a frame, one pass over the pixels whose depth the entity stage
+changed. What it needs from the game is read, not changed. It leaves block entities (whose models move
+in place, a chest's lid) and particles to the clip as now. It is the precondition D21 names for DLSS's
+picture; it is also what the own temporal pass lacks on moving mobs. Before it is built: a look for
+patents on reconstructing per-object motion vectors from depth and object transforms, as for the other
+temporal techniques (D23), and a measure on a motion tour past a summoned golem, against camera-only
+reprojection: the energy of the difference to a native-resolution reference behind the golem's edges.
+
 ## Follow-ups
 
 1. A second, deeper pass on 7.1 to 7.3 with primary sources, once R1's hosted-rendering
