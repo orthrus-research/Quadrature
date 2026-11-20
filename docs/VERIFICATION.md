@@ -1116,6 +1116,34 @@ the game's terrain twice (settling, reference), then own terrain with each rule.
 - **What is still redone for nothing** (2,916 to 18,559 rebuilds) comes from cubes that read the
   touching cube's side and drew the same anyway: a change's bounds reach a whole face where the cube
   read one layer of it, and a change of light over the whole cube reaches every side.
+
+### The game's chunk rebuild without the opaque layers, and the walk as the default mesher
+
+Measured 2026-11-19 with a jar built from tree 0cc05c0f (commit 1287618 with PLAN item 12a and the
+walk as the default mesher for model blocks), the forest tour on a fresh instance of seed 2485331 at
+scale four: the game's terrain twice (settling, reference), then own terrain with both changes, then
+own terrain with both switched back (`quadrature.terrain.gameOpaque=build`,
+`quadrature.terrain.mesh=dispatcher`). The game's rebuilds are timed in the rebuild itself, on the
+clock, from start to end.
+
+| | Game's rebuilds on its threads | Each | On the client thread | Quadrature's builds | Each |
+|---|---|---|---|---|---|
+| Game's terrain (reference) | 83,847, 101.4 s | 1.209 ms | 1,027, 0.59 s | | |
+| Own terrain, both changes | 80,973, 44.1 s | 0.545 ms | 970, 0.14 s | 62,817 | 1.609 ms |
+| Own terrain, both switched back | 76,070, 111.1 s | 1.460 ms | 943, 0.65 s | 63,060 | 2.083 ms |
+
+- **The game's rebuilds take 60% less time** (44.1 against 111.1 s over the tour) once they leave out
+  the opaque layers, and those it does at once near the player on the client thread 78% less (0.14
+  against 0.65 s). Every rebuild under own terrain left them out (81,943 of 81,943).
+- **The pictures are unchanged.** Own terrain passes all 17 views against the game's own draw with
+  both changes (worst view 15, 0.0214%) and with both switched back (worst view 07, 0.0257%); the two
+  own-terrain runs are identical byte for byte at 12 views and differ by at most 0.0012% at the rest.
+- **Quadrature's build time is not settled by these runs.** A build took 1.609 ms with both changes and
+  2.083 ms without them, but the configuration without them took 1.62 to 1.63 ms on the side-aware runs
+  of the same day, so a build's time on the clock moves by a quarter between runs, and the run with
+  both changes also had the game's threads doing 60% less beside it. The walk's vertices are the
+  dispatcher's, as the face check shows; what it saves is left to measures a run's other load does not
+  move: the build threads' own CPU, and the face check timing both ways on the same blocks.
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE

@@ -151,6 +151,10 @@ public final class FrameHost {
         if (terrain != null) {
             line.append(String.format("%n  %s", terrain));
         }
+        String rebuilds = cc.orthrus.quadrature.terrain.GameChunkRebuilds.summary();
+        if (rebuilds != null) {
+            line.append(String.format("%n  %s", rebuilds));
+        }
         String scaler = TemporalScaler.summary();
         if (scaler != null) {
             line.append(String.format("%n  %s", scaler));

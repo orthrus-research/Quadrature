@@ -65,7 +65,14 @@ final class CubeMesher {
      * mesher's own walk, and the cube's quads are sorted into face records and kept vertices.
      */
     static final boolean FACES = Boolean.getBoolean("quadrature.faces");
-    private final QuadWalk walk = FACE_CHECK || FACES ? new QuadWalk() : null;
+    /**
+     * Whether a block drawn by its model is drawn through the mesher's own walk in plain vertex meshes as well,
+     * which writes the same vertices as the game's dispatcher with one kept position for its face tests and none
+     * copied for the consumer's offset (PLAN item 12). On unless {@code -Dquadrature.terrain.mesh=dispatcher};
+     * the face check keeps the dispatcher, since it sets the walk beside it.
+     */
+    static final boolean WALK = !"dispatcher".equals(System.getProperty("quadrature.terrain.mesh")) && !FACE_CHECK && !FACES;
+    private final QuadWalk walk = FACE_CHECK || FACES ? new QuadWalk(true) : WALK ? new QuadWalk(false) : null;
     /** What each build reads of the cubes around it. */
     private final SideReads sideReads = new SideReads();
     /**
@@ -267,6 +274,10 @@ final class CubeMesher {
                                     int from = builders[layer].getVertexCount();
                                     dispatcher.renderBlock(state, pos, world, builders[layer]);
                                     walk.foreign(builders[layer], from, LightScene.index(x, y, z), layer, Block.getStateId(state) & 0xFFFF);
+                                } else if (WALK && walk.usable() && state.getRenderType() == EnumBlockRenderType.MODEL) {
+                                    // The state number is noted only for face records, which this walk does not keep.
+                                    walk.render(dispatcher, world, state.getActualState(world, pos), pos, builders[layer],
+                                        LightScene.index(x, y, z), layer, 0);
                                 } else {
                                     dispatcher.renderBlock(state, pos, world, builders[layer]);
                                 }

@@ -175,7 +175,7 @@ built whole before any run; the runs and the analysis follow.
 | 9a | Clocks against samples: the plan's named methods timed by JFR's method timing, each set beside the time its samples imply, and a verdict per thread. Execution samples see a thread only while it runs Java code: on the base run they put autosave discovery at up to 71% of the server thread in a minute, three times its own budget | Built and calibrated 2026-11-19: the meshing pool's samples agree with its clock (0.89 to 0.99); the server thread's are off three to seven times either way, so its measure is the clocks and Cubature's phase times ([DIAGNOSTICS.md](DIAGNOSTICS.md)) |
 | 10 | Runs: base, full stack, then ablations of the mods attribution cannot settle. Plans are kept with the evidence; the generating cave tour is `tools/tours/caves-8675309.json`; the flight a 2,400-block square loop at 16 blocks a second with a 15 s stop, flown by the motion helper's route (0.2.0) | Done 2026-11-19 on four fresh instances: base, full stack without DLSS (its handoff switch was missing, which `check` now refuses), base with clocks, and full stack with DLSS and clocks; every route complete with no tick held. No ablation was needed |
 | 11 | Code analysis of what the runs find, with requisitions for Riven and Cubature | Done 2026-11-19: requisitions raised for Riven (the distant preview's work per column, ore placement, allocation and recompiles), Cubature (construction by runs, surface tracking by columns, the entity pass's cube lookups) and GTCEu Reloaded (its render-layer hook). Findings below |
-| 12 | Engine work to take over: the engine's CPU by system on the server tick and the frame, set against what each of our mods already patches, ranked by what taking it over would save and what it would free | Designed 2026-11-19 (below); not started |
+| 12 | Engine work to take over: the engine's CPU by system on the server tick and the frame, set against what each of our mods already patches, ranked by what taking it over would save and what it would free | Designed 2026-11-19 (below). 12a done 2026-11-19 ([verification](VERIFICATION.md), the game's chunk rebuild without the opaque layers): the game's rebuilds take 60% less time, every picture unchanged; with it, the walk is the default mesher for model blocks |
 | 13 | Cleanroom integration: Forge's, Cleanroom's, Mixin's and LWJGL's own CPU, startup by owner, event dispatch and compilation churn, each as a change to propose to Cleanroom or to work around in our mods | Leads below; not started |
 
 Findings, on the base configuration unless named. Figures on the server tick and the frame are clocks or the
@@ -226,6 +226,14 @@ work over in steps. Before the next step starts, each is verified against a game
 | 12f | Block entities and entities come from Quadrature's view: the game's entity pass reads the visible cubes that hold them, not the game's render chunks | The same entities and block entities drawn | The frame thread's entity pass. Cubature's lookup per render chunk (6.5 to 9.4% of the frame thread's samples) is gone |
 
 12a and 12b need no new technique. Steps 12c to 12f each get a PROVENANCE record in the commit that adds them.
+
+12a is done: the game's chunk rebuild answers false to the per-block layer test for the three opaque layers
+wherever own terrain draws that render chunk's world (`MixinRenderChunkLayers`, `GameChunkRebuilds`,
+`-Dquadrature.terrain.gameOpaque=build` for the game's full rebuild). Quadrature's own meshing drew every block
+through the game's dispatcher unless face records were on; the walk that face records use, the same to the bit
+and with no position made for a face test, is now the default for model blocks (`-Dquadrature.terrain.mesh=dispatcher`
+for the old path). That covers most of what 12d set out to save, the positions the game's face test makes; a table
+of each state's faces would save only two calls a face, so 12d waits for a profile that shows them.
 
 ## Reading rules
 

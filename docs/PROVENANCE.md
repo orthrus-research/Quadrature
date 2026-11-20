@@ -744,6 +744,25 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   for a face that passes the face test, as Quadrature's own `QuadWalk` does in following it.
 - Taken: the touching rule as the contract states it.
 - Added: 2026-11-19
+
+### The game's chunk rebuild without the opaque layers own terrain draws
+- Code: `src/main/java/cc/orthrus/quadrature/mixin/MixinRenderChunkLayers.java`,
+  `src/main/java/cc/orthrus/quadrature/terrain/GameChunkRebuilds.java`, the attached world in `Terrain.java`
+- Source: original. Facts used: the game's `RenderChunk.rebuildChunk` as Forge and Cleanroom 0.7.14 patch it
+  (a loop over every layer that asks the block's `canRenderInLayer` before beginning, rendering and uploading a
+  layer; the visibility graph and the block entity lists found before that test), read from the decompiled
+  sources and Cleanroom's patch; the readers of a compiled chunk's layers in `RenderGlobal` (the layer draw
+  own terrain replaces, the translucency resort, and the debug screen's count); MixinExtras' `WrapOperation`
+  and `Share`, as documented by MixinExtras.
+- Taken: nothing beyond the facts. No code from another renderer.
+- Added: 2026-11-19
+
+### The walk as the default mesher for model blocks
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/CubeMesher.java`, `QuadWalk.java`
+- Source: original: the walk of "The walk over a model's quads", used for plain vertex meshes as well, noting
+  nothing for face records. Its vertices were shown the same as the game's dispatcher's by the face check.
+- Added: 2026-11-19
+
 ### Rays walked through the occupancy bricks, cell by cell and node by node
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scene/BrickTrace.java`, `TraceFormat.java`;
   `src/main/java/cc/orthrus/quadrature/rays/TraceProgram.java`, `RayTracer.java`, `RayTrace.java`,

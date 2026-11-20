@@ -301,6 +301,8 @@ public final class Terrain
     private long tableVersion;
     private long searchedVersion = -1;
     private boolean attached;
+    /** The world whose opaque layers are drawn from own meshes, for the game's chunk-mesh threads (12a). */
+    private volatile Object attachedWorld;
 
     // Diagnostics, each absent unless its property is set.
     private final SelectionComparison comparison = SelectionComparison.ENABLED ? new SelectionComparison() : null;
@@ -485,12 +487,19 @@ public final class Terrain
         return attached;
     }
 
+    @Override
+    public boolean drawsOpaqueOf(Object world) {
+        return world == attachedWorld;
+    }
+
     // Events from the cube source.
 
     @Override
     public void worldAttached(long worldIdentity) {
         clear();
         attached = true;
+        // The source attaches at the end of a client tick to the world the game holds then.
+        attachedWorld = net.minecraft.client.Minecraft.getMinecraft().world;
         source.forEachLoaded((x, y, z) -> {
             dirty.add(CubeKey.of(x, y, z));
             links.put(CubeKey.of(x, y, z), CubeConnectivity.ALL);
@@ -507,6 +516,7 @@ public final class Terrain
 
     @Override
     public void worldDetached(long worldIdentity) {
+        attachedWorld = null;
         clear();
         attached = false;
     }

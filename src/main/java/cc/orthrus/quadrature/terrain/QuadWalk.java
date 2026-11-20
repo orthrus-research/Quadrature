@@ -75,6 +75,8 @@ final class QuadWalk {
     private final VertexLighterSmoothAo smooth;
     private final VertexBufferConsumer consumer = new VertexBufferConsumer();
     private final boolean usable;
+    /** Whether each quad drawn is noted for face records; a walk for plain vertex meshes notes nothing. */
+    private final boolean notes;
 
     /** The quads noted since {@link #begin}, in the order their vertices were written. */
     private BakedQuad[] quads = new BakedQuad[256];
@@ -105,7 +107,9 @@ final class QuadWalk {
     private int layer;
     private int stateNumber;
 
-    QuadWalk() {
+    /** @param notes whether each quad drawn is noted for face records ({@link #count} and the rest) */
+    QuadWalk(boolean notes) {
+        this.notes = notes;
         Minecraft minecraft = Minecraft.getMinecraft();
         BlockRendererDispatcher dispatcher = minecraft.getBlockRendererDispatcher();
         usable = dispatcher.getBlockModelRenderer().getClass() == ForgeBlockModelRenderer.class;
@@ -248,6 +252,12 @@ final class QuadWalk {
     }
 
     private void pipe(List<BakedQuad> list, VertexLighterFlat lighter, BufferBuilder buffer, int cell) {
+        if (!notes) {
+            for (int i = 0, size = list.size(); i < size; i++) {
+                list.get(i).pipe(lighter);
+            }
+            return;
+        }
         for (int i = 0, size = list.size(); i < size; i++) {
             BakedQuad quad = list.get(i);
             int before = buffer.getVertexCount();

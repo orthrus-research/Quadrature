@@ -25,6 +25,14 @@ public final class TerrainHook {
         /** Whether the opaque layers of the current world are drawn from own meshes. */
         boolean active();
 
+        /**
+         * Whether the opaque layers of this world are drawn from own meshes. Read from the game's chunk-mesh
+         * threads, so it answers from a value published when the world is attached and detached.
+         */
+        default boolean drawsOpaqueOf(Object world) {
+            return false;
+        }
+
         /** Fills and returns the player's view for the frame about to be drawn. */
         View mainView(double partialTicks, Entity viewer);
 
@@ -158,6 +166,12 @@ public final class TerrainHook {
 
     public static boolean active() {
         return drawer != null && drawer.active();
+    }
+
+    /** Whether own terrain draws the opaque layers of this world; safe from any thread. */
+    public static boolean drawsOpaqueOf(Object world) {
+        Drawer installed = drawer;
+        return installed != null && world != null && installed.drawsOpaqueOf(world);
     }
 
     public static void draw(BlockRenderLayer layer, double partialTicks, Entity viewer) {
