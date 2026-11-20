@@ -1269,6 +1269,27 @@ translucent layer (`quadrature.terrain.translucent=game`, the control).
   cubes of half-block centers with many equal distances, and fails that test where its rule for equal
   distances is reversed.
 
+### Cubes arriving around the player
+
+Cubature ranks the cubes it sends each player near (within two cubes on every axis), then those in
+their column's surface band, then those between the player and the band, then the rest. For a
+player below the band that sends the surface ahead of the player's own level beyond two cubes, and
+every cube below the player last. Measured 2026-11-20 whether that order costs a player anything,
+with `quadrature.terrain.arrivals`: on a fresh instance of seed 8675309, the motion helper flew a
+2,400-block loop at 16 blocks a second at y = 10, under the surface band, then the same loop over
+other ground at y = 200, counting once a second the cubes within 11 across and 11 up and down that
+the client did not hold.
+
+- **Nothing at the player's level was ever missing**, under the band or above it. A second after
+  the teleport into ground no one had visited, the player's level was whole; above and below it,
+  everything arrived within two seconds.
+- **The world kept up with the flight.** Over both loops the helper held for the world 0 ticks, and
+  apart from those first two seconds no cube in any band was missing at any sample, while about
+  500 new cubes came into reach each second, many of them generated as the player arrived.
+- **So the order does not show at a player's pace on this machine**, faster than walking (4.3
+  blocks a second) or creative flight (about 11). Changing it would be measured again only if a
+  slower server or a faster player shows cubes missing at the player's level.
+
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE
@@ -1758,6 +1779,7 @@ Each is a system property, read once, and costs nothing when unset.
 | Property | Effect |
 |---|---|
 | `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected; for each cube only Quadrature draws, which of the game's conditions left it out; for each cube only the game draws, whether a mesh is held, whether the cube is loaded and whether the view sees it |
+| `quadrature.terrain.arrivals=true` | Once a second, logs the cubes around the player the client does not hold yet, at its level, above and below, near and far (Cubes arriving around the player) |
 | `quadrature.textures.still=true` | Animated textures stay at the first frame stitched, so water and lava look the same in every capture; for comparing runs, set in all of them (Measured repeatability) |
 | `quadrature.terrain.visibility=all` | Quadrature draws every meshed cube in the view's volume and reach, with no search |
 | `quadrature.terrain.gameSelection=true` | Quadrature draws only the cubes the game selected |

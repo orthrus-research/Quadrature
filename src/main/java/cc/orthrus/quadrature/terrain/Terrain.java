@@ -2,6 +2,7 @@ package cc.orthrus.quadrature.terrain;
 
 import cc.orthrus.quadrature.Quadrature;
 import cc.orthrus.quadrature.core.terrain.ArenaAllocator;
+import cc.orthrus.quadrature.core.terrain.ArrivalCounts;
 import cc.orthrus.quadrature.core.terrain.AtlasRectangles;
 import cc.orthrus.quadrature.core.terrain.CubeConnectivity;
 import cc.orthrus.quadrature.core.terrain.CubeKey;
@@ -347,6 +348,14 @@ public final class Terrain
     private static final boolean ALL_NEIGHBORS = "all".equals(System.getProperty("quadrature.terrain.neighbors"));
     /** {@code -Dquadrature.terrain.byHeight=true}: the terrain line counts meshes held by cubes above or below the player's. */
     private static final boolean BY_HEIGHT = Boolean.getBoolean("quadrature.terrain.byHeight");
+    /**
+     * A diagnostic, off unless {@code -Dquadrature.terrain.arrivals=true}: once a second, which cubes around the player
+     * the client does not hold yet, at the player's level, above and below, near and far ({@link ArrivalCounts}), so the
+     * order cubes arrive in shows as the player sees it.
+     */
+    private static final boolean ARRIVALS = Boolean.getBoolean("quadrature.terrain.arrivals");
+    private final ArrivalCounts arrivals = ARRIVALS ? new ArrivalCounts() : null;
+    private long arrivalsAt;
     /** What each cube's last build read of the cubes around it ({@link BuiltCube#reads}); -1 where not known. */
     private final Long2LongOpenHashMap readsOf = new Long2LongOpenHashMap();
     {
@@ -1064,6 +1073,19 @@ public final class Terrain
         }
     }
 
+    private void logArrivals() {
+        arrivals.count(mainView.eyeCubeX(), mainView.eyeCubeY(), mainView.eyeCubeZ(), mainView.across(), mainView.upward(),
+            links::containsKey);
+        StringBuilder line = new StringBuilder("Arrivals: eye cube ").append(mainView.eyeCubeX()).append(' ')
+            .append(mainView.eyeCubeY()).append(' ').append(mainView.eyeCubeZ()).append("; missing, near and far of counted:");
+        String[] names = {" level ", "; above ", "; below "};
+        for (int band = 0; band < ArrivalCounts.BANDS; band++) {
+            line.append(names[band]).append(arrivals.missing(band, 0)).append('/').append(arrivals.counted(band, 0)).append(' ')
+                .append(arrivals.missing(band, 1)).append('/').append(arrivals.counted(band, 1));
+        }
+        Quadrature.LOGGER.info(line.toString());
+    }
+
     /**
      * How many cubes' translucent quads are sorted again in a frame at most, where the eye has moved more than a block
      * from where they were last sorted: the game sorts again the 15 nearest render chunks holding translucent quads once
@@ -1467,6 +1489,10 @@ public final class Terrain
     public View mainView(double partialTicks, Entity viewer) {
         MainView.fill(mainView, partialTicks, viewer);
         frames++;
+        if (ARRIVALS && System.nanoTime() - arrivalsAt >= 1_000_000_000L) {
+            arrivalsAt = System.nanoTime();
+            logArrivals();
+        }
         DriverMessages.install();
         if (arena != null) {
             arena.beginFrame();
