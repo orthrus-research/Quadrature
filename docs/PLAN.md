@@ -235,6 +235,8 @@ and with no position made for a face test, is now the default for model blocks (
 for the old path). That covers most of what 12d set out to save, the positions the game's face test makes; a table
 of each state's faces would save only two calls a face, so 12d waits for a profile that shows them.
 
+12f's measure, Cubature's cube lookup for every render chunk in the entity pass, is met in Cubature instead (its branch for underground costs, 46a9d9e5): each column counts its cubes holding entities, and of 179 million requests over a forest tour with golems in view 99.8% were answered without a lookup, none wrongly. What remains of 12f, the entity pass taking Quadrature's visible cubes in place of the game's render chunks, waits on 12e, since under the policy proposed the game still finds the block entity lists.
+
 12b is not needed while 12a holds: the game's rebuilds on the client thread took 0.14 s over the forest tour and
 0.76 s over the generating cave tour once they left the opaque layers out, about a tenth of a percent of the
 client thread, where they had been 49% of its samples over the base cave tour. It is taken up again if a frame's
