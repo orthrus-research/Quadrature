@@ -482,6 +482,8 @@ public final class TierBench {
         figures.put("light ns a primitive", fixed(result.lightNsPerPrimitive()));
         figures.put("trace billion rays a second", fixed(result.traceGigaRays()));
         figures.put("score", fixed(outcome.score()));
+        figures.put(cc.orthrus.quadrature.core.tier.TierSettings.SCALES_FIGURE,
+            cc.orthrus.quadrature.core.tier.TierSettings.scalesFigure(outcome.scales()));
         StoredTiers next = new StoredTiers(TierBenchmark.VERSION, key, gpu, driver, result.outputWidth(),
             result.outputHeight(), outcome.speed(), outcome.memory(), figures,
             stored != null ? stored.overrides() : Map.of());

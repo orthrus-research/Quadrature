@@ -1282,6 +1282,17 @@ radii are not measured; the runs held 12, or 8 at radius 8.
 Built (`core.tier`, `platform/TierBench`); the first-launch path is behind a switch, off by
 default, until a second card has been measured against this calibration.
 
+**How tiers set the groups.** On the first-launch path the tiers chosen last are applied before
+the game's classes load (`asm/TierStartup`, from the loading plugin), since the parts they set read
+their settings once, as they start, and the scaler starts with the game's first framebuffer. Each
+group's tier becomes the properties of the groups built so far (`core.tier.TierSettings`): the
+temporal pass on every tier and, below the output, the render scale the selection chose, stored
+with the run; distant terrain's reach, 256, 384, 512 or 768 blocks; and the light's near layer on
+HIGH and MAX. A property given on the command line stands, as does the player's tier for a group.
+Near terrain's radius is the game's render distance and Cubature's vertical distance, which stay
+the player's. Where the GPU or the driver changed, the benchmark runs again when the first screen
+opens and its tiers apply from the next launch.
+
 **When it runs.** Where nothing is stored under the key, a digest of the GPU (the context's
 vendor and renderer strings and interop's device identifier), the driver (the context's
 version string and interop's driver identifier) and the benchmark's version, it runs once at

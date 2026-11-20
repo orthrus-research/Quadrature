@@ -1656,6 +1656,13 @@ empty copy read 0.228 to 0.291 billion rays a second.
   both kinds of fault. A unit test feeds two of those runs' measured figures to the table, and
   neither chooses; this card's run of the tiers test agrees. With both changes the benchmark is
   at version 3.
+- **The stored tiers set the groups at startup** (2026-11-20, jar from commit e5db232 with
+  `TierStartup`): on a fresh instance of the 32 km world, the forest tour twice with the first-launch
+  path on. The first run found nothing stored, benchmarked at the first still view and stored speed
+  MEDIUM and memory MAX with the render scales 0.67, 0.77, 1.00 and 1.00. The second applied them
+  before the game's classes loaded (`quadrature.taa=true`, `quadrature.scale=0.77`,
+  `quadrature.distant.reach=384`, `quadrature.shadow.near=false`); the scaler started at 0.77 with the
+  temporal pass and distant terrain at a reach of 384, and the benchmark did not run again.
 - **Version 4 changes only the scoring** (2026-11-20): LOW and MEDIUM are priced at their own scale
   with the scaler and at the output's resolution with the temporal pass alone, and render below
   the output only where that costs less (D23). The probes are unchanged and no GPU run was made for
