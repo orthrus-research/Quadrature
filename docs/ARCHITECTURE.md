@@ -911,7 +911,7 @@ Per-cube back-to-front order is established on the CPU from cube positions, and 
 within a cube are sorted again as the eye moves. **Default.** A weighted blended method that
 needs no sorting is the alternative if sorting cost shows up.
 
-Built (PLAN item 12e), with `-Dquadrature.terrain.translucent=own` under own terrain; off,
+Built (PLAN item 12e), and on under own terrain; with `-Dquadrature.terrain.translucent=game`
 the game meshes and draws the layer as before:
 
 - **Meshing.** Each build meshes the translucent layer into a buffer of its own beside the

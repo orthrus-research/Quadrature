@@ -21,10 +21,10 @@ import org.lwjgl.opengl.GL45;
 final class TranslucentCube {
 
     /**
-     * Whether Quadrature meshes and draws translucent terrain, and the game's chunk rebuild leaves it out:
-     * {@code -Dquadrature.terrain.translucent=own}.
+     * Whether Quadrature meshes and draws translucent terrain under own terrain, and the game's chunk rebuild leaves it
+     * out: so unless {@code -Dquadrature.terrain.translucent=game}, which leaves the layer to the game.
      */
-    static final boolean OWN = "own".equals(System.getProperty("quadrature.terrain.translucent"));
+    static final boolean OWN = !"game".equals(System.getProperty("quadrature.terrain.translucent"));
 
     private static final int INTS = CubeMesh.STRIDE / 4;
     private static final int QUAD_INTS = 4 * INTS;

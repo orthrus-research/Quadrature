@@ -252,13 +252,13 @@ over the blocks for the visibility graph and the block entity lists. A layer, a 
 working as it does today, drawn by the game. Quadrature meshes another mod's layer only where that mod is examined
 and the result passes its own views.
 
-12e is done under that policy: with `-Dquadrature.terrain.translucent=own` Quadrature meshes the translucent layer
+12e is done under that policy: under own terrain Quadrature meshes the translucent layer
 through the game's dispatcher, sorts each cube's quads by the game's rule as the eye moves, and draws the cubes
 farthest first at the game's translucent pass, and the game's rebuild leaves the layer out (ARCHITECTURE 6.5). On the
 water tour it draws what the game draws at all 7 views against own terrain with the game's translucent layer, and
 the game's rebuilds took 26.2 s against 36.8 s with only the opaque layers left out (VERIFICATION, translucent
-terrain). The switch stays off by default until a forest tour has been played with it; one view of the water tour
-shows own opaque terrain drawing faint terrain through an opening where the game draws none, which is open.
+terrain), and the forest tour passes all 17 views against the game's draw with it. `-Dquadrature.terrain.translucent=game`
+leaves the layer to the game.
 
 ## Reading rules
 

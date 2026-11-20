@@ -43,7 +43,8 @@ public final class GameChunkRebuilds {
 
     /**
      * Whether a rebuild that leaves out what own terrain draws leaves out this layer: the three opaque layers, and the
-     * translucent one where own terrain draws that as well ({@code quadrature.terrain.translucent=own}, PLAN item 12e).
+     * translucent one where own terrain draws that as well, as it does unless {@code quadrature.terrain.translucent=game}
+     * (PLAN item 12e).
      */
     public static boolean leftOut(BlockRenderLayer layer) {
         return layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED || layer == BlockRenderLayer.CUTOUT

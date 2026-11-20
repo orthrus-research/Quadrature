@@ -1237,8 +1237,8 @@ Measured 2026-11-20 with a jar built from tree 9f052a98 (`feat/translucent-terra
 and the still-texture switch), the water tour (`bricks-water-8675309`: a reef and kelp from under water,
 kelp from above, river, wetland and lake shallows from above at 45 degrees) on a fresh instance of seed
 8675309, textures held still in every run: the game's terrain twice (settling, reference), then own
-terrain with the translucent layer its own (`quadrature.terrain.translucent=own`), then own terrain with
-the game drawing the translucent layer (the control).
+terrain with the translucent layer its own (now the default), then own terrain with the game drawing the
+translucent layer (`quadrature.terrain.translucent=game`, the control).
 
 | | Game's rebuilds on its threads | Each | On the client thread |
 |---|---|---|---|
@@ -1251,13 +1251,20 @@ the game drawing the translucent layer (the control).
   735 scattered pixels, particles that differ between the game's own runs at that view as well (0.059%).
 - **Against the game's own draw 6 of 7 pass.** `03-kelp-from-above` fails by 0.191% with own translucent
   and by 0.191% in the control: through an opening far below, both own runs draw terrain faint in the fog
-  where the game draws none. That difference belongs to own opaque terrain's selection, not to this step,
-  and is open.
+  where the game draws none. That difference belongs to own opaque terrain, not to this step. The selection
+  comparison, run there with the game's full rebuild, names it: 86 cubes 12 below the camera, on the
+  outermost row of the game's grid, which the game selects and never marks for building. The client holds
+  a row of cubes beyond the grid vertically, so those cubes have all six neighbors and Quadrature meshes and
+  draws them under the game's own rule for meshing (1,813 cubes drawn against the game's 1,726).
 - **The game's rebuilds lose another quarter.** With the translucent layer left out as well, they took
   26.2 s on its threads against 36.8 s with only the opaque layers left out, and 106.7 s with none; those
   on the client thread 0.07 against 0.11 and 0.75 s.
 - **Sorting costs little.** 422 cubes held 778,000 translucent vertices at the end of the tour; 1,432
   first sorts and 8 sorts after the eye moved took 0.054 ms a frame on average.
+- **The forest tour passes too.** On a fresh instance of seed 2485331 at scale four, textures still, own
+  terrain with own translucent passes all 17 views against the game's draw (worst view 15, 0.021%); the
+  game's rebuilds took 34.6 s on its threads against its own 103.8 s, and 0.09 against 0.47 s on the client
+  thread.
 - **The order is the game's.** `QuadOrder` matches the library's stable sort, the game's, over 200 random
   cubes of half-block centers with many equal distances, and fails that test where its rule for equal
   distances is reversed.
