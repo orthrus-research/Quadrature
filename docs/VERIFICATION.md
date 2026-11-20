@@ -429,6 +429,21 @@ stage, in which the light's view is drawn.
 - **The driver** reported no error. While the light's view is drawn it repeats its warning
   that texture object 0 is bound to texture units 1 to 3; the depth program reads unit 0.
 
+**Its spikes against the spread, 2026-11-20.** Both layers drawn by tiles, on one fresh forest instance
+(jar from tree ffd9c980), a new box spread over 8 frames in the first run and over 32 in the second, with each
+frame over 2 ms of the light's GPU time counted by the layers that drew part of a new box in it:
+
+| Spread | Frames that drew | GPU a frame that drew, mean | Over all frames | Over 1 ms | Over 2 ms: both, near, wide, neither | Worst |
+|---|---|---|---|---|---|---|
+| 8 | 6,384 of 43,818 | 1.044 ms | 0.152 ms | 2,074 | 565: 251, 13, 2, 299 | 15.76 ms, frame 0 |
+| 32 | 4,884 of 43,945 | 0.475 ms | 0.053 ms | 245 | 10: 9, 0, 1, 0 | 15.38 ms, frame 0 |
+
+- **A larger spread removes nearly every slow frame**, those where both layers begin a box together and those
+  that redraw dirty tiles, which take the same share. The spread is 32 since this run.
+- **The first frame's 15 ms is not the box.** It stands at either spread, and on the first frame almost no mesh
+  has arrived; it is the driver's work on a first use, which drawing a tile through each depth program while
+  the world is attached, behind the loading screen, is the next thing to try.
+
 ### The light's depth kept, and the scene for lighting
 
 Measured 2026-11-16 on a fresh instance: the game's terrain twice, own terrain, and own
@@ -744,6 +759,26 @@ the seven measured views: the median of the views' medians, and the worst view.
   benchmark, below), and record no clock state: under the game alone the card runs at 1.3 to
   1.4 GHz or lower, and its times read up to a quarter above a settled card's. For
   calibration the tier benchmark's table at settled clocks supersedes this one.
+
+**The targets' pass alone, and the vertical radius, 2026-11-20.** On one fresh forest instance, a jar from
+tree ffd9c980, own terrain at radius 12 with reversed depth, face records and the light's two layers on both
+runs, the second with the targets for shading as well:
+
+- **The targets cost half the forward draw again.** Opaque terrain took a median 1.768 ms of GPU over the 17
+  views without the targets and 2.679 ms with them (worst views 2.357 and 3.273 ms): the targets' own pass is
+  0.91 ms, 0.52 of the forward draw, as the tier table assumed.
+- **What a smaller vertical radius leaves out** (`quadrature.terrain.byHeight=true`): at the tour's last view
+  the meshes held, by cubes above or below the player's, and their vertices:
+
+  | Cubes away | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 to 12 |
+  |---|---|---|---|---|---|---|---|---|
+  | Meshes | 41 | 544 | 552 | 127 | 197 | 368 | 348 | 1,913 |
+  | Vertices, millions | 0.01 | 9.56 | 7.07 | 0.17 | 0.22 | 0.79 | 0.84 | 3.22 |
+
+  Over the forest, 80% of the vertices lie one or two cubes from the player's height and half the meshes lie
+  seven or more away, mostly cave walls and terrain far below with few faces each: a vertical radius of 6 would
+  leave out 1,913 of 4,045 meshes and 15% of the vertices. Builds, not drawing, are what it saves; the
+  views beyond six cubes in a mountain range or above a chasm are what it would cost.
 
 ### Meshes built on Cubature's build pool
 

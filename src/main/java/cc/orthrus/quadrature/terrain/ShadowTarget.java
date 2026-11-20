@@ -201,11 +201,13 @@ final class ShadowTarget {
                 }
                 if (lastGpuNanos > 2_000_000) {
                     gpuOverTwo++;
+                    overTwoByBoxes[stampTags[ring] & 3]++;
                 }
             }
         }
         GL33.glQueryCounter(stamps[ring][0], GL33.GL_TIMESTAMP);
         stampFrames[ring] = frame;
+        stampTags[ring] = 0;
 
         // Every piece of state the draws depend on is set, and none is read: what is put back comes from
         // the game's cache by way of the mirror, or is the world pass's neutral value.
@@ -396,10 +398,25 @@ final class ShadowTarget {
         return gpuOverTwo;
     }
 
+    /**
+     * Notes that a layer drew part of a new box in the frame being stamped: bit 0 the near layer, bit 1 the wide one.
+     * Call between {@link #begin} and the frame's end.
+     */
+    void tagFrame(int layers) {
+        stampTags[ring] |= layers;
+    }
+
+    /** Frames over 2 ms of GPU by the layers that drew part of a new box in them: neither, near, wide, both. */
+    long[] framesOverTwoByBoxes() {
+        return overTwoByBoxes.clone();
+    }
+
     private long mostGpuNanosSince;
     private long mostGpuFrameSince;
     private long gpuOverOne;
     private long gpuOverTwo;
+    private final int[] stampTags = new int[RING];
+    private final long[] overTwoByBoxes = new long[4];
 
     /**
      * A diagnostic: writes a published layer as a gray image, nearer the light brighter and nothing drawn

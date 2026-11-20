@@ -257,10 +257,10 @@ public final class Terrain
         Double.parseDouble(System.getProperty("quadrature.shadow.turn", "0.1"))));
     /**
      * About how many frames a layer of the light's depth drawn anew is drawn over, and the share of a
-     * layer's cost a frame may spend drawing tiles again for changed meshes: 8 unless
+     * layer's cost a frame may spend drawing tiles again for changed meshes: 32 unless
      * {@code quadrature.shadow.spread} is set.
      */
-    private static final int SHADOW_SPREAD = Math.max(1, Integer.getInteger("quadrature.shadow.spread", 8));
+    private static final int SHADOW_SPREAD = Math.max(1, Integer.getInteger("quadrature.shadow.spread", 32));
     /** The layers of the light's depth: the near one first where it is drawn, then the wide one. */
     private final LightLayer[] lightLayers = SHADOW ? lightLayers() : new LightLayer[0];
     private final int[] lightRange = new int[4];
@@ -343,6 +343,8 @@ public final class Terrain
      * bounds say which faces it reached, are followed instead, by the same rule the source uses to raise them.
      */
     private static final boolean ALL_NEIGHBORS = "all".equals(System.getProperty("quadrature.terrain.neighbors"));
+    /** {@code -Dquadrature.terrain.byHeight=true}: the terrain line counts meshes held by cubes above or below the player's. */
+    private static final boolean BY_HEIGHT = Boolean.getBoolean("quadrature.terrain.byHeight");
     /** What each cube's last build read of the cubes around it ({@link BuiltCube#reads}); -1 where not known. */
     private final Long2LongOpenHashMap readsOf = new Long2LongOpenHashMap();
     {
@@ -1534,6 +1536,8 @@ public final class Terrain
             if (layer.plan.next() != null) {
                 began = beginLight(began);
                 drawTiles(layer, true);
+                // Which layers drew part of a new box, for the frames whose GPU time passes 2 ms (open question 2b).
+                shadow.tagFrame(layer.near ? 1 : 2);
             } else if (SHADOW_CHECK && lightFrames % SHADOW_CHECK_FRAMES == SHADOW_CHECK_FRAMES - 1
                 && !layer.plan.frontDirty() && layer.plan.front() != null) {
                 began = beginLight(began);
@@ -2276,6 +2280,23 @@ public final class Terrain
             superseded, emptyUnread, sameShape, dirty.size(), lastSubmitNanos / 1e6,
             frames == 0 ? 0.0 : submitNanos / 1e6 / frames, mostSubmitNanos / 1e6, reprioritized, poolNanosThisFrame / 1e6,
             frames == 0 ? 0.0 : poolNanos / 1e6 / frames, mostPoolNanos / 1e6);
+        if (BY_HEIGHT && mainView != null) {
+            // What a smaller vertical radius would leave out (open question 3b): meshes held and their vertices by
+            // how many cubes above or below the player's cube they lie.
+            int eye = (int) Math.floor(mainView.originY()) >> 4;
+            int[] held = new int[14];
+            long[] heldVertices = new long[14];
+            for (it.unimi.dsi.fastutil.longs.Long2ObjectMap.Entry<CubeMesh> entry : meshes.long2ObjectEntrySet()) {
+                int away = Math.min(Math.abs(CubeKey.y(entry.getLongKey()) - eye), 13);
+                held[away]++;
+                heldVertices[away] += entry.getValue().vertices();
+            }
+            StringBuilder byHeight = new StringBuilder("; meshes held by cubes above or below the player's, and their k vertices:");
+            for (int away = 0; away < held.length; away++) {
+                byHeight.append(away == 13 ? " 13+ " : " " + away + " ").append(held[away]).append('/').append(heldVertices[away] / 1000);
+            }
+            line += byHeight;
+        }
         long cpuBuilds = CubeMesher.CPU_BUILDS.sum();
         line += String.format("; the build threads' own CPU %.3f ms a build over %d builds, empty ones included",
             cpuBuilds == 0 ? 0.0 : CubeMesher.CPU_NANOS.sum() / 1e6 / cpuBuilds, cpuBuilds);
@@ -2402,6 +2423,9 @@ public final class Terrain
                     + "of CPU %d, over 1 ms of GPU %d, over 2 ms %d", mostShadowNanosSince / 1e6, mostShadowFrameSince,
                 shadow.takeGpuMillisMostSince(), shadow.gpuMostFrameSince(), shadowCpuOverOne, shadow.gpuFramesOverOne(),
                 shadow.gpuFramesOverTwo());
+            long[] byBoxes = shadow.framesOverTwoByBoxes();
+            line += String.format("; of the frames over 2 ms, a new box drawn in by neither layer %d, the near only %d, the "
+                + "wide only %d, both %d", byBoxes[0], byBoxes[1], byBoxes[2], byBoxes[3]);
             double frames = Math.max(1, shadowFrames);
             line += String.format("; CPU a frame that drew, mean: sweep %.3f ms, tiles %.3f ms, clears %.3f ms, commands %.3f ms, "
                     + "draws %.3f ms, copies %.3f ms, state and timers %.3f ms; the slowest since the last line: %.3f, %.3f, %.3f, "

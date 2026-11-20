@@ -277,8 +277,12 @@ with it on.
     would cover the whole of a box about to be replaced. A box being drawn is begun again
     where the player has gone once they are an eighth of its side from it.
   - A frame spends on a layer's tiles at most a share of what covers the whole layer,
-    counted in cubes: a new box is drawn over about 8 frames (`quadrature.shadow.spread`),
-    and dirty tiles are drawn nearest the center first within the same share a frame.
+    counted in cubes: a new box is drawn over about 32 frames (`quadrature.shadow.spread`),
+    and dirty tiles are drawn nearest the center first within the same share a frame. At 8
+    frames, 565 frames of a forest tour with both layers passed 2 ms of the light's GPU time,
+    at 32 frames 10 (VERIFICATION, the light's depth by tiles): a box then takes about a
+    quarter of a second at 120 frames a second to be whole, which nothing that reads the
+    light's depth yet shows.
   - A frame with nothing due draws nothing and searches nothing.
 - **What is drawn:** the three opaque layers of every meshed cube in the box, from the
   same pages and by the same indirect draws as the player's view, each cube under the
