@@ -413,7 +413,8 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
   position and yaw had it the frame before; the motion pass moves a pixel whose depth changed after
   terrain and whose point lies in a box with that entity, and projects it by the previous view.
   A limb's own swing, particles and block entities are left to the box. Verified to move a
-  walking golem's pixels and nothing else; its effect on quality is not yet measured.
+  walking golem's pixels and nothing else, and to read history half as far from the frame as
+  the camera's motion would there (VERIFICATION, entities' own motion).
 - **Not covered:** a mod that keeps the game's framebuffer from before the pass and draws into
   it there; anaglyph, which is drawn at the output's size.
 

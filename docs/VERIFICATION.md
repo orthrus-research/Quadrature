@@ -1810,8 +1810,17 @@ no motion, so pixels that move there carry an entity's own.
   still. 21,426 entity records were written over 12,319 frames.
 - **Nothing else moves.** Of the 73 reads at the other views, the only two with moving pixels were
   at the two views beside the last golems' place, where they were still in sight.
-- **Quality is not measured.** Golems wander differently every run, so no native-resolution run
-  holds the same picture to score against; that needs a subject that moves the same way each run.
+- **The history it reads is twice as near.** A moving entity's place on screen follows the
+  server's ticks and the network, so no two runs, native or scaled, show it alike, and no
+  reference holds the same picture. The measure is taken in the same frame instead, with
+  `quadrature.taa.entityMotion.measure=true`: where an entity's own motion moves a pixel, the
+  temporal pass reads the history there and where the camera's motion alone would have read it,
+  and sums how far each lies in luma from the frame, unclipped. On a fresh instance, the same tour
+  and settings (jar built from tree e5db232 with the measure): over 1,156,870 such pixels the
+  history entity motion read lay 0.0436 from the frame, the camera's 0.0827. In the three 600-frame
+  windows with the most moving pixels (97,000 to 470,000) it was 0.044 against 0.056 to 0.092;
+  in windows of a few hundred pixels, where the golems barely moved, the two were about equal,
+  and in one of 469 pixels the camera's read nearer.
 
 ### The four together
 
@@ -1851,6 +1860,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.layerCache.check=true` | Every kept answer is asked again and differences counted; `LAYER CHECK FAILED` in the terrain line on any |
 | `quadrature.terrain.arrivals=true` | Once a second, logs the cubes around the player the client does not hold yet, at its level, above and below, near and far (Cubes arriving around the player) |
 | `quadrature.taa.entityMotion=true` | Entities that moved or turned since the frame before get motion of their own in the temporal pass (Entities' own motion) |
+| `quadrature.taa.entityMotion.measure=true` | With entity motion: where it moves a pixel, the temporal pass weighs the history read against what the camera's motion alone would have read, logged every 600 composites |
 | `quadrature.textures.still=true` | Animated textures stay at the first frame stitched, so water and lava look the same in every capture; for comparing runs, set in all of them (Measured repeatability) |
 | `quadrature.terrain.visibility=all` | Quadrature draws every meshed cube in the view's volume and reach, with no search |
 | `quadrature.terrain.gameSelection=true` | Quadrature draws only the cubes the game selected |

@@ -146,6 +146,19 @@ public final class TemporalScaler {
     private static final int[] history = new int[2];
     private static int historyIndex;
     private static int motion;
+    /**
+     * With {@code -Dquadrature.taa.entityMotion.measure=true} beside entity motion: the camera's motion alone, and the
+     * temporal pass's sums of how far the history read lies from the frame, by the entities' motion and by the camera's,
+     * where the two differ ({@link ScalerShaders}); read every 600 composites through a staging copy and logged.
+     */
+    private static final boolean MEASURE = EntityMotions.ON && Boolean.getBoolean("quadrature.taa.entityMotion.measure");
+    private static int cameraMotion;
+    private static int motionErrors;
+    private static int motionErrorsStaging;
+    private static final ByteBuffer motionErrorsRead = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder());
+    private static long measuredPixels;
+    private static double entityErrorSum;
+    private static double cameraErrorSum;
     private static int depthNow;
     private static int depthTerrain;
     private static final EntityMotions entityMotions = new EntityMotions();
@@ -414,9 +427,16 @@ public final class TemporalScaler {
                 }
                 GL41.glProgramUniform1i(motionProgram, 5, moving);
                 lastEntityRecords = moving;
+                GL41.glProgramUniform1i(motionProgram, 8, MEASURE ? 1 : 0);
+                if (MEASURE) {
+                    GL42.glBindImageTexture(1, cameraMotion, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RG16F);
+                }
                 bind(ScalerShaders.UNIT_A, depthNow, nearest);
                 GL42.glBindImageTexture(0, motion, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RG16F);
                 GL43.glDispatchCompute(groupsX, groupsY, 1);
+                if (MEASURE) {
+                    GL42.glBindImageTexture(1, 0, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RG16F);
+                }
                 if (moving > 0) {
                     GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, 0);
                 }
@@ -458,6 +478,11 @@ public final class TemporalScaler {
                 GL41.glProgramUniform1f(temporalProgram, 6, REACTIVE);
                 GL41.glProgramUniform1i(temporalProgram, 7, terrainDepthCopied ? 1 : 0);
                 GL41.glProgramUniform1f(temporalProgram, 8, MOVING);
+                GL41.glProgramUniform1i(temporalProgram, 9, MEASURE ? 1 : 0);
+                if (MEASURE) {
+                    bind(9, cameraMotion, nearest);
+                    GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 4, motionErrors);
+                }
                 bind(ScalerShaders.UNIT_A, source, nearest);
                 bind(ScalerShaders.UNIT_B, history[historyIndex], linear);
                 bind(ScalerShaders.UNIT_C, motion, nearest);
@@ -471,6 +496,13 @@ public final class TemporalScaler {
                 source = history[next];
                 composites++;
                 historyKept += historyValid ? 1 : 0;
+                if (MEASURE) {
+                    GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 4, 0);
+                    bind(9, 0, 0);
+                    if (composites % 600 == 0) {
+                        readMotionErrors();
+                    }
+                }
                 if (CHECK && composites % 600 == 0) {
                     checkMotion(kept);
                 }
@@ -598,6 +630,16 @@ public final class TemporalScaler {
             history[i] = texture(GL30.GL_RGBA16F, drawnWidth, drawnHeight);
         }
         motion = texture(GL30.GL_RG16F, drawnWidth, drawnHeight);
+        if (MEASURE) {
+            cameraMotion = texture(GL30.GL_RG16F, drawnWidth, drawnHeight);
+            if (motionErrors == 0) {
+                motionErrors = GL45.glCreateBuffers();
+                GL45.glNamedBufferData(motionErrors, 12, GL15.GL_DYNAMIC_COPY);
+                motionErrorsStaging = GL45.glCreateBuffers();
+                GL45.glNamedBufferData(motionErrorsStaging, 12, GL15.GL_STREAM_READ);
+            }
+            GL45.glClearNamedBufferData(motionErrors, GL30.GL_R32UI, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT, (ByteBuffer) null);
+        }
         depthNow = texture(depthFormat, drawnWidth, drawnHeight);
         depthTerrain = texture(depthFormat, drawnWidth, drawnHeight);
         game = framebuffer;
@@ -651,12 +693,12 @@ public final class TemporalScaler {
     }
 
     private static void release() {
-        for (int texture : new int[] {history[0], history[1], motion, depthNow, depthTerrain}) {
+        for (int texture : new int[] {history[0], history[1], motion, depthNow, depthTerrain, cameraMotion}) {
             if (texture != 0) {
                 GL11.glDeleteTextures(texture);
             }
         }
-        history[0] = history[1] = motion = depthNow = depthTerrain = 0;
+        history[0] = history[1] = motion = depthNow = depthTerrain = cameraMotion = 0;
         if (drawn != null) {
             drawn.deleteFramebuffer();
             drawn = null;
@@ -723,6 +765,31 @@ public final class TemporalScaler {
             Quadrature.LOGGER.info("Scaler entity motion: {} entities moved this frame; {} records over {} frames so far.",
                 lastEntityRecords, entityMotions.written, entityMotions.framesWithAny);
         }
+    }
+
+    /**
+     * Reads the temporal pass's sums through a staging copy (the buffer itself is never read back: the driver would
+     * then keep it in host memory), logs the window's and the run's means, and clears them.
+     */
+    private static void readMotionErrors() {
+        GL42.glMemoryBarrier(GL42.GL_BUFFER_UPDATE_BARRIER_BIT);
+        GL45.glCopyNamedBufferSubData(motionErrors, motionErrorsStaging, 0, 0, 12);
+        motionErrorsRead.clear();
+        GL45.glGetNamedBufferSubData(motionErrorsStaging, 0, motionErrorsRead);
+        long entity = Integer.toUnsignedLong(motionErrorsRead.getInt(0));
+        long camera = Integer.toUnsignedLong(motionErrorsRead.getInt(4));
+        long pixels = Integer.toUnsignedLong(motionErrorsRead.getInt(8));
+        GL45.glClearNamedBufferData(motionErrors, GL30.GL_R32UI, GL30.GL_RED_INTEGER, GL11.GL_UNSIGNED_INT, (ByteBuffer) null);
+        measuredPixels += pixels;
+        // The sums are in 255ths of luma.
+        entityErrorSum += entity / 255.0;
+        cameraErrorSum += camera / 255.0;
+        Quadrature.LOGGER.info("Scaler entity motion measure: {} pixels moved by an entity's own motion in the last 600 "
+                + "composites; the history read lay {} in luma from the frame by that motion and {} by the camera's alone; "
+                + "over the run {} pixels, {} against {}.", pixels, pixels == 0 ? "-" : String.format("%.4f", entity / 255.0 / pixels),
+            pixels == 0 ? "-" : String.format("%.4f", camera / 255.0 / pixels), measuredPixels,
+            measuredPixels == 0 ? "-" : String.format("%.4f", entityErrorSum / measuredPixels),
+            measuredPixels == 0 ? "-" : String.format("%.4f", cameraErrorSum / measuredPixels));
     }
 
     /** The entities given a motion of their own in the last motion pass. */
