@@ -806,6 +806,18 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   renderer.
 - Added: 2026-11-20
 
+### Entities' own motion for the temporal pass
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/scale/EntityMotion.java`,
+  `src/main/java/cc/orthrus/quadrature/frame/EntityMotions.java`, the entity path of `MOTION_COMPUTE` in `ScalerShaders.java`
+- Source: original, as proposed in research R4, 7b.5. Facts used: how the game places an entity it draws (its last two
+  tick positions interpolated by the partial tick, a living entity's body yaw interpolated the short way, turned by
+  180 minus the yaw about the vertical axis, read from the game's `RenderLivingBase` and `RenderManager`), and its
+  bounding box.
+- Patent look: R4, 7b.5 (2026-11-20): the nearest family claims motion estimation over candidate vector sets; no claim
+  found reads on it.
+- Taken: nothing beyond the facts. No code from another renderer.
+- Added: 2026-11-20
+
 ### Layers kept per state
 - Code: `src/main/java/cc/orthrus/quadrature/terrain/CubeMesher.java` (`layers`), the reload listener in `TerrainHook.start`
 - Source: original. Facts used: Forge's `Block.canRenderInLayer(IBlockState, BlockRenderLayer)`, answered per state, and

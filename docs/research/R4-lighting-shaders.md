@@ -512,6 +512,16 @@ patents on reconstructing per-object motion vectors from depth and object transf
 temporal techniques (D23), and a measure on a motion tour past a summoned golem, against camera-only
 reprojection: the energy of the difference to a native-resolution reference behind the golem's edges.
 
+The look, 2026-11-20. The nearest family found is Imagination Technologies' US 8,670,483 and its
+continuation US 9,100,537 ("object tracking using graphics engine derived vectors", priority 2010-02-25,
+estimated to expire 2031-02-24): it separates an object's motion from the camera's using the engine's
+camera and depth, but every independent claim is a motion estimator over sets of candidate motion vectors,
+determined and then adjusted for the camera's movement, for encoding, frame rate conversion and tracking.
+The proposal forms no candidates and searches for nothing: each pixel's motion follows from two known rigid
+transforms and the camera, so the determining and adjusting steps have nothing to read on. The primitive
+reprojection patents US 6,111,582 and US 6,057,847 (2000) use an object's bounding box to bound its image
+motion for scheduling resampling, not to give pixels motion. No claim found reads on the proposal.
+
 ## Follow-ups
 
 1. A second, deeper pass on 7.1 to 7.3 with primary sources, once R1's hosted-rendering

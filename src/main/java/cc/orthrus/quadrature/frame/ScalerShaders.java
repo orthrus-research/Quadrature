@@ -30,6 +30,11 @@ final class ScalerShaders {
      * the previous frame, minus where it lies now, in pixels of the drawn rectangle, both without the
      * offset. A pixel whose point stood behind the previous frame's eye gets a motion past any picture,
      * so the temporal pass keeps none of its history.
+     *
+     * <p>Where entities' motions are given (research R4, 7b.5), a pixel whose depth the entity stage and after
+     * changed, and whose point lies in an entity's box, moves with that entity instead: its point, rebuilt from
+     * depth, is taken to where the entity's rigid motion had it the frame before, then projected by that frame's
+     * view. The first box holding the point decides.
      */
     static final String MOTION_COMPUTE = String.join("\n",
         "#version 460 core",
@@ -41,6 +46,12 @@ final class ScalerShaders {
         "layout(location = 2) uniform vec2 offset;",
         "layout(location = 3) uniform int zeroToOne;",
         "layout(location = 4) uniform int reachable;",
+        "layout(location = 5) uniform int entityCount;",
+        "layout(location = 6) uniform mat4 currentInverse;",
+        "layout(location = 7) uniform mat4 previousViewProjection;",
+        "layout(binding = 5) uniform sampler2D depthTerrain;",
+        "struct EntityRecord { vec4 low; vec4 high; mat4 toPrevious; };",
+        "layout(std430, binding = 3) readonly buffer Entities { EntityRecord entities[]; };",
         "void main() {",
         "    ivec2 p = ivec2(gl_GlobalInvocationID.xy);",
         "    if (p.x >= int(size.x) || p.y >= int(size.y)) {",
@@ -55,6 +66,16 @@ final class ScalerShaders {
         "    vec2 at = vec2(p) + 0.5 - offset;",
         "    vec4 clip = vec4(at / size * 2.0 - 1.0, zeroToOne != 0 ? depth : depth * 2.0 - 1.0, 1.0);",
         "    vec4 before = toPrevious * clip;",
+        "    if (entityCount > 0 && depth != texelFetch(depthTerrain, p, 0).r) {",
+        "        vec4 w = currentInverse * clip;",
+        "        vec3 q = w.xyz / w.w;",
+        "        for (int i = 0; i < entityCount; i++) {",
+        "            if (all(greaterThanEqual(q, entities[i].low.xyz)) && all(lessThanEqual(q, entities[i].high.xyz))) {",
+        "                before = previousViewProjection * (entities[i].toPrevious * vec4(q, 1.0));",
+        "                break;",
+        "            }",
+        "        }",
+        "    }",
         "    vec2 motion = before.w > 1e-6 ? (before.xy / before.w * 0.5 + 0.5) * size - at : vec2(60000.0);",
         "    imageStore(motionOut, p, vec4(motion, 0.0, 0.0));",
         "}");

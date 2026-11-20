@@ -407,8 +407,13 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
   pool (12).
 - **What has no motion** is held by the box: entities, particles, falling weather, the clouds'
   drift, animated textures and translucent surfaces, whose pixels keep the depth behind them.
-  Motion vectors for hosted draws from each draw's previous transform are not built; D21 needs
-  them before DLSS.
+  With `-Dquadrature.taa.entityMotion=true` entities have motion of their own (research R4,
+  7b.5): each frame every entity within 96 blocks that moved or turned since the frame before is
+  given its box, grown by a quarter block, and the matrix taking a point on it to where its
+  position and yaw had it the frame before; the motion pass moves a pixel whose depth changed after
+  terrain and whose point lies in a box with that entity, and projects it by the previous view.
+  A limb's own swing, particles and block entities are left to the box. Verified to move a
+  walking golem's pixels and nothing else; its effect on quality is not yet measured.
 - **Not covered:** a mod that keeps the game's framebuffer from before the pass and draws into
   it there; anaglyph, which is drawn at the output's size.
 

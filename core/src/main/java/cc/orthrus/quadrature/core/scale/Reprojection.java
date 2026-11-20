@@ -23,7 +23,7 @@ public final class Reprojection {
         int dimension) {
 
         /** The matrix from a place relative to the origin to clip space. */
-        double[] viewProjection() {
+        public double[] viewProjection() {
             return FrameBlock.multiply(projection, modelView);
         }
     }

@@ -148,6 +148,7 @@ public final class TemporalScaler {
     private static int motion;
     private static int depthNow;
     private static int depthTerrain;
+    private static final EntityMotions entityMotions = new EntityMotions();
 
     private static final String[] PASSES = {"terrain depth", "depth copy", "motion", "temporal", "scale", "depth stretch",
         "handoff"};
@@ -394,9 +395,31 @@ public final class TemporalScaler {
                 GL41.glProgramUniform2f(motionProgram, 2, (float) offsetX, (float) offsetY);
                 GL41.glProgramUniform1i(motionProgram, 3, DepthCalls.active() ? 1 : 0);
                 GL41.glProgramUniform1i(motionProgram, 4, kept ? 1 : 0);
+                int moving = 0;
+                if (EntityMotions.ON) {
+                    moving = entityMotions.gather(current, kept ? previous : null);
+                    if (moving > 0 && terrainDepthCopied) {
+                        double[] inverse = FrameBlock.inverse(current.viewProjection());
+                        if (inverse != null) {
+                            GL41.glProgramUniformMatrix4fv(motionProgram, 6, false, FrameBlock.floats(inverse));
+                            GL41.glProgramUniformMatrix4fv(motionProgram, 7, false, FrameBlock.floats(previous.viewProjection()));
+                            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, entityMotions.buffer());
+                            bind(ScalerShaders.UNIT_B, depthTerrain, nearest);
+                        } else {
+                            moving = 0;
+                        }
+                    } else {
+                        moving = 0;
+                    }
+                }
+                GL41.glProgramUniform1i(motionProgram, 5, moving);
+                lastEntityRecords = moving;
                 bind(ScalerShaders.UNIT_A, depthNow, nearest);
                 GL42.glBindImageTexture(0, motion, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RG16F);
                 GL43.glDispatchCompute(groupsX, groupsY, 1);
+                if (moving > 0) {
+                    GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 3, 0);
+                }
                 clock.end(2);
                 GL42.glMemoryBarrier(GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
 
@@ -696,7 +719,14 @@ public final class TemporalScaler {
         Quadrature.LOGGER.info("Scaler motion check: history {}; motion mean {} px, greatest {} px, {} of {} pixels past 0.01 px; origin "
             + "{} {} {}.", kept ? "kept" : "dropped", String.format("%.5f", sum / pixels), String.format("%.4f", most), over, pixels,
             String.format("%.3f", eye[0]), String.format("%.3f", eye[1]), String.format("%.3f", eye[2]));
+        if (EntityMotions.ON) {
+            Quadrature.LOGGER.info("Scaler entity motion: {} entities moved this frame; {} records over {} frames so far.",
+                lastEntityRecords, entityMotions.written, entityMotions.framesWithAny);
+        }
     }
+
+    /** The entities given a motion of their own in the last motion pass. */
+    private static int lastEntityRecords;
 
     /** One line for the timing log, or null where the scaler is off. */
     public static String summary() {

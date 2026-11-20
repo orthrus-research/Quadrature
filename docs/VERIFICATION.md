@@ -1762,6 +1762,25 @@ boundary. The rest of the stage, 0.1 to 0.4 ms, is the work between the timed pa
 - **Not measured:** the picture with a mod's post-processing that keeps the game's framebuffer
   from before the pass. Variance clipping is not used and its gain is not measured (D23).
 
+### Entities' own motion
+
+Measured 2026-11-20 with a jar built from tree 0ab0e7c4, on a fresh instance of seed 2485331 at
+scale four: the forest tour with three iron golems summoned beside the player at three views, own
+terrain, the scaler at 0.67 with the temporal pass and `quadrature.taa.check=true`, which reads the
+motion target back every 600 composites. The first tour ran without entity motion, the second with
+`quadrature.taa.entityMotion=true` (research R4, 7b.5). At a still view the camera gives every pixel
+no motion, so pixels that move there carry an entity's own.
+
+- **Without it, a walking golem has no motion.** All 12 reads at the golem views had a greatest
+  motion of 0.0001 px and no pixel past 0.01 px, while the golems wandered.
+- **With it, the golems' pixels move with them.** At the same views 10 of 12 reads had 16 to 3,284
+  pixels past 0.01 px, the greatest from 0.04 to 4.72 px; the other two fell where the golems stood
+  still. 21,426 entity records were written over 12,319 frames.
+- **Nothing else moves.** Of the 73 reads at the other views, the only two with moving pixels were
+  at the two views beside the last golems' place, where they were still in sight.
+- **Quality is not measured.** Golems wander differently every run, so no native-resolution run
+  holds the same picture to score against; that needs a subject that moves the same way each run.
+
 ### The four together
 
 Measured 2026-11-19 at 1280 by 720 on one fresh instance, with a jar built from commit de5bd03, which
@@ -1799,6 +1818,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.terrain.layerCache=off` | The mesher asks each block for its layers every time instead of once a state; `=alternate` keeps them for every other build and times both kinds apart (Layers kept per state) |
 | `quadrature.terrain.layerCache.check=true` | Every kept answer is asked again and differences counted; `LAYER CHECK FAILED` in the terrain line on any |
 | `quadrature.terrain.arrivals=true` | Once a second, logs the cubes around the player the client does not hold yet, at its level, above and below, near and far (Cubes arriving around the player) |
+| `quadrature.taa.entityMotion=true` | Entities that moved or turned since the frame before get motion of their own in the temporal pass (Entities' own motion) |
 | `quadrature.textures.still=true` | Animated textures stay at the first frame stitched, so water and lava look the same in every capture; for comparing runs, set in all of them (Measured repeatability) |
 | `quadrature.terrain.visibility=all` | Quadrature draws every meshed cube in the view's volume and reach, with no search |
 | `quadrature.terrain.gameSelection=true` | Quadrature draws only the cubes the game selected |
