@@ -1269,6 +1269,31 @@ translucent layer (`quadrature.terrain.translucent=game`, the control).
   cubes of half-block centers with many equal distances, and fails that test where its rule for equal
   distances is reversed.
 
+### Distant terrain's cost
+
+Measured 2026-11-20 for the tier model (ARCHITECTURE 12.1.1) on fresh instances of the 32 km
+world (seed 2485331, scale four, reversed depth, own terrain, distant terrain own, Riven's preview
+build), the forest tour. A first turn, reach 256 and 512 at 1280 by 720, showed that each of
+distant terrain's reports covers its own window of about 600 frames but names only its last frame's
+faces, while tiles arrive throughout; distant terrain's report now also gives the mean faces of the
+frames it timed. A second turn, on a fresh instance, ran reach 512 at 1280 by 720 and at 2560 by
+1440.
+
+- **The line.** Over 145 windows, each its frames' mean faces against their mean GPU time, weighted
+  by frames: 0.646 ms, 0.999 ms a million faces and 0.233 ms a million render pixels; the windows
+  stand 0.56 ms from it on average. From 1 to 6 million faces, the range a settled reach draws,
+  every million-face band's mean lies within 0.25 ms of the line at 1280 by 720 and 0.6 ms at 2560
+  by 1440; below a million faces, where tiles are arriving, the windows stand above it.
+- **Faces a reach draws once its tiles are stored.** Reach 256: a median of 1.51 million over 30
+  windows. Reach 512: 3.51 million, the one window of each run whose tiles were all stored; the
+  tour moves on before reach 512's 1,400 tiles are all built. 384's and 768's are taken between
+  and past them until measured.
+- **What it does to the tiers.** Counted (benchmark version 5), distant terrain is each tier's
+  largest group, about 2.5, 3.7, 5.0 and 7.0 ms at 2560 by 1440 on the reference card. This card's
+  stored run now takes MEDIUM at 1280 by 720 to 2560 by 1440 (6.82 ms of the 7 there, a fit of
+  1.03) and LOW at 3840 by 2160 (6.75 ms, a fit of 1.04), a tier below its choices before; LOW and
+  MEDIUM keep 0.67 and 0.77 at every output.
+
 ### Layers kept per state
 
 The mesher asks each block which layers it draws in (`Block.canRenderInLayer`), four times a block
@@ -1634,9 +1659,10 @@ empty copy read 0.228 to 0.291 billion rays a second.
 - **Version 4 changes only the scoring** (2026-11-20): LOW and MEDIUM are priced at their own scale
   with the scaler and at the output's resolution with the temporal pass alone, and render below
   the output only where that costs less (D23). The probes are unchanged and no GPU run was made for
-  it. On this card's stored run the same speed tiers are chosen at all four outputs; MEDIUM keeps
-  0.77 at every one, and LOW keeps 0.67 from 1920 by 1080 up but draws natively at 1280 by 720,
-  where at its radius it saves less than the scaler costs (1.32 ms natively against the budget of 7).
+  it. On this card's stored run the same speed tiers were chosen at all four outputs; MEDIUM kept
+  0.77 at every one, and LOW kept 0.67 from 1920 by 1080 up but drew natively at 1280 by 720, where
+  at its radius it saved less than the scaler cost. Version 5 counts distant terrain, whose pixels
+  make the scale pay there too (distant terrain's cost).
 - **The settling load does not wait on the copy for its own sake.** It begins only once the
   place has caught up, the copy included, so it waits by construction. Its high times at the
   first run of a place (5 of the 50 runs: 2.99 to 4.49 ms of arithmetic against 2.01 to 2.20)

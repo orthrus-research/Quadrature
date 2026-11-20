@@ -16,9 +16,9 @@ public final class TierBenchmark {
      * The benchmark's version; part of the key a result is stored under. 1, the first calibration; 2, the trace probe
      * on the walk that reads no coarser bits, against a reference scaled to it; 3, nothing timed before the light
      * scene's copy has caught up, and a run whose trace stands far from the other probes chooses nothing; 4, a tier
-     * renders below the output only where that costs less than drawing natively.
+     * renders below the output only where that costs less than drawing natively; 5, distant terrain counted.
      */
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
 
     /** The bandwidth kernel's small working set: past the last-level cache of Turing and Ampere, inside Ada's. */
     public static final long SMALL_BYTES = 8L << 20;

@@ -47,6 +47,15 @@ final class TierCalibrationTable {
      * MAX's two cascades of 1,048,576, the near at 64 blocks and the far at 256, a quarter a frame.
      */
     private static final double[] INDIRECT_MS = {0, 0.527, 3.465 / 4, (4.892 + 12.170) / 2 / 4};
+    /**
+     * Distant terrain, the reach group, measured 2026-11-20 at reach 512 at 1280 by 720 and 2560 by 1440 on the forest
+     * tour (VERIFICATION, distant terrain's cost): over 145 report windows, each its frames' mean faces against their
+     * mean time, 0.646 ms, 0.999 ms a million faces and 0.233 ms a million render pixels. The faces each tier's reach
+     * draws once its tiles are stored: 1.51 million at 256 (30 windows) and 3.51 million at 512 (two); 384's is taken
+     * between them and 768's past them, by the 2 million each 256 blocks of reach added, until they are measured.
+     */
+    private static final double[] DISTANT_FACES_MILLIONS = {1.51, 2.51, 3.51, 5.51};
+    private static final double[] DISTANT_LINE = {0.646, 0.999, 0.233};
     /** MAX's far shadows: 2,097,152 rays toward a low sun at 256 blocks, 2.59 ms a million; an upper bound. */
     private static final double FAR_SHADOWS_MS = 2.59 * 2.097152;
 
@@ -116,6 +125,10 @@ final class TierCalibrationTable {
             new Cost("opaque terrain drawn forward", Probe.TERRAIN, terrain[0], terrain[1], terrain[2], 0),
             new Cost("the targets for shading", Probe.TERRAIN, TARGETS * terrain[0], TARGETS * terrain[1], TARGETS * terrain[2], 0),
             new Cost("the light's depth", Probe.LIGHT, LIGHT_MS[t], 0, 0),
+            // Its cost a primitive is about three times opaque terrain's, but the terrain probe is the nearest stand-in
+            // for how much faster a machine draws it.
+            new Cost("distant terrain", Probe.TERRAIN, DISTANT_LINE[0] + DISTANT_LINE[1] * DISTANT_FACES_MILLIONS[t],
+                DISTANT_LINE[2], 0),
             new Cost("shading", Probe.BANDWIDTH, 0, 0.19, 0),
             new Cost("the game's other drawing", Probe.BANDWIDTH, 0, 0.33, 0),
             TierBenchmark.renderScale(tier) < 1 && !drawnNatively

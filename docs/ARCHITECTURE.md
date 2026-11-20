@@ -1377,13 +1377,13 @@ figures are taken as the top state's, as the other items' settled runs are.
 - Not counted, since not built or not measured: fog and clouds, ambient occlusion, and the
   shading that the shadow filter and indirect light add to the stage. Each is added to its tiers
   when measured, which can only raise the speeds needed.
-- Not counted, though measured: distant terrain, the reach group. It took 2.2 to 2.6 ms of GPU a
-  frame at 1280 by 720 for 1.4 to 1.6 million faces ([DISTANT.md](DISTANT.md), section 9), and 2.3 ms
-  in the cross-mod diagnostics' full stack; the opaque-terrain probe's line gives under 1 ms for as many
-  primitives, so distant terrain costs about three times as much a primitive and the terrain probe
-  cannot stand for it. It enters the table as its own line, by faces drawn at each tier's reach and by
-  render pixels, once its cost is measured at two reaches and two resolutions; at its one measurement it
-  is the largest group a tier holds.
+- Distant terrain, the reach group, is its own line since benchmark version 5 (VERIFICATION, distant
+  terrain's cost): 0.646 ms, 0.999 ms a million faces and 0.233 ms a million render pixels, at the
+  faces each tier's reach draws once its tiles are stored, 1.51 million at 256 blocks and 3.51 million
+  at 512, with 384's taken between and 768's past them until measured. A primitive of it costs about
+  three times one of opaque terrain, so the reference's figures are its own; the terrain probe's ratio
+  stands for how much faster a machine draws it. At 2560 by 1440 it is each tier's largest group,
+  about 2.5, 3.7, 5.0 and 7.0 ms on the reference card.
 - **Rendering below the output costs time at today's frame.** The scaler's passes take, at P0,
   0.98 ms at 2560 by 1440 output from 0.67, 0.97 from 0.77 and 0.96 for the temporal pass alone
   at the output's size (HIGH and MAX), and 1.52, 1.78 and 2.01 ms at 3840 by 2160, with about
@@ -1401,9 +1401,10 @@ figures are taken as the top state's, as the other items' settled runs are.
   LOW draws natively on the card's measured run; a card
   whose terrain runs faster than its memory against the reference's saves less and may draw
   natively. The chosen scales are logged and stored with each run. On the run the unit test holds, this card takes
-  HIGH at 2560 by 1440 (5.65 ms of the 7, a fit of 1.24) and MEDIUM at 3840 by 2160 (6.31 ms, a
-  fit of 1.11). Its score runs 0.85 to 1.14 between places, so at the slowest places MEDIUM's
-  fit at 3840 by 2160 falls below one; the band keeps whichever tier is stored first.
+  MEDIUM at 2560 by 1440 (6.82 ms of the 7, a fit of 1.03) and LOW at 3840 by 2160 (6.75 ms, a
+  fit of 1.04), distant terrain counted; before it was counted, HIGH and MEDIUM. Its score runs 0.85
+  to 1.14 between places, so at the slowest places these fits fall below one; the band keeps
+  whichever tier is stored first.
 - The memory each tier holds, at 2560 by 1440: 307, 660, 1,029 and 1,441 MiB (near terrain's
   arenas 128 to 704 MiB, distant terrain's reach about 40 to 250 MiB by DISTANT's survey, the
   light's layers with their scratch 32 to 256 MiB, the light scene's lookup and bricks 8.6, 15.0

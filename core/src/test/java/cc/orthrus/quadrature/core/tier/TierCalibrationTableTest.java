@@ -72,7 +72,8 @@ final class TierCalibrationTableTest {
         int[][] sizes = {{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
         double[] millis = {1.3117, 1.4817, 1.7203, 3.2143};
         double[] fragments = {2_042_959, 4_440_170, 7_796_303, 17_329_617};
-        Tier[] expected = {Tier.HIGH, Tier.HIGH, Tier.HIGH, Tier.MEDIUM};
+        // With distant terrain counted (benchmark version 5) the card takes a tier lower than before at every size.
+        Tier[] expected = {Tier.MEDIUM, Tier.MEDIUM, Tier.MEDIUM, Tier.LOW};
         for (int o = 0; o < sizes.length; o++) {
             java.util.List<BenchmarkResult.TerrainPoint> terrain = new java.util.ArrayList<>();
             for (int i = 0; i < sizes.length; i++) {
@@ -84,9 +85,9 @@ final class TierCalibrationTableTest {
             assertEquals(expected[o], outcome.speed(), sizes[o][0] + " by " + sizes[o][1]);
             assertEquals(Tier.MAX, outcome.memory(), sizes[o][0] + " by " + sizes[o][1]);
             assertTrue(outcome.traceAgrees());
-            // Drawing below the output pays on this card from 1920 by 1080 up; at 1280 by 720 LOW, at its small radius,
-            // saves less than the scaler costs and draws natively. MEDIUM keeps its scale at every size.
-            assertEquals(o == 0 ? 1.0 : 0.67, outcome.scales()[Tier.LOW.ordinal()], 1e-12, sizes[o][0] + " by " + sizes[o][1]);
+            // Drawing below the output pays on this card at every size, distant terrain's pixels counted: LOW and
+            // MEDIUM keep their own scales.
+            assertEquals(0.67, outcome.scales()[Tier.LOW.ordinal()], 1e-12, sizes[o][0] + " by " + sizes[o][1]);
             assertEquals(0.77, outcome.scales()[Tier.MEDIUM.ordinal()], 1e-12, sizes[o][0] + " by " + sizes[o][1]);
         }
     }

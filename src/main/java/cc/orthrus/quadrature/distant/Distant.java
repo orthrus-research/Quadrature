@@ -167,6 +167,9 @@ final class Distant {
     // GPU time, from pairs of timestamps read a few frames later.
     private final int[] timerStart = new int[TIMERS];
     private final int[] timerEnd = new int[TIMERS];
+    /** The faces each timer's frame drew, and their sum over the samples read, so a report's mean faces is that of the frames timed. */
+    private final long[] timerFaces = new long[TIMERS];
+    private long gpuFaces;
     private boolean timersMade;
 
     // Counters for the timing log.
@@ -282,6 +285,7 @@ final class Distant {
             int timer = (int) (frame % TIMERS);
             readTimer(timer);
             GL33.glQueryCounter(timerStart[timer], GL33.GL_TIMESTAMP);
+            timerFaces[timer] = draws.faces();
             boolean fading = DistantSettings.CROSSFADE && DistantSettings.DEBUG != DistantSettings.DEBUG_BOX;
             if (fading) {
                 bands();
@@ -791,6 +795,7 @@ final class Distant {
             if (nanos >= 0) {
                 gpuNanos += nanos;
                 gpuSamples++;
+                gpuFaces += timerFaces[timer];
                 mostGpuNanos = Math.max(mostGpuNanos, nanos);
             }
         }
@@ -810,9 +815,11 @@ final class Distant {
         line.append(String.format("; all %d/%d, being built %d, kept past the rings %d, resident %d", wanted, stored,
             schedule.building(), schedule.leaving(), residents.size()));
         line.append(String.format("%n  drawn: %d tiles, %d faces, %d draws; GPU %.3f ms mean, %.3f most (%d samples, "
-                + "its own timer; the stage times count it under entities); client thread %.3f ms mean",
+                + "its own timer; the stage times count it under entities; %d faces mean over the frames timed); client "
+                + "thread %.3f ms mean",
             lastTilesDrawn, lastFaces, lastDraws,
             gpuSamples == 0 ? 0.0 : gpuNanos / 1e6 / gpuSamples, mostGpuNanos / 1e6, gpuSamples,
+            gpuSamples == 0 ? 0 : gpuFaces / gpuSamples,
             cpuSamples == 0 ? 0.0 : cpuNanos / 1e6 / cpuSamples));
         line.append(!DistantSettings.SHADED ? String.format("%n  shaded path: off")
             : String.format("%n  shaded path: on; opaque layers %s near terrain's targets, %d draws",
@@ -860,6 +867,7 @@ final class Distant {
             arena.pendingBytes() / 1048576.0, materials.size()));
         gpuNanos = 0;
         gpuSamples = 0;
+        gpuFaces = 0;
         mostGpuNanos = 0;
         cpuNanos = 0;
         cpuSamples = 0;
