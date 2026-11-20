@@ -154,6 +154,66 @@ left is measurement, in this order; each runs through a queued GPU turn.
 | 7 | The GL to Vulkan handoff and DLSS's cost, before the bridge is built | D21 | Done 2026-11-19 ([research R1](research/R1-platform-frame-hosted.md), 1.9; [verification](VERIFICATION.md), the handoff from OpenGL to Vulkan). Built in measurement form in the separately licensed `quadrature-nvidia` module, with a compute stand-in where DLSS would evaluate. The round trip costs a fixed 0.36 to 0.37 ms of GPU time at P0 (0.47 to 0.50 at P3) at 1080p and 1440p, and the client 0.06 ms a frame; the images take 32 and 57 MiB. DLSS's published cost on the RTX 3060 in Performance mode is 1.45 to 2.81 ms at 1080p and 2.39 to 5.05 ms at 1440p, so with the handoff about 1.82 to 3.18 and 2.75 to 5.41 ms. A mismatched device is refused, a resize remakes the images in 7 to 8 ms, a world change keeps them, and with the round trip on the picture passes 17 of 17 views. DLSS itself, through the shim since 2026-11-19 ([verification](VERIFICATION.md), DLSS through the handoff): NGX's own work at P0 takes 1.54 and 2.20 ms with preset K at 1080p and 1440p and 2.55 and 4.53 ms with preset M, and the round trip with it 1.89 to 4.84 ms. Since the same day DLSS also takes the scaler's picture ([verification](VERIFICATION.md), DLSS taking the scaler's picture): at 2560 by 1440 against native, 30.37 dB and SSIM 0.897 at 0.67 and 29.21 dB and 0.858 at 0.5, against the own scaler's 28.31 dB and 0.811 at 0.67, for 2.9 ms of GPU at P0 against 1.0 ms at P3 |
 | 8 | The lowest tier's budgets on an RTX 3050 8 GB and a Turing 8 GB card | D22's floor | Waiting on hardware |
 
+### Reference cards and drivers
+
+The standard is the seven most used consumer cards on the Steam Hardware Survey that meet the supported
+platform (Turing or later, at least 8 GB), reduced to the fewest cards that differ in architecture, memory
+or speed class, and the driver branches NVIDIA still supports. Source: the survey for October 2026 (the
+same seven in September), and NVIDIA's branch table of 2026-11-04.
+
+| Rank | Card | Share, Oct 2026 | Chip, architecture | Memory | Stands for it |
+|---|---|---|---|---|---|
+| 1 | RTX 3060 | 3.78% | GA106, Ampere | 12 GB | RTX 3060 |
+| 2 | RTX 5070 | 3.78% | GB205, Blackwell | 12 GB | RTX 5060 (architecture), RTX 3060 (12 GB) |
+| 3 | RTX 4060 Laptop GPU | 3.60% | AD107, Ada | 8 GB | RTX 4060 (the same chip; the laptop's own difference is below) |
+| 4 | RTX 4060 | 3.51% | AD107, Ada | 8 GB | RTX 4060 |
+| 5 | RTX 3050 | 3.25% | GA106/GA107, Ampere | 8 GB (a 6 GB model is below the floor) | RTX 3050 8 GB |
+| 6 | RTX 5060 | 3.15% | GB206, Blackwell | 8 GB | RTX 5060 |
+| 7 | RTX 5060 Ti | 2.70% | GB206, Blackwell | 8 or 16 GB | RTX 5060 (the same chip) |
+
+The reference cards are therefore four, and the floor a fifth:
+
+- **RTX 3060 12 GB**: Ampere at 12 GB, the reference all tiers are calibrated on (ours, under Windows; a
+  rented one under Linux was calibrated against it on 2026-11-20, recorded in the results database).
+- **RTX 3050 8 GB**: the slowest of the seven, at the floor's memory: LOW's budgets (item 8).
+- **RTX 4060 8 GB**: Ada, standing also for the RTX 4060 Laptop GPU's chip.
+- **RTX 5060 8 GB**: Blackwell, standing for the RTX 5060 Ti and RTX 5070's architecture; the 5070's
+  12 GB is the RTX 3060's memory class.
+- **Turing 8 GB (RTX 2070 SUPER or RTX 2070)**: not among the seven (the most used Turing card at 8 GB, the
+  RTX 2060 SUPER, holds 0.76%), but it is the supported platform's floor and lacks two optional extensions
+  and half of one limit (VERIFICATION, rented cards): item 1's dump and item 8's floor.
+
+Driver branches, all of which support Turing and later: **R580** (long-term support to June 2028, the
+branch older installations stay on), **R595** (production to March 2027, the Linux distributions' current
+driver; 595.99.02 is NVIDIA's latest Linux release), **R620** (long-term support to September 2029; the
+current Windows Game Ready driver, 621.14 of 2026-11-04). New feature branches (610, 615) are short-lived
+and are not targets; the reference RTX 3060 moves from 610.88 to R620 at item 5's driver update. Each branch
+is measured on at least two cards and each card on at least one branch:
+
+| Card | R580 | R595 | R620 |
+|---|---|---|---|
+| RTX 3060 | rented (Linux) | rented (Linux) | ours (Windows), after item 5's update |
+| RTX 3050 8 GB | rented (the one listing) | | |
+| RTX 4060 8 GB | | rented | |
+| RTX 5060 8 GB | | | rented (or an RTX 5060 Ti 8 GB) |
+| Turing 8 GB | rented | | |
+
+Rented cards run Linux; players run Windows. Each rented result is read through the RTX 3060's pair of the
+same plan on both systems, whose long passes differed (4K terrain 3x, the light's view 16% dearer on the
+Windows desktop, cause not established). Rented hosts must give at least 8 effective cores, or the tour does
+not settle. Where a card is scarce (on 2026-11-20 one RTX 3050, five RTX 4060 and six RTX 5060 listings),
+the stand-in is the same chip class: the RTX 4060 Ti 8 GB for Ada and the RTX 5060 Ti 8 GB for Blackwell;
+the RTX 3050 has none.
+
+Not covered by renting: laptops. Two of the top eight are laptop chips (RTX 4060 and 5060 Laptop GPU). They
+run power-limited, which the tier benchmark measures as speed, and on hybrid graphics, where the game's Java
+process can be given the integrated GPU, which the gate refuses: the refusal's message and a run on a real
+laptop are open.
+
+The market snapshots, taken every 30 minutes into the results database, list these cards and their stand-ins
+(RTX 3050, 3060, 4060, 4060 Ti, 5060, 5060 Ti, 5070, 2060 SUPER, 2070 SUPER, 2070), so that price,
+availability and driver are known for each before a rental is asked for.
+
 ## Cross-mod diagnostics
 
 Asked 2026-11-19, for Riven worlds: which mod costs the most, what the engine still does that

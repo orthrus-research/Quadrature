@@ -81,8 +81,8 @@ mixes settled views with the loading between them.
 
 ## Recorded results
 
-Formal results are kept in one SQLite database, `.local/results/results.sqlite`, through
-`tools/results.py`. A run records what ran (client jar, Cubature, Riven, options, tour, window,
+Formal results are kept in one SQLite database, beside the run evidence and like it outside version
+control, through `tools/results.py` (`--db` or `QUADRATURE_RESULTS` names another file). A run records what ran (client jar, Cubature, Riven, options, tour, window,
 radius) and where (operating system, host, card and driver, the last two read from the client
 log's platform line), and its measurements one value a row: the tier benchmark's probes, each
 captured view's stage times and the per-frame scores of a `frames.py compare` report. A finding
