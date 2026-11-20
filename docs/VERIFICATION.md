@@ -1162,8 +1162,10 @@ of seed 8675309, each run on a fresh instance with Cubature cb64f367:
   through the walk, which lights from the table: 92,566 cubes, none differing in any layer.
 - **No time saved that shows.** On those same blocks, one after the other on the same threads, the
   dispatcher took 107,725 ms and the walk with the table 107,668 ms, the walk's notes for face records
-  included. The table's own share is not separated by this run; a check run with
-  `quadrature.terrain.lightTable=off`, its walk time over its own dispatcher time, separates it.
+  included. A check run on another fresh instance with `quadrature.terrain.lightTable=off` separates the
+  table's own share, each run's walk time taken over its own dispatcher time: 1.029 without the table
+  (121,364 against 117,952 ms over 95,896 cubes, none differing), 0.9995 with it. The table saves about 3%
+  of the walk's time on the same blocks, about what the walk's notes for face records cost.
 - **Without the check**, a build took 1.291 ms on the clock and 1.220 ms of its thread's CPU over 97,555
   builds; the game's rebuilds left the opaque layers out in all 126,663, 50.7 s on its threads, 29.3 s of
   their CPU, and 0.76 s on the client thread.
