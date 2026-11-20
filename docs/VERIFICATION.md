@@ -1358,11 +1358,14 @@ with open caves (seed 101, 14 whole sets). MAX's batch of two million rays, at 1
 | The dwell tour's places (above) | 1.1, 4.9, 12.2 ms | 1.4, 3.6, 5.4 ms | |
 | Open water | 0.50, 0.87, 1.01 ms (75% hit) | 1.61, 3.81, 5.31 ms | 1.31, 1.93, 2.54 ms |
 | Rugged rock and open caves | 0.63, 1.63, 9.62 ms | 1.19, 2.76, 3.72 ms | 1.04, 1.45, 2.55 ms |
+| A town of 36 stone buildings, 2026-11-20 | 0.98, 3.97, 8.76 ms | 1.34, 3.44, 4.68 ms | 1.18, 2.10, 3.22 ms |
 
 Probes over water end at its surface. Over rugged ground they pass through open air at 16 and 64 blocks
 without meeting anything and cost most only at 256. No place measured here is dearer than the dwell tour's
-places for any class, so the tier costs taken from them stand. The check found no difference in either run. A
-built-up area is still unmeasured.
+places for any class, so the tier costs taken from them stand. The check found no difference in either run. The
+town, built by its own tour (	own-2485331) on a platform above the forest tour's last places on a fresh instance:
+36 hollow buildings ten blocks square and twelve high with glass bands, streets three to six blocks wide; it too is no
+dearer for any class.
 
 ### The tier benchmark
 
