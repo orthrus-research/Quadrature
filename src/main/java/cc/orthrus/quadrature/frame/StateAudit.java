@@ -33,6 +33,13 @@ final class StateAudit {
     /** Frames to skip first, so loading and the first chunk builds are over. */
     private static final int WARM_UP_FRAMES = 240;
     private static final int SAMPLED_FRAMES = 120;
+    /**
+     * With {@code -Dquadrature.stateAudit.every=<frames>}, another window starts that many frames after each one
+     * started (at least one window's length plus a frame), each reported on its own with where the viewer stood: an
+     * audit of what a tour shows later, such as a mod's geometry that appears at one place only. Unset or 0, the first
+     * window alone is reported.
+     */
+    private static final int EVERY = Math.max(0, Integer.getInteger("quadrature.stateAudit.every", 0));
 
     private interface Reader {
         String read();
@@ -111,10 +118,11 @@ final class StateAudit {
     private final Map<String, Map<String, Integer>> atPassStart = new LinkedHashMap<>();
     private int frame;
     private String currentStage;
-    private boolean reported;
+    /** The frame the current window starts at; -1 once the last window is reported. */
+    private int windowStart = WARM_UP_FRAMES;
 
     boolean sampling() {
-        return !reported && frame >= WARM_UP_FRAMES;
+        return windowStart >= 0 && frame >= windowStart;
     }
 
     void beginPass() {
@@ -154,8 +162,11 @@ final class StateAudit {
         }
         boundary(null);
         currentStage = null;
-        if (frame >= WARM_UP_FRAMES + SAMPLED_FRAMES) {
+        if (frame >= windowStart + SAMPLED_FRAMES) {
             report();
+            changes.clear();
+            atPassStart.clear();
+            windowStart = EVERY > 0 ? windowStart + Math.max(EVERY, SAMPLED_FRAMES + 1) : -1;
         }
     }
 
@@ -166,9 +177,12 @@ final class StateAudit {
     }
 
     private void report() {
-        reported = true;
         List<String> lines = new ArrayList<>();
-        lines.add("State audit over " + SAMPLED_FRAMES + " frames, " + names.length + " items.");
+        net.minecraft.entity.Entity viewer = net.minecraft.client.Minecraft.getMinecraft().getRenderViewEntity();
+        String where = viewer == null ? "no viewer"
+            : String.format(java.util.Locale.ROOT, "viewer at %.1f, %.1f, %.1f", viewer.posX, viewer.posY, viewer.posZ);
+        lines.add("State audit over " + SAMPLED_FRAMES + " frames (" + windowStart + " to " + frame + "; " + where
+            + "), " + names.length + " items.");
         lines.add("State at the start of the world pass (value x frames):");
         atPassStart.forEach((name, values) -> lines.add("  " + name + ": " + values));
         // One depth pixel at the middle of the window, as the driver holds it and as hosted code reads it.
