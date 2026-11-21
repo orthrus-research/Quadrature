@@ -143,6 +143,60 @@ Quadrature and Riven pin): every client that draws a cubic world needs Quadratur
 | The scene for lighting | Built behind `-Dquadrature.scene=true`: a 16-bit state number for every cell of every meshed cube, what each state does to light, three answers for a cell, a generation per cube and a report of changed cubes; 0.01 ms more to mesh a cube and 47 MiB for 5,617 cubes with cells of their own. With `-Dquadrature.scene.gpu=true`, a wrapped lookup of 25 cubes a side and occupancy bricks in two buffers a shader reads, 8.7 MiB, copied 64 bricks a frame; with `-Dquadrature.scene.states=true`, each cell's state as a byte into its cube's list of states and a table of what each state does to light, 69 MiB more ([ARCHITECTURE.md](ARCHITECTURE.md) 5.1) |
 | Compact face stream, culling on the GPU, commands and their count written on the GPU | Face records built (`quadrature.faces`). Culling measured first, 2026-11-20: a depth pyramid and a test of each cube against it, leaving nothing out, find 34% of the player's drawn vertices behind other terrain over the forest tour and 45% over the cave tour, and 28% and 56% of the light's wide box hidden from the light; the test costs 0.03 ms a frame and the pyramid as first built 0.55 to 0.68 ms at low clocks ([VERIFICATION.md](VERIFICATION.md), what a depth pyramid would leave out). Built in first form the same day behind `quadrature.terrain.cull=gpu`: two phases, every picture unchanged (17 of 17, 406 exact pyramid checks), 32% and 44% of the player's vertices left out; on the RTX 3060 at 2560 by 1440, radius 16, it costs about 0.3 ms more than it saves, measured frame by frame (turns of fixed length locked onto the tours' timing), so it is off by default ([VERIFICATION.md](VERIFICATION.md), culling on the GPU). Open: whether cards slower at geometry gain, and the light's view |
 
+## Phase 3 work orders
+
+Phase 3 closes when GTCEu: Reloaded's bloom runs on Quadrature through the mod interface and its renderer Mixins
+are deleted. Its requirements are sections 10 and 11 (bloom and emissive as pipeline features; a stable, versioned
+interface in OrthLib through which a mod declares an extra terrain layer, marks emissive geometry, adds work at a
+named point, reads frame resources and queries capabilities); research R5 (10.1, 10.2) leaves the interface's shape
+open.
+
+**What GTCEu: Reloaded does today** (its sources at dd763c5f1, read 2026-11-21):
+
+- *The layer.* A Mixin adds a value, `BLOOM`, to the game's `BlockRenderLayer` (`BlockRenderLayerMixin`), and another
+  gives it a buffer in the game's rebuild buffers (`RegionRenderCacheBuilderMixin`). Blocks choose it through
+  `canRenderInLayer`: machines, covers, pipes and laser pipes, lamps, active casings and coils, emissive ores, and, when
+  CTM is absent, a texture's own layer (`BlockMixin`, `BlockHooks`). Their quads go to it while Forge's current layer
+  is the bloom layer: the active casings' model keeps the sprites named `_bloom` or `_emissive`, the lamp, ore and
+  casing models make their bloom quads full-bright without shading (`RenderUtil.makeEmissive`), and the machine and
+  cover renderers draw their overlays at full light. 23 files ask for the bloom layer and 12 places read Forge's
+  current layer.
+- *The pass.* A Mixin wraps the game's translucent `renderBlockLayer` call in `renderWorldPass` (`EntityRendererMixin`,
+  in a configuration of its own; `BloomEffectUtil.renderBloomBlockLayer`). The bloom layer is drawn into a color
+  framebuffer of its own that shares the scene's depth, through a depth texture hooked onto the game's framebuffer
+  (`DepthTextureUtil`, which otherwise draws the solid layers again into a framebuffer of its own after the world
+  pass); that color is laid over the scene; translucent terrain is drawn; the scene, masked by the bloom framebuffer's
+  alpha, is blurred by one of three styles (a Gaussian blur, a downsample and upsample chain, a separable blur
+  pyramid) and added back under a strength, a base brightness and two brightness limits.
+- *Tickets.* `registerBloomRender(setup, type, effect, validity, world)` draws a mod's own geometry into the same pass,
+  each group of tickets blurred and laid over on its own: the fusion reactor's ring and the bloom particles.
+- *Fallbacks.* Under a shader mod or Celeritas, emissive sprites go to a fallback layer (cutout) and no ticket is
+  registered.
+- *Under Quadrature today (item 12g).* The bloom layer is meshed and drawn by Quadrature inside GTCEu: Reloaded's
+  wrap; the pass, the tickets and the depth texture are still GTCEu: Reloaded's. Its filter of machine renderers
+  (`RenderChunkMixin`) has nothing left to save (item 12, mods that add to the game's chunk meshes).
+
+**Decisions the user takes before P3-A1:**
+
+| ID | Question | Recommended |
+|---|---|---|
+| P3-D1 | What GTCEu: Reloaded draws where no renderer provides the interface (packs without Quadrature, its own qualification in worlds that are not cubic) | Its existing fallback, generalized: emissive sprites in their fallback layer, full-bright, and no bloom. The other way, a provider for the game's own renderer carried in OrthLib, keeps bloom there at the cost of keeping the enum value and the pass in OrthLib, which OrthLib's rules set out to avoid |
+| P3-D2 | GTCEu: Reloaded's three bloom styles | One technique of Quadrature's own (D2), chosen in P3-R1; its strength, base, limits and radius settings carry over, and the style setting has no effect under Quadrature |
+
+| ID | Work | Output | Done when |
+|---|---|---|---|
+| P3-R1 | Research: bloom and emissive in this pipeline (requirement 10). Published techniques (downsample and upsample chains, separable Gaussian pyramids, dual filtering); a masked source (emissive geometry only, as today) against a brightness threshold; behavior under the temporal pass and the scaler (4.8); readiness for Phase 5's lighting in high dynamic range; cost at 1920 by 1080 and 2560 by 1440 on the reference cards | A section of research R4 with sources; the technique as a decision; its PROVENANCE description | The technique and where the stage stands in the graph are decided |
+| P3-R2 | Research: an interface that stays stable while internals change (requirement 10): handles, capability queries, versioned contracts, set against OrthLib's rules for public contracts (its master plan 2: documented ownership, thread, lifetime, failure and cleanup; no enum injection, reflection or dispatch replacement as starting assumptions) | Research R5, 10.2 answered | The contract format is chosen |
+| P3-A1 | The interface's design, in OrthLib's documents and contract format. Types free of Minecraft and GL classes under `dev.orthlib.api`, the client seam under `dev.orthlib.client`. **Provider:** present or absent; version; capability queries (declared layers, emissive contributions, bloom, frame resources). **Declared layer:** a mod declares a named layer with a role (emissive or plain) and holds a handle; it states which block states draw in it through a callback, the part `canRenderInLayer` plays for an enum value; the renderer meshes the layer by calling the block's own rendering with that layer current, read from OrthLib where code now reads Forge's current layer. **Emissive contribution:** a callback that draws into a buffer the renderer supplies, with optional setup and teardown, a validity test and a world it is bound to, grouped by a bloom kind that carries strength, base, limits and radius; GTCEu: Reloaded's tickets map onto it. **Frame resources:** read-only scene depth, with its convention (reversed or conventional) stated, and color, at named points, valid for one frame. Leases for every registration | OrthLib's design document and acceptance profile | GTCEu: Reloaded's layer, tickets and fallback each map onto it without a Mixin |
+| P3-B1 | OrthLib: the interface and its absence answers, with unit tests; a version that Riven's lock pins from source | OrthLib commit and pin | Its tests and OrthLib's acceptance profile pass |
+| P3-B2 | Quadrature: the provider. Declared layers meshed and drawn through the added-layer path (12g), keyed by handle where it now keys by enum value; an emissive target; the bloom stage of P3-R1 at its place in the graph; emissive contributions drawn into the target inside a state envelope; frame resources published with their convention; capability answers. OrthLib pinned in `platform.json` | Code, PROVENANCE records, ARCHITECTURE section 10 | Unit tests for the stage's math; the state audit unchanged with contributions drawing |
+| P3-B3 | GTCEu: Reloaded onto the interface: the bloom layer a declared layer, the 23 files' choice of layer and the 12 reads of the current layer through OrthLib, tickets as emissive contributions, and P3-D1's fallback where no provider answers. Deleted: `BlockRenderLayerMixin`, `RegionRenderCacheBuilderMixin`, `RenderChunkMixin`, `EntityRendererMixin` with its configuration, and `DepthTextureUtil`. `BlockMixin`, a texture's own layer, is block behavior and stays unless the layer callback replaces it cleanly; the configurations for other renderers (Nothirium, Vintagium) are Phase 6's. A dependency on OrthLib's interface | GTCEu: Reloaded commit; Riven's lock moved | Its own tests pass; no renderer Mixin is registered |
+| P3-B4 | State containment around every mod callback the provider runs, and the policy for work at named points: general hooks wait for a consumer (requirement rule 4), and their absence is recorded in ARCHITECTURE section 10 | Code and documents | The state audit reports nothing a callback leaves changed |
+| P3-V1 | Verification on the RTX 3060, in queued turns, textures held still: a GTCEu: Reloaded scene tour (lit lamps, working machines with emissive overlays, active coils and casings, emissive ores, a running fusion reactor's ring, cable-heat particles) at heights 200, 300 and -40, as the entity tour (VERIFICATION, the game's chunk system taken over). GTCEu: Reloaded before and after P3-B3 in two instances, the second given the first's world (VERIFICATION, own terrain against the game's terrain) | VERIFICATION section; results database runs and findings | With bloom off, emissive geometry and its light match GTCEu: Reloaded's own path; with bloom on, the glow is reviewed in images and its extent compared, the technique differing by design; the frame's cost no higher than GTCEu: Reloaded's own pass, compared frame by frame; P3-D1's fallback seen in a client without Quadrature |
+
+Order: P3-R1 and P3-R2, then P3-A1 once P3-D1 and P3-D2 are taken, P3-B1, then P3-B2 and P3-B3 side by side, P3-B4,
+P3-V1. The interface's first version is recorded as a decision when Phase 3 closes.
+
 ## Capability and tier work
 
 Decisions D20 to D23 (2026-11-18). Every supported card has one capability set, so what is

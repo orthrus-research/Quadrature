@@ -1227,7 +1227,7 @@ what the stage should write from them.
 In OrthLib. A mod declares an extra terrain layer, marks emissive geometry, adds a stage at
 a named point in the graph, reads a frame resource, or queries a capability. It holds
 handles, not objects, and the contract is versioned. GTCEu: Reloaded's bloom is the first
-client (research R5). The design is drafted in Phase 3.
+client (research R5). The design is drafted in Phase 3 (PLAN, Phase 3 work orders).
 
 ## 11. Measurement built in
 
