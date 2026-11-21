@@ -356,8 +356,20 @@ final class TerrainProgram {
     }
 
     private static final String FRAGMENT_FADED = fadeFragment(FRAGMENT, "fadeEye", "in float fogDistance;");
+    /**
+     * The same for a declared emissive layer (D27): beside the color, its bloom kind's two weights into a second
+     * target, the fragment's alpha their cover, blended into the target as the color is into the picture.
+     */
+    private static final String FRAGMENT_EMISSIVE = FRAGMENT_FADED
+        .replace("layout(location = 0) out vec4 result;", String.join("\n",
+            "layout(location = 0) out vec4 result;",
+            "layout(location = 1) out vec4 weight;",
+            "uniform vec2 kindWeights;"))
+        .replace("    result = color;", String.join("\n",
+            "    result = color;",
+            "    weight = vec4(kindWeights, 0.0, color.a);"));
     private static final String FRAGMENT_TARGETS_FADED = fadeFragment(FRAGMENT_TARGETS, "eyePosition", "in vec3 eyePosition;");
-    private final int[] fadePrograms = new int[5];
+    private final int[] fadePrograms = new int[6];
     private final float[] fadeInverse = new float[9];
 
     private static final int RECORDS_BINDING = 0;
@@ -368,6 +380,10 @@ final class TerrainProgram {
     private int program;
     private int cubeModelViewLocation;
     private int fogModeLocation;
+    private int emissiveProgram;
+    private int emissiveModelViewLocation;
+    private int emissiveFogModeLocation;
+    private int emissiveWeightsLocation;
     private int indirectProgram;
     private int indirectFogModeLocation;
     private int vertexArray;
@@ -455,6 +471,26 @@ final class TerrainProgram {
         }
         CubeMatrix.compose(modelView, x, y, z, cubeModelView, 0);
         GL20.glUniformMatrix4fv(cubeModelViewLocation, false, cubeModelView);
+        GL11.glDrawArrays(QUADS, mesh.first(layer), mesh.count(layer));
+    }
+
+    /**
+     * Draws one layer of one cube as {@link #draw} does, and its bloom kind's weights over the greatest a kind carries
+     * into the bound framebuffer's second target (D27).
+     */
+    void drawEmissive(CubeMesh mesh, int layer, float x, float y, float z, float overBlack, float overWhite) {
+        if (inUse != 3) {
+            GL20.glUseProgram(emissiveProgram);
+            GL20.glUniform1i(emissiveFogModeLocation, fogMode);
+            inUse = 3;
+        }
+        GL20.glUniform2f(emissiveWeightsLocation, overBlack, overWhite);
+        if (boundBuffer != mesh.buffer(layer)) {
+            boundBuffer = mesh.buffer(layer);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, vertexStride);
+        }
+        CubeMatrix.compose(modelView, x, y, z, cubeModelView, 0);
+        GL20.glUniformMatrix4fv(emissiveModelViewLocation, false, cubeModelView);
         GL11.glDrawArrays(QUADS, mesh.first(layer), mesh.count(layer));
     }
 
@@ -756,6 +792,10 @@ final class TerrainProgram {
         program = link(fadeVertex(VERTEX));
         cubeModelViewLocation = GL20.glGetUniformLocation(program, "cubeModelView");
         fogModeLocation = GL20.glGetUniformLocation(program, "fogMode");
+        emissiveProgram = link(fadeVertex(VERTEX), FRAGMENT_EMISSIVE);
+        emissiveModelViewLocation = GL20.glGetUniformLocation(emissiveProgram, "cubeModelView");
+        emissiveFogModeLocation = GL20.glGetUniformLocation(emissiveProgram, "fogMode");
+        emissiveWeightsLocation = GL20.glGetUniformLocation(emissiveProgram, "kindWeights");
         indirectProgram = link(fadeVertex(VERTEX_INDIRECT));
         indirectFogModeLocation = GL20.glGetUniformLocation(indirectProgram, "fogMode");
         commandBuffer = GL45.glCreateBuffers();
@@ -782,6 +822,7 @@ final class TerrainProgram {
         fadePrograms[2] = facesProgram;
         fadePrograms[3] = targetsProgram;
         fadePrograms[4] = targetsFacesProgram;
+        fadePrograms[5] = emissiveProgram;
         for (int which = 0; which < 2; which++) {
             faceCommandBuffers[which] = GL45.glCreateBuffers();
             faceRecordBuffers[which] = GL45.glCreateBuffers();

@@ -240,3 +240,24 @@ draws at full brightness, and drop contributions: emissive textures without glow
 2026-11-21). Quadrature's bloom is one technique of its own (D2), chosen by research; GTCEu: Reloaded's
 bloom styles are retired, and its strength, base, limits and radius carry over as each bloom kind's
 parameters (the user's decision of 2026-11-21).
+
+**D26. The bridge to OrthLib is compiled by Java 26's compiler, for Java 25.**
+OrthLib's classes are Java 26's; Quadrature's stay Java 25's (D7). The few classes that implement
+OrthLib's render interface are a source set of their own, compiled by Java 26's compiler for Java 25,
+which reads OrthLib's classes without the warning on each that Java 25's compiler gives and writes
+class files of the same version as the rest. Nothing else names an OrthLib type: the bridge is reached
+by name only where OrthLib is installed, so a game without OrthLib loads none of it, and a game with
+OrthLib runs on the Java 26 OrthLib needs. The JDK that builds OrthLib's pinned JAR and compiles the
+bridge is pinned beside Java 25 in `platform.json`.
+
+**D27. Bloom is a chain of halvings and doublings over a weighted source.**
+Quadrature's bloom (D25) is Mittring's recurrence with Jimenez's filters (research R4, 7c): a
+thirteen-read halving into five levels sized from the output, a three-by-three tent while doubling at
+the kind's radius in texels of the level read, the levels weighted equally. Its source is the picture
+weighted per pixel by the bloom kinds of what declared emissive layers and contributions cover, with no
+brightness threshold: a kind's strength, base and limits become two weights in one chain, which
+reproduces GTCEu: Reloaded's composite rule exactly where one kind lights a pixel. Under the temporal
+pass the chain reads its output, the weight resolved in its history, and the glow is added after the
+scale pass; without it, after translucent terrain, where GTCEu: Reloaded's own path added it. Kinds of
+different radii share the chain at the first one's radius until a mod sets them apart, and the
+weighting against single bright samples waits for high dynamic range (Phase 5).

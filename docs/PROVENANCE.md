@@ -1034,6 +1034,49 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Not taken: any culling or renderer source, and any downsampler's source.
 - Added: 2026-11-20
 
+### The render interface's provider: declared layers, scopes and the emissive stage
+- Code: `src/main/java/cc/orthrus/quadrature/modinterface/ModInterface.java`, `ModInterfaces.java`;
+  `src/orthlib/java/cc/orthrus/quadrature/orthlib/OrthLibBridge.java`; the declared layers in `CubeMesher.java`,
+  `BuiltCube.java` and `Terrain.java` (`followDeclarations`, `drawEmissive`, `drawContributions`); the emissive stage's
+  points in `TerrainHook.java`; the registration in `Quadrature.java`
+- Source: original, to OrthLib's render interface (its design document) and research R5, 10.2 (handles, capabilities
+  stated as literals, answers held inside scopes on the provider's own thread). Facts used: that Forge's current layer is
+  a per-thread value (`ForgeHooksClient.renderLayer`, read with `javap` in Cleanroom 0.7.14-alpha); the game's world pass
+  as Forge and Cleanroom patch it, read from its decompiled sources: what it sets just before translucent terrain
+  (blending on with source alpha over the rest and alpha kept from the source, depth writes off, the blocks atlas bound),
+  and that `WorldVertexBufferUploader` resets the cache's color after a draw with colors; GTCEu: Reloaded's own bloom
+  path at commit `8ca6b98c9a14531c4d49cb242ae28769766396c1`, read as behavior (its emissive layer and tickets drawn
+  after entities at the translucent draw, the layer writing depth, its glow's source the picture's color where the
+  emissive geometry covers it).
+- Taken: the point in the frame and the source of the glow's color, as behavior. The snapshot's translation and its
+  layer generation, the scopes opened around each build, the meshes kept a layer, and the stage's state rule are
+  Quadrature's own. No code from another renderer or from GTCEu: Reloaded.
+- Added: 2026-11-21
+
+### Bloom
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/bloom/BloomChain.java`,
+  `src/main/java/cc/orthrus/quadrature/terrain/BloomStage.java`, the emissive variant in `TerrainProgram.java`, the
+  weight's resolve in `frame/ScalerShaders.java` (`TEMPORAL_COMPUTE`) and the glow's place in `frame/TemporalScaler.java`
+- Source: Mittring, "The Technology Behind the Unreal Engine 4 Elemental Demo", SIGGRAPH 2012 (halvings blurred as
+  they are made; the levels recombined from the coarsest, each blurred and added to the sum below). Jimenez, "Next
+  Generation Post Processing in Call of Duty: Advanced Warfare", SIGGRAPH 2014, and his replies on his site (a
+  thirteen-read halving over 36 texels in five weighted groups of four, the inner one half and the others an eighth; a
+  three-by-three tent while doubling; a weight on each group by brightness on the first halving; no threshold), its
+  filters as Christensen's LearnOpenGL article of 2022 reports them. Karis, "Tone mapping", 2013 (the weight 1/(1 +
+  luma)). James and O'Rorke, "Real-Time Glow", GPU Gems, 2004 (glow from marked sources). GTCEu: Reloaded's generated
+  configuration documentation (the composite rule and its three groups' values). Research R4, 7c.
+- Taken: the chain, its filters and the groups' weights. The two weights a kind becomes and the algebra that gives the
+  composite rule from them, the weight target drawn beside the color, the first halving formed exactly from a tile of
+  products in shared memory, the weight resolved in the temporal history's alpha, the levels sized from the output,
+  and every constant are Quadrature's.
+- Not taken: dual filtering, Kawase's passes, separable Gaussians per level, convolution by transform, a brightness
+  threshold. Kept apart from the patents research R4, 7c.6 read: no previous frame's blur reused (US 12,086,957),
+  every level made by its own dispatch (US 11,915,337), no level chosen against a kernel size (US 8,687,011), and no
+  stencil data, the opaque and translucent scene drawn into one framebuffer with the glow laid over it there
+  (US 11,100,701, whose claims draw the opaque parts through stencil data into one frame buffer and the transparent
+  ones with its content into another). No code from another renderer.
+- Added: 2026-11-21
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

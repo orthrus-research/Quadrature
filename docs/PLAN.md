@@ -198,6 +198,25 @@ interface shaders and previews) stays hosted drawing.
 
 Order: P3-R1 and P3-R2, then P3-A1, P3-B1, then P3-B2 and P3-B3 side by side, P3-B4, P3-V1. The interface's first version is recorded as a decision when Phase 3 closes.
 
+**Status (2026-11-21).**
+- *P3-R1, done:* [research R4](research/R4-lighting-shaders.md), 7c; the technique and its place as D27.
+- *P3-R2, done:* [research R5](research/R5-sources-mods.md), 10.2, the contract's format: handles, capabilities stated
+  as literals, answers held inside a provider's scopes on its own thread, the absence answers a whole implementation.
+- *P3-A1, done:* OrthLib's design and acceptance profile, registered before implementation and amended to P3-R2's
+  findings, the registered text kept in OrthLib's history. Frame resources and work at named points are left out of
+  version 1 until a mod needs them (requirement rule 4).
+- *P3-B1, done:* OrthLib main e64ad72, pushed, its tests passing; pinned in `platform.json`. Riven's lock is still to
+  move.
+- *P3-B2, built, not yet run on the GPU:* the provider (D26), declared layers meshed apart inside providing scopes, the
+  emissive stage before translucent terrain, and D27's bloom, its arithmetic unit tested against GTCEu: Reloaded's rule
+  and its programs compiled offline.
+- *P3-B3, under way:* public GTCEu: Reloaded may name OrthLib, which is to go public (the user's decision of
+  2026-11-21). The calls its addons make to its old bloom API keep resolving and draw nothing, as under an external
+  terrain pipeline today.
+- *P3-B4, built:* each contribution's draw sets the state it depends on, and the state audit names the emissive stage,
+  the mods' callbacks and the glow as stretches of their own; the audit runs with P3-V1.
+- *P3-V1:* to run.
+
 ## Capability and tier work
 
 Decisions D20 to D23 (2026-11-18). Every supported card has one capability set, so what is
