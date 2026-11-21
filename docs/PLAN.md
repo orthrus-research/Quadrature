@@ -81,7 +81,6 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 2 | Face merging against per-face output with smooth lighting on |
 | Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
 | Phase 2 | Light that differs between identically prepared instances: one tree in the forest tour, about two sky-light levels, in 5 of 24 instances, in the game's own draw too (recorded for Cubature) |
-| Phase 2 | The river in forest tour view 07: between two captures it differs by nothing to 1,158 pixels, enough to fail the view alone, and not in step with what changed. Cause and scoring undecided |
 | Phase 2 | A cube the game still draws in the second a teleport lands, which the cube source does not report as loaded (recorded for Cubature) |
 | Phase 2 | Drawing the second view: its own projection, fog, alpha test and textures, and a depth target |
 | Phase 5 | Entities and block entities in a light's view, which reaches into hosted drawing |

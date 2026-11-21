@@ -276,20 +276,21 @@ the shader. That attribution comes from the code, not from a measurement.
 
 ### The river in view 07
 
-The river in `07-boreal_forest` is the game's translucent terrain, drawn by the game in
-every run. Inside a box around it (x 1000 to 1279, y 540 to 719, 5.5% of the frame) two
-captures differ by anything from nothing to 1,158 pixels, and the amount does not follow
-what was changed between them:
+The river in `07-boreal_forest` is water, whose texture the game animates. Inside a box
+around it (x 1000 to 1279, y 540 to 719, 5.5% of the frame) two captures with the animation
+running differ by anything from nothing to 1,158 pixels, which at its largest fails the view
+alone (0.143% while its terrain differs by 0.019%), whatever was changed between them. With
+`-Dquadrature.textures.still=true` in every run of the instance the river stands still:
 
-| Pair, one instance each | Changed in the box | Changed elsewhere in the view |
-|---|---|---|
-| Game against game, four instances | 46, 202, 398, 497 | 6 to 203 |
-| Game against own terrain, as committed, three instances | 3, 452, 1,158 | 111 to 164 |
-| Own terrain against own terrain, one setting changed, four instances | 0, 10, 127, 228 | 5 to 415 |
+| Pair, one fresh instance, 2026-11-21, textures still | Changed in the box | Changed elsewhere in the view | The tour under `near.json` |
+|---|---|---|---|
+| The game's settling run against its reference | 0 | 63 | 17 of 17 |
+| The game's reference against a second reference after the run below | 0 | 0 | 17 of 17, every view identical byte for byte |
+| Own terrain, no switches, against the game's reference | 50 | 1,001 | 17 of 17, worst 0.0579%, view 07 0.0189% |
 
-At 1,158 the view fails `near.json` at 0.143% while its terrain differs by 0.019%. The
-cause is not established. The view is scored whole; a run in which it fails on the river
-alone is reported as failing, with the count inside and outside the box.
+The forest tour, like any tour that shows water, therefore runs with textures held still in
+every run of its instance, the game's runs included; a run with the animation scored against
+one without it differs by the animation.
 
 ### What a view sees
 
@@ -1403,11 +1404,11 @@ Since 2026-11-21 own terrain, reversed depth and face records are on with no swi
 (`quadrature.terrain=game`, `quadrature.reversedDepth=false` and `quadrature.faces=false` turn each off),
 and without Cubature the game stops at loading with a message. On the RTX 3060:
 
-- **Pictures.** On one fresh forest instance, settled and drawn by the game in conventional depth, then
-  drawn with no switches: 16 of 17 views pass under `near.json`, the worst 0.0579%. View 07 fails at
-  0.1277%, its differences along the river, which differs between captures by up to 1,158 pixels with
-  nothing changed (PLAN, carried forward); the runs did not hold textures still. The state audit is
-  unchanged, and the development client, which has no Cubature, starts with terrain left to the game.
+- **Pictures.** On a fresh forest instance with textures held still in every run, settled and drawn by
+  the game in conventional depth, then drawn with no switches: 17 of 17 views pass under `near.json`, the
+  worst 0.0579%, view 07 0.0189% (the river in view 07). A first instance, run without textures held
+  still, passed 16 of 17, view 07 failing on its river at 0.1277%. The state audit is unchanged, and the
+  development client, which has no Cubature, starts with terrain left to the game.
 - **The baseline flight.** The lifecycle flight of BASELINE.md, Distant Horizons on, back to back on fresh
   instances, one capture each:
 
