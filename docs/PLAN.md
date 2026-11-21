@@ -121,14 +121,14 @@ logs stage times every five seconds, and quits.
 
 ## Phase 2 status
 
-As of 2026-11-21 Phase 2's conditions are met. Own terrain, reversed depth and face records are the defaults:
+Phase 2 is closed (2026-11-21). Own terrain, reversed depth and face records are the defaults:
 with no switches and textures held still, all 17 forest views pass against the game's own drawing, and the
 baseline flight holds the game's frame times ([VERIFICATION.md](VERIFICATION.md), own terrain by default; the
 river in view 07). Both preview renderers that pick by depth, GregTech's and ModularUI's, pick the same blocks
 in reversed depth (VERIFICATION, mods that read depth back). Quadrature takes over the game's chunk system in
-cubic worlds (D24, item 12g), and Cubature's integration with that system is deleted on Cubature's branch
-`refactor/remove-vanilla-chunk-render` (69e1b2d2), which Quadrature pins; the phase closes when that branch
-joins Cubature's main and Riven's pin follows, since every client Riven prepares then needs Quadrature.
+cubic worlds (D24, item 12g), and Cubature's integration with that system is deleted (Cubature a970a130, which
+Quadrature and Riven pin): every client that draws a cubic world needs Quadrature, and one started without it under
+`-Dcubature.clientWithoutRenderer=true` draws heights 0 to 255 as the game would in a world that is not cubic.
 
 | Step | Status |
 |---|---|
@@ -315,9 +315,10 @@ CTM's extra layers a quad), changes to the layer a block draws in (Fluidlogged A
 `RenderChunk` and three `BlockRendererDispatcher` (research R5, 11.3). A layer a mod adds to the game's list is meshed
 and drawn by Quadrature; a block's layers are asked of `Block.canRenderInLayer`, so a mod that changes them there is
 followed; an event or a wrap of a call inside the rebuild no longer runs, and a mod that relies on one is examined and
-given its place. In the current stack that is GTCEu: Reloaded alone: its bloom layer is drawn (12g), and its filter of
-machine renderers, a wrap inside the rebuild, no longer runs, so every machine in view is handed to its renderer each
-frame, which draws nothing for most; the filter belongs in GTCEu: Reloaded's own renderer lookup.
+given its place. In the current stack that is GTCEu: Reloaded alone: its bloom layer is drawn (12g); its filter of
+machine renderers, a wrap inside the rebuild that kept machines without a renderer of their own out of the game's
+block entity lists, no longer runs and has nothing left to save, since its machine holder's `shouldRenderInPass`
+already declines those machines, and both the game's loop and Quadrature's ask it before drawing.
 
 12e is done: under own terrain Quadrature meshes the translucent layer
 through the game's dispatcher, sorts each cube's quads by the game's rule as the eye moves, and draws the cubes
