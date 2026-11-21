@@ -24,8 +24,9 @@ import org.lwjgl.opengl.GL45;
 
 /**
  * Culling of the player's opaque terrain against a depth pyramid on the GPU, in two phases, behind
- * {@code -Dquadrature.terrain.cull=gpu} ({@code alternate}: on and off by turns of {@link #TURN} frames, each
- * turn's opaque terrain timed, so the two are compared at one place and in one power state).
+ * {@code -Dquadrature.terrain.cull=gpu} ({@code alternate}: culled or drawn whole frame by frame, in an order
+ * taken from a hash of the frame's number, each frame's opaque terrain timed, so the two are compared over the
+ * same moments and power states; turns of fixed length were found to lock onto a tour's own timing).
  *
  * <ol>
  * <li>At the solid layer, from the commands and records the client thread wrote for the frame, a compute stage
@@ -45,8 +46,13 @@ final class GpuCulling {
 
     static final String MODE = System.getProperty("quadrature.terrain.cull", "off");
     static final boolean ON = "gpu".equals(MODE) || "alternate".equals(MODE);
-    /** Frames each turn lasts where culling alternates. */
-    static final int TURN = 600;
+    /** A frame's number mixed (splitmix64's finalizer): its bits choose the conditions an alternating run compares. */
+    static long mix(long x) {
+        x += 0x9E3779B97F4A7C15L;
+        x = (x ^ (x >>> 30)) * 0xBF58476D1CE4E5B9L;
+        x = (x ^ (x >>> 27)) * 0x94D049BB133111EBL;
+        return x ^ (x >>> 31);
+    }
 
     /**
      * {@code -Dquadrature.terrain.cull.check=true}: every {@link #CHECK_FRAMES} culled frames the depth and the
@@ -54,6 +60,15 @@ final class GpuCulling {
      * same depth, every texel of every level.
      */
     static final boolean CHECK = Boolean.getBoolean("quadrature.terrain.cull.check");
+    /**
+     * {@code -Dquadrature.terrain.cull.depth=copy|blit|alternate}: how the frame's depth reaches a texture the
+     * pyramid is built from. {@code blit}, the default, blits its depth alone into a 32-bit float depth texture
+     * (equal to the copy bit for bit, and 0.02 to 0.05 ms cheaper at 2560 by 1440 on an RTX 3060); {@code copy}
+     * copies the depth attachment whole ({@code glCopyImageSubData}, depth and stencil); {@code alternate} takes
+     * one or the other culled frame by frame, as {@link #mix} chooses, and times both. A blit the driver refuses
+     * falls back to the copy.
+     */
+    static final String DEPTH = System.getProperty("quadrature.terrain.cull.depth", "blit");
     private static final int CHECK_FRAMES = 600;
 
     static final int VERTICES = 0;
@@ -328,6 +343,21 @@ final class GpuCulling {
     private int selectProgram;
     private int commitProgram;
     private int depthTexture;
+    private int blitTexture;
+    private int blitFramebuffer;
+    private boolean blitRefused;
+    private boolean blitTried;
+    private boolean blitNow = "blit".equals(DEPTH);
+    private int sourceName;
+    private int sourceTarget;
+    private int checkCopyBuffer;
+    private boolean checkCompare;
+    private int depthChecks;
+    private int depthChecksFailed;
+    private final int[] timedMethod = new int[TIMER_RING];
+    private final long[] methodTotal = new long[2];
+    private final long[] methodTransfer = new long[2];
+    private final int[] methodFrames = new int[2];
     private int pyramid;
     private int depthFormat;
     private int width;
@@ -361,7 +391,6 @@ final class GpuCulling {
     private int pending = -1;
     private int pendingFrames;
     private boolean active;
-    private int turnFrames;
     private boolean turnOn = true;
     private final long[] onNanos = new long[TIMES];
     private long offNanos;
@@ -448,9 +477,9 @@ final class GpuCulling {
                int faceCommands, int faceRecords) {
         int timer = frame % TIMER_RING;
         readTimes(timer);
-        if ("alternate".equals(MODE) && ++turnFrames >= TURN) {
-            turnFrames = 0;
-            turnOn = !turnOn;
+        long draw = mix(frame);
+        if ("alternate".equals(MODE)) {
+            turnOn = (draw & 1) == 0;
         }
         boolean ready = !failed && programs();
         if (!ready) {
@@ -463,6 +492,10 @@ final class GpuCulling {
             Quadrature.LOGGER.warn("Culling on the GPU needs reversed depth, which is off: terrain is drawn whole.");
         }
         timedOn[timer] = active;
+        if (active && "alternate".equals(DEPTH)) {
+            blitNow = (draw & 2) != 0;
+        }
+        timedMethod[timer] = blitNow && !blitRefused ? 1 : 0;
         GL33.glQueryCounter(timestamps[timer][0], GL33.GL_TIMESTAMP);
         if (!active) {
             return;
@@ -591,7 +624,7 @@ final class GpuCulling {
         GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
         save();
         try {
-            if (framebuffer == 0 || !copyDepth(framebuffer)) {
+            if (framebuffer == 0 || !transferDepth(framebuffer)) {
                 // Nothing to test against: every cube counts as visible.
                 markAllVisible();
                 GL33.glQueryCounter(timestamps[timer][5], GL33.GL_TIMESTAMP);
@@ -703,8 +736,15 @@ final class GpuCulling {
         GL43.glDispatchCompute((b.records + 63) / 64, 1, 1);
     }
 
-    /** Copies the framebuffer's depth into a texture of its own; false where it has none to copy. */
-    private boolean copyDepth(int framebuffer) {
+    /** The texture the pyramid is built from this frame: the blit's where it blitted, else the copy's. */
+    private int currentDepth() {
+        return blitNow && !blitRefused ? blitTexture : depthTexture;
+    }
+
+    /**
+     * Brings the framebuffer's depth into a texture of its own, by copy or by blit; false where it has none.
+     */
+    private boolean transferDepth(int framebuffer) {
         int type = GL45.glGetNamedFramebufferAttachmentParameteri(framebuffer, GL30.GL_DEPTH_ATTACHMENT,
             GL30.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
         int name = GL45.glGetNamedFramebufferAttachmentParameteri(framebuffer, GL30.GL_DEPTH_ATTACHMENT,
@@ -757,14 +797,79 @@ final class GpuCulling {
             Quadrature.LOGGER.info("Culling on the GPU: depth {} by {} (format 0x{}), a pyramid of {} levels from {} by {}.",
                 w, h, Integer.toHexString(format), levels - 1, sizes[2], sizes[3]);
         }
-        GL43.glCopyImageSubData(name, target, 0, 0, 0, 0, depthTexture, GL11.GL_TEXTURE_2D, 0, 0, 0, 0, w, h, 1);
+        sourceName = name;
+        sourceTarget = target;
+        if (blitNow && !blitRefused) {
+            blit(framebuffer, w, h);
+        }
+        if (!blitNow || blitRefused) {
+            GL43.glCopyImageSubData(name, target, 0, 0, 0, 0, depthTexture, GL11.GL_TEXTURE_2D, 0, 0, 0, 0, w, h, 1);
+        }
         return true;
+    }
+
+    /**
+     * Blits the depth alone into a 32-bit float depth texture. The scissor test applies to a blit, so it is held
+     * off around it. The first blit is checked for an error, and one refused leaves the copy in its place.
+     */
+    private void blit(int framebuffer, int w, int h) {
+        if (blitTexture == 0 || GL45.glGetTextureLevelParameteri(blitTexture, 0, GL11.GL_TEXTURE_WIDTH) != w
+            || GL45.glGetTextureLevelParameteri(blitTexture, 0, GL11.GL_TEXTURE_HEIGHT) != h) {
+            if (blitTexture != 0) {
+                GL11.glDeleteTextures(blitTexture);
+                GL30.glDeleteFramebuffers(blitFramebuffer);
+            }
+            blitTexture = GL45.glCreateTextures(GL11.GL_TEXTURE_2D);
+            GL45.glTextureStorage2D(blitTexture, 1, GL30.GL_DEPTH_COMPONENT32F, w, h);
+            GL45.glTextureParameteri(blitTexture, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+            GL45.glTextureParameteri(blitTexture, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+            GL45.glTextureParameteri(blitTexture, GL14.GL_TEXTURE_COMPARE_MODE, GL11.GL_NONE);
+            blitFramebuffer = GL45.glCreateFramebuffers();
+            GL45.glNamedFramebufferTexture(blitFramebuffer, GL30.GL_DEPTH_ATTACHMENT, blitTexture, 0);
+            GL45.glNamedFramebufferDrawBuffer(blitFramebuffer, GL11.GL_NONE);
+            GL45.glNamedFramebufferReadBuffer(blitFramebuffer, GL11.GL_NONE);
+            int status = GL45.glCheckNamedFramebufferStatus(blitFramebuffer, GL30.GL_DRAW_FRAMEBUFFER);
+            if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
+                blitRefused = true;
+                Quadrature.LOGGER.warn("Culling on the GPU: the depth blit's framebuffer is incomplete (0x{}); the depth is copied.",
+                    Integer.toHexString(status));
+                return;
+            }
+        }
+        boolean first = !blitTried;
+        if (first) {
+            // Errors already set belong to whatever set them; they are logged here so that they are not taken for the blit's.
+            for (int error = GL11.glGetError(), n = 0; error != GL11.GL_NO_ERROR && n < 16; error = GL11.glGetError(), n++) {
+                Quadrature.LOGGER.info("Culling on the GPU: an earlier GL error 0x{} was pending before the first depth blit.",
+                    Integer.toHexString(error));
+            }
+        }
+        boolean scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        if (scissor) {
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        }
+        GL45.glBlitNamedFramebuffer(framebuffer, blitFramebuffer, 0, 0, w, h, 0, 0, w, h, GL11.GL_DEPTH_BUFFER_BIT,
+            GL11.GL_NEAREST);
+        if (scissor) {
+            GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        }
+        if (first) {
+            blitTried = true;
+            int error = GL11.glGetError();
+            if (error != GL11.GL_NO_ERROR) {
+                blitRefused = true;
+                Quadrature.LOGGER.warn("Culling on the GPU: the driver refused the depth blit (GL error 0x{}); the depth is copied.",
+                    Integer.toHexString(error));
+            } else {
+                Quadrature.LOGGER.info("Culling on the GPU: the depth is blitted into a 32-bit float depth texture.");
+            }
+        }
     }
 
     /** Builds pyramid levels 1 and up, four a dispatch. */
     private void build() {
         GL20.glUseProgram(buildProgram);
-        bind(DEPTH_UNIT, depthTexture);
+        bind(DEPTH_UNIT, currentDepth());
         bind(PYRAMID_UNIT, pyramid);
         GL20.glUniform2iv(GL20.glGetUniformLocation(buildProgram, "sizes"), sizes);
         for (int first = 1; first < levels; first += 4) {
@@ -804,7 +909,22 @@ final class GpuCulling {
         int alignment = GL11.glGetInteger(GL11.GL_PACK_ALIGNMENT);
         GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT, 4);
         GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, checkDepthBuffer);
-        GL45.glGetTextureImage(depthTexture, 0, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, (int) depthBytes, 0L);
+        GL45.glGetTextureImage(currentDepth(), 0, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, (int) depthBytes, 0L);
+        checkCompare = blitNow && !blitRefused;
+        if (checkCompare) {
+            // The same frame's depth copied whole as well, to compare with the blit's texel by texel.
+            if (checkCopyBuffer == 0 || GL45.glGetNamedBufferParameteri(checkCopyBuffer, GL15.GL_BUFFER_SIZE) < depthBytes) {
+                if (checkCopyBuffer != 0) {
+                    GL15.glDeleteBuffers(checkCopyBuffer);
+                }
+                checkCopyBuffer = GL45.glCreateBuffers();
+                GL45.glNamedBufferStorage(checkCopyBuffer, depthBytes, 0);
+            }
+            GL43.glCopyImageSubData(sourceName, sourceTarget, 0, 0, 0, 0, depthTexture, GL11.GL_TEXTURE_2D, 0, 0, 0, 0, width,
+                height, 1);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, checkCopyBuffer);
+            GL45.glGetTextureImage(depthTexture, 0, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, (int) depthBytes, 0L);
+        }
         GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, checkPyramidBuffer);
         long offset = 0;
         for (int level = 1; level < levels; level++) {
@@ -828,6 +948,32 @@ final class GpuCulling {
         float[] depth = new float[checkWidth * checkHeight];
         depthBytes.asFloatBuffer().get(depth);
         DepthPyramid reference = new DepthPyramid(depth, checkWidth, checkHeight);
+        if (checkCompare) {
+            ByteBuffer copiedBytes = ByteBuffer.allocateDirect(checkWidth * checkHeight * 4).order(ByteOrder.nativeOrder());
+            GL45.glGetNamedBufferSubData(checkCopyBuffer, 0, copiedBytes);
+            long differ = 0;
+            String where = null;
+            for (int i = 0, n = checkWidth * checkHeight; i < n; i++) {
+                int blitted = Float.floatToRawIntBits(depth[i]);
+                int copied = copiedBytes.getInt(i * 4);
+                if (blitted != copied) {
+                    differ++;
+                    if (where == null) {
+                        where = String.format("at %d, %d: blit %s, copy %s", i % checkWidth, i / checkWidth, depth[i],
+                            Float.intBitsToFloat(copied));
+                    }
+                }
+            }
+            depthChecks++;
+            if (differ == 0) {
+                Quadrature.LOGGER.info("Culling depth check {}: the blitted depth is the copied one in all {} texels.", depthChecks,
+                    checkWidth * checkHeight);
+            } else {
+                depthChecksFailed++;
+                Quadrature.LOGGER.error("CULLING DEPTH CHECK FAILED ({} of {} checks): {} of {} texels differ; first {}",
+                    depthChecksFailed, depthChecks, differ, checkWidth * checkHeight, where);
+            }
+        }
         long offset = 0;
         long differing = 0;
         long texels = 0;
@@ -890,6 +1036,10 @@ final class GpuCulling {
         onNanos[3] += tested - built;
         onNanos[4] += end - tested;
         onTimed++;
+        int method = timedMethod[timer];
+        methodTotal[method] += end - start;
+        methodTransfer[method] += copied - first;
+        methodFrames[method]++;
     }
 
     private void report() {
@@ -910,9 +1060,21 @@ final class GpuCulling {
         String turns = "alternate".equals(MODE) ? String.format("; opaque terrain GPU a frame, culled %.3f ms over %d frames, "
             + "whole %.3f ms over %d frames", onNanos[0] / on / 1e6, onTimed, offNanos / Math.max(1.0, offTimed) / 1e6,
             offTimed) : String.format("; opaque terrain GPU a frame %.3f ms", onNanos[0] / on / 1e6);
+        String methods = "";
+        if (methodFrames[0] > 0 || methodFrames[1] > 0) {
+            methods = String.format("; depth by copy: transfer %.3f ms, opaque terrain %.3f ms over %d frames; by blit: transfer "
+                    + "%.3f ms, opaque terrain %.3f ms over %d frames",
+                methodTransfer[0] / Math.max(1.0, methodFrames[0]) / 1e6, methodTotal[0] / Math.max(1.0, methodFrames[0]) / 1e6,
+                methodFrames[0], methodTransfer[1] / Math.max(1.0, methodFrames[1]) / 1e6,
+                methodTotal[1] / Math.max(1.0, methodFrames[1]) / 1e6, methodFrames[1]);
+        }
+        turns += methods;
+        java.util.Arrays.fill(methodTotal, 0);
+        java.util.Arrays.fill(methodTransfer, 0);
+        java.util.Arrays.fill(methodFrames, 0);
         Quadrature.LOGGER.info(String.format("Culling on the GPU, window %d (%d frames culled): a frame lists %.0f commands "
                 + "(%.2f M vertices) of %.0f records; drawn in phase 1 %.1f%% of vertices, in phase 2 %.1f%%, left out %.1f%%; "
-                + "records hidden %.1f%%, outside %.1f%%, at the eye %.1f%%; GPU a frame: phase 1 %.3f ms, pyramid %.3f ms (copy %.3f ms), "
+                + "records hidden %.1f%%, outside %.1f%%, at the eye %.1f%%; GPU a frame: phase 1 %.3f ms, pyramid %.3f ms (depth %.3f ms), "
                 + "test and selection %.3f ms, phase 2 %.3f ms%s",
             windows, pendingFrames, (sum[0] + sum[6]) / n, allVertices / n / 1e6, sum[STAT_RECORDS] / n,
             percent(firstVertices, allVertices), percent(secondVertices, allVertices),

@@ -994,8 +994,10 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   covers a few texels; two phases, the objects visible the frame before drawn first, the
   pyramid built from them, and the rest tested against it). Facts used: the OpenGL 4.6
   compatibility specification (the sizes of a texture's levels, image load and store,
-  `glCopyImageSubData` between a depth renderbuffer and a texture, memory barriers, timestamp
-  queries, compute shared memory, `glMultiDrawArraysIndirectCount` and the parameter buffer).
+  `glCopyImageSubData` between a depth renderbuffer and a texture, `glBlitFramebuffer` of depth
+  alone, memory barriers, timestamp queries, compute shared memory, `glMultiDrawArraysIndirectCount`
+  and the parameter buffer); Vigna's splitmix64 finalizer (the hash that orders conditions frame by
+  frame in a comparison).
 - Taken: the ideas. The levels sized as OpenGL sizes a texture's, odd rows and columns folded
   into the last texel so a texel holds the farthest of exactly the pixels under it, the level
   chosen as the finest where a rectangle lies under two texels each way, and a box at the

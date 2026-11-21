@@ -820,9 +820,10 @@ for it.
    (VERIFICATION, what a depth pyramid would leave out).
    **Built in first form**, with steps 3 and 4, behind `quadrature.terrain.cull=gpu` (`GpuCulling`):
    the client thread's commands sorted on the GPU into the two phases, the counts read by
-   `glMultiDrawArraysIndirectCount`. Every picture unchanged; on the RTX 3060 its fixed cost, 0.4 to
-   0.6 ms of which copying the depth buffer is most, exceeds the 0.2 to 0.4 ms of drawing it saves, so
-   it is off by default (VERIFICATION, culling on the GPU).
+   `glMultiDrawArraysIndirectCount`, the frame's depth blitted into a texture of its own. Every picture
+   unchanged; on the RTX 3060 at 2560 by 1440, radius 16, it costs about 0.3 ms more than the drawing it
+   saves, breaking even only where four fifths of the terrain is hidden, so it is off by default
+   (VERIFICATION, culling on the GPU).
 3. **Two phases.** Cubes visible last frame are drawn first; the depth pyramid is built
    from them; cubes rejected in the first phase are retested against it and the survivors
    drawn. This removes the one-frame lag of testing against last frame's depth.

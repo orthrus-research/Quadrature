@@ -1428,31 +1428,42 @@ tested against its published depth. On the RTX 3060 at 1280 by 720, radius 12, f
 
 ### Culling on the GPU, first form
 
-Behind `quadrature.terrain.cull=gpu` (`GpuCulling`; `alternate` culls and draws whole by turns of 600
-frames and times both, so the two are compared at one place and in one power state), in two phases: the
-cubes visible the frame before are drawn first, from the commands the client thread wrote; after the last
-opaque layer a pyramid is built from the frame's depth, from half resolution up, four levels a dispatch;
-every record is tested, the newly visible cubes drawn, each earlier layer under the state the game drew
-it in, and each cube's bit kept for the next frame. `quadrature.terrain.cull.check=true` compares the
-pyramid with `DepthPyramid` built on the CPU from the same depth every 600 frames. On the RTX 3060,
-2026-11-20:
+Behind `quadrature.terrain.cull=gpu` (`GpuCulling`), in two phases: the cubes visible the frame before
+are drawn first, from the commands the client thread wrote; after the last opaque layer the frame's depth
+is blitted into a texture of its own (`quadrature.terrain.cull.depth=copy` copies it whole instead) and a
+pyramid built from it, from half resolution up, four levels a dispatch; every record is tested, the newly
+visible cubes drawn, each earlier layer under the state the game drew it in, and each cube's bit kept for
+the next frame. `quadrature.terrain.cull.check=true` compares the pyramid with `DepthPyramid` built on
+the CPU from the same depth every 600 frames, and a blitted depth with the same frame's depth copied.
+`quadrature.terrain.cull=alternate` culls or draws whole, and `quadrature.terrain.cull.depth=alternate`
+blits or copies, frame by frame in an order taken from a hash of the frame's number, each frame's opaque
+terrain timed. On the RTX 3060, 2026-11-20 and 21:
 
 - **No picture changes.** Culled against the same instance drawn whole, all 17 forest views pass under
-  `near.json`, the worst 0.0012% of pixels, most identical. Every one of 219 pyramid checks over four
-  tours was exact to the bit. The state audit is unchanged.
+  `near.json`, the worst 0.0012% of pixels, most identical. Every one of 406 pyramid checks over eight
+  tours was exact to the bit, and the blitted depth equal to the copied one in all 87 checks. The state
+  audit is unchanged.
 - **It leaves out nearly what the measure found possible**: 32.1% of the player's drawn vertices over the
   forest tour and 44.0% over the caves at 1280 by 720, radius 12, against 34% and 45%; phase 2 draws
   0.04% to 0.85%.
-- **On this card it does not yet pay.** Its fixed cost exceeds the drawing it saves:
+- **On this card it does not pay.** Interleaved frame by frame at 2560 by 1440, radius 16, the light on,
+  and paired window by window (medians of 95 and 88 windows of 300 culled frames):
 
-  | Culled and whole by turns | Left out | Whole | Culled | Pyramid (copy) | Test |
-  |---|---|---|---|---|---|
-  | Caves, 1280 by 720, radius 12 | 44% | 1.090 ms | 1.391 ms | 0.63 ms | 0.08 ms |
-  | Dwell tour, 2560 by 1440, radius 16, light on | 15% | 1.879 ms | 2.068 ms | 0.38 (0.22) ms | 0.04 ms |
-  | Caves, 2560 by 1440, radius 16, light on | 51% | 0.835 ms | 1.079 ms | 0.56 (0.34) ms | 0.04 ms |
+  | | Caves | Dwell tour |
+  |---|---|---|
+  | Vertices left out | 48.8% | 7.0% |
+  | Opaque terrain drawn whole | 0.834 ms | 1.751 ms |
+  | Culled (blit) minus whole | +0.322 ms, culling ahead in 24 of 95 windows | +0.326 ms, 7 of 88 |
+  | Culled (copy) minus whole | +0.378 ms | +0.318 ms |
+  | Depth transfer, blit and copy | 0.170 and 0.236 ms | 0.131 and 0.141 ms |
 
-  The card stayed mostly in P3 and P5 even at 2560 by 1440 with the light on: terrain at radius 16 does
-  not load it. Copying the depth buffer is about 60% of the pyramid. It is off by default.
+  It breaks even only in the fifth of cave windows leaving out 78% or more (+0.015 ms). The card stayed
+  mostly in P3 even here: terrain at radius 16 does not load it. It is off by default.
+- **Conditions are compared frame by frame.** Taking them by turns of fixed length (600 frames) locked
+  onto the tours' timing (the dwell tour holds each place 20 seconds): the same culled path measured
+  0.19 ms dearer than whole in one run and 0.21 ms cheaper in another, and blitted frames 0.5 ms dearer
+  than copied ones whose transfers cost the same. Interleaved by a hash of the frame's number, each
+  20-second wait holds 48 to 52% of either condition.
 
 ### Rays through the scene
 
