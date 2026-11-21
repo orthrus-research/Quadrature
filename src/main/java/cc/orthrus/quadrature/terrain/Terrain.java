@@ -59,7 +59,7 @@ import net.minecraft.util.BlockRenderLayer;
  * <p>Meshes lie in an arena of pages shared by the three layers, and a layer is drawn with one
  * indirect draw for each page, from commands written each frame for each view.
  *
- * <p>Off unless {@code -Dquadrature.terrain=own}. Everything here runs on the client thread but the
+ * <p>On unless {@code -Dquadrature.terrain=game}. Everything here runs on the client thread but the
  * builds, which read only their snapshot and write only their own result ({@link BuiltCube}).
  */
 public final class Terrain
@@ -222,7 +222,7 @@ public final class Terrain
     private final DrawCommands mainList = new DrawCommands();
     private final DrawCommands lightList = new DrawCommands();
     /**
-     * Off unless {@code -Dquadrature.faces=true}, which needs indirect draws: whole faces are held as
+     * On unless {@code -Dquadrature.faces=false} or direct draws: whole faces are held as
      * records of 32 bytes in pages of their own and drawn by a vertex stage that builds each corner
      * from its record; every other quad keeps the game's vertices and is drawn as before.
      */

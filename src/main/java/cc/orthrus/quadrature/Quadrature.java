@@ -7,7 +7,7 @@ import cc.orthrus.quadrature.core.platform.DriverFloor;
 import cc.orthrus.quadrature.core.platform.PlatformRequirements;
 import cc.orthrus.quadrature.dev.DevSession;
 import cc.orthrus.quadrature.platform.ForeignRenderers;
-import cc.orthrus.quadrature.platform.ForeignRendererException;
+import cc.orthrus.quadrature.platform.LoadingStopException;
 import cc.orthrus.quadrature.platform.PlatformGateHandler;
 
 import net.minecraftforge.common.MinecraftForge;
@@ -57,11 +57,8 @@ public final class Quadrature {
     public void postInit(FMLPostInitializationEvent event) {
         // Cubature installs its cube source while it initializes, which is over by now.
         if (cc.orthrus.quadrature.terrain.TerrainHook.requested()) {
-            if (Loader.isModLoaded("cubicchunks")) {
-                cc.orthrus.quadrature.terrain.TerrainHook.start();
-            } else {
-                LOGGER.error("Own terrain was requested, but Cubature is not installed.");
-            }
+            // Loading stopped in preInit where Cubature is missing.
+            cc.orthrus.quadrature.terrain.TerrainHook.start();
         }
     }
 
@@ -76,9 +73,16 @@ public final class Quadrature {
             foreign = new java.util.ArrayList<>(foreign);
             foreign.add(kirino);
         }
+        if (cc.orthrus.quadrature.terrain.TerrainHook.requested() && !Loader.isModLoaded("cubicchunks")) {
+            // Own terrain draws cubic worlds from Cubature's cube source; without it there is nothing to draw from.
+            foreign = new java.util.ArrayList<>(foreign);
+            foreign.add(new GateFailure("Cubature is not installed.",
+                "Quadrature draws cubic worlds, from Cubature.",
+                "Install Cubature, or start the game with -Dquadrature.terrain=game to leave terrain to the game."));
+        }
         if (!foreign.isEmpty()) {
             foreign.forEach(failure -> LOGGER.fatal("Stopping: {} {}", failure.found(), failure.required()));
-            throw new ForeignRendererException(foreign);
+            throw new LoadingStopException(foreign);
         }
         warnIfCoreProfileRequested();
         // The graphics context belongs to the loading screen until loading ends; it is read at the first screen.

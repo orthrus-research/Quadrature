@@ -28,8 +28,8 @@ import java.nio.ShortBuffer;
  */
 public final class DepthCalls {
 
-    /** A prototype switch: {@code -Dquadrature.reversedDepth=true}. */
-    public static final boolean REQUESTED = Boolean.getBoolean("quadrature.reversedDepth");
+    /** On unless {@code -Dquadrature.reversedDepth=false} (D17). */
+    public static final boolean REQUESTED = !"false".equals(System.getProperty("quadrature.reversedDepth"));
 
     private static final int PROJECTION = 0x1701;
     private static final int MATRIX_MODE = 0x0BA0;

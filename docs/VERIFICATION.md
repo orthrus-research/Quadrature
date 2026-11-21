@@ -1397,6 +1397,32 @@ the client did not hold.
   blocks a second) or creative flight (about 11). Changing it would be measured again only if a
   slower server or a faster player shows cubes missing at the player's level.
 
+### Own terrain by default
+
+Since 2026-11-21 own terrain, reversed depth and face records are on with no switches set
+(`quadrature.terrain=game`, `quadrature.reversedDepth=false` and `quadrature.faces=false` turn each off),
+and without Cubature the game stops at loading with a message. On the RTX 3060:
+
+- **Pictures.** On one fresh forest instance, settled and drawn by the game in conventional depth, then
+  drawn with no switches: 16 of 17 views pass under `near.json`, the worst 0.0579%. View 07 fails at
+  0.1277%, its differences along the river, which differs between captures by up to 1,158 pixels with
+  nothing changed (PLAN, carried forward); the runs did not hold textures still. The state audit is
+  unchanged, and the development client, which has no Cubature, starts with terrain left to the game.
+- **The baseline flight.** The lifecycle flight of BASELINE.md, Distant Horizons on, back to back on fresh
+  instances, one capture each:
+
+  | Creative flight | The game's renderer | Quadrature, no switches |
+  |---|---|---|
+  | Frame time, 95th and 99th percentile | 16.95 and 24.54 ms | 17.11 and 25.26 ms |
+  | Frames over 16.7 and 33.3 ms | 333 and 9 | 336 and 10 |
+  | Render work, median | 6.26 ms | 6.73 ms |
+  | Render work, 99th percentile and worst | 15.95 and 28.7 ms | 14.30 and 22.2 ms |
+  | Render work over 16.7 ms | 53 frames | 19 frames |
+
+  Frame times agree within 1 to 3%; the median render work is 7.6% higher and its tail lower, within
+  the 7% two captures of one configuration differ by. Both captures ran the Cubature of Riven's accepted
+  pin (19f9961a), not the one Quadrature pins.
+
 ### What a depth pyramid would leave out
 
 Before culling on the GPU is built (ARCHITECTURE 6.4, steps 2 to 4), what it can save was measured
@@ -2042,8 +2068,10 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.coverage=true` | Works out the coverage map and adds its counts and cost to the terrain summary |
 | `quadrature.coverage.check=true` | With coverage: each time the map is brought up to date, fills a second map anew and logs any column that differs; its time is counted in the pass |
 | `quadrature.faces.count=true` | Counts over every cube meshed the quads that are whole faces of a cell |
-| `quadrature.faces.check=true` | Meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
-| `quadrature.faces=true` | Draws from the walk's quads sorted into records and kept vertices; needs indirect draws |
+| `quadrature.faces.check=true` | With `quadrature.faces=false`: meshes every cube by the walk and by the game's dispatcher and logs any layer that differs |
+| `quadrature.faces=false` | Draws the walk's vertices alone, with no face records; records, the default, need indirect draws |
+| `quadrature.terrain=game` | Leaves terrain to the game: own terrain, the default, draws nothing, and the game's chunk rebuild and draw run as without Quadrature |
+| `quadrature.reversedDepth=false` | Conventional depth for the whole frame, where reversed depth is the default (D17) |
 | `quadrature.exitOnOutOfMemory=true` | After the `CLIENT OUT OF MEMORY` notice, the client quits, so a launcher waiting on it fails at once instead of waiting on a world the game has dropped. Every lab run sets it |
 | `quadrature.testOutOfMemory=<seconds>` | That many seconds after the first world is entered, the game loop asks for an array no heap holds, to show the notice and the quit in a real run |
 | `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |

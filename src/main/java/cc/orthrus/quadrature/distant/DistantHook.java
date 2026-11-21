@@ -14,7 +14,7 @@ import org.lwjgl.opengl.GL11;
  * Cubature's, so it loads where Cubature is absent; the classes that draw load only once distant
  * terrain is asked for and can run.
  *
- * <p>Off unless {@code -Dquadrature.distant=own}, which needs {@code -Dquadrature.terrain=own}:
+ * <p>Off unless {@code -Dquadrature.distant=own}, which needs own near terrain (not {@code -Dquadrature.terrain=game}):
  * distant terrain is drawn after own near terrain and leaves out what near terrain covers.
  */
 public final class DistantHook {
@@ -177,8 +177,8 @@ public final class DistantHook {
         if (!decided) {
             decided = true;
             if (!TerrainHook.requested()) {
-                Quadrature.LOGGER.error("Distant terrain was requested without own near terrain "
-                    + "(-Dquadrature.terrain=own); it stays off.");
+                Quadrature.LOGGER.error("Distant terrain was requested with near terrain left to the game "
+                    + "(-Dquadrature.terrain=game); it stays off.");
             } else if (!Loader.isModLoaded("cubicchunks")) {
                 Quadrature.LOGGER.error("Distant terrain was requested, but Cubature is not installed.");
             } else {

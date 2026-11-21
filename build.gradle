@@ -239,9 +239,11 @@ cleanroom {
                 }
                 // A development run has no manifest to name the loading plugin either.
                 systemProperty 'fml.coreMods.load', 'cc.orthrus.quadrature.asm.QuadratureLoadingPlugin'
-                // -PreversedDepth switches the whole frame to reversed depth (a prototype).
-                if (project.hasProperty('reversedDepth')) {
-                    systemProperty 'quadrature.reversedDepth', 'true'
+                // The development client has no Cubature, so terrain is the game's; reversed depth is on, the
+                // default (D17), unless -PconventionalDepth.
+                systemProperty 'quadrature.terrain', 'game'
+                if (project.hasProperty('conventionalDepth')) {
+                    systemProperty 'quadrature.reversedDepth', 'false'
                 }
                 // -PdepthSelfTest checks the projection translations against the driver as reversed depth starts.
                 if (project.hasProperty('depthSelfTest')) {

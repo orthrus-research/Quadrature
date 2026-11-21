@@ -109,26 +109,29 @@ As of 2026-11-13.
 | A cubic world, with Cubature | Done. Installed from its JAR in a Riven instance: the Mixin configuration registered through the manifest, and 43,452 frames ran with no stage out of order, unknown or outside a frame and no GPU result dropped |
 | The frame compared against the vanilla reference | Done. All 17 forest tour views pass the near-terrain profile against the vanilla reference; 6 are pixel-identical and the worst changes 0.039% of pixels ([VERIFICATION.md](VERIFICATION.md)) |
 | State envelope around hosted stages | Done. A development stage of Quadrature's own draws with a program, a vertex array object, a buffer and its own framebuffer between two hosted stages. The state audit shows it leaving none of 41 items changed, and in a cubic instance the frame is unchanged by it (research R1, 9a.7) |
-| Depth strategy | Decided (D17): the whole frame uses reversed depth. Prototype built behind `-Dquadrature.reversedDepth=true`: depth calls are translated where they are made and the projection stack's base is a reversal. In a cubic instance all 17 forest tour views pass the near-terrain profile against the vanilla reference, worst 0.063% of pixels; with nine depth-setting mods of the surveyed pack added, the same instance with the switch on and off differs by at most 0.056%, in isolated distant pixels. Cost in four flight captures: median render work 1.51 ms off, 1.60 and 1.83 ms on. Depth pixel reads are translated; depth textures in other mods' shaders are reported only. The rewriter passes a 189-mod pack's 68,661 classes in 0.4 s. Open: the added mods' own drawing exercised (research R1, 2.2) |
+| Depth strategy | Decided (D17): the whole frame uses reversed depth. Built, and on by default since 2026-11-21 (`-Dquadrature.reversedDepth=false` turns it off): depth calls are translated where they are made and the projection stack's base is a reversal. In a cubic instance all 17 forest tour views pass the near-terrain profile against the vanilla reference, worst 0.063% of pixels; with nine depth-setting mods of the surveyed pack added, the same instance with the switch on and off differs by at most 0.056%, in isolated distant pixels. Cost in four flight captures: median render work 1.51 ms off, 1.60 and 1.83 ms on. Depth pixel reads are translated; depth textures in other mods' shaders are reported only. The rewriter passes a 189-mod pack's 68,661 classes in 0.4 s. Open: the added mods' own drawing exercised (research R1, 2.2) |
 | Survey of common mods | Done for one pack: `tools/mod_survey.py` over 189 client mods (research R5, 11.3) |
 | State audit: the state the game and mods really leave, measured in a client | Done for two runs: the game alone and a cubic instance of the current stack, 41 state items over 120 frames each (research R1, 9.3). Fixed-function state is never restored between stages; modern state is never left changed |
 
 Phase 1 is closed. Its condition, a cubic world matching the vanilla image within the
 stated tolerance, is met for a frame Quadrature observes, and for one in which a stage of
-its own runs inside the envelope. Reversed depth stays behind its switch until Phase 2
-turns it on with the first terrain.
+its own runs inside the envelope. Phase 2 turned reversed depth on by default with own terrain (2026-11-21).
 
 The development client reaches a world on its own with `./gradlew runClient -PdevWorld=<seconds>`,
 logs stage times every five seconds, and quits.
 
 ## Phase 2 status
 
-As of 2026-11-15.
+As of 2026-11-21. Own terrain, reversed depth and face records are the defaults: with no switches,
+16 of 17 forest views pass against the game's own drawing (view 07's river aside) and the baseline flight
+holds the game's frame times ([VERIFICATION.md](VERIFICATION.md), own terrain by default). What remains
+for the phase to close: Cubature's chunk-render Mixins deleted, which is Cubature's change; mods' own
+depth code in a scripted scene with a screen open; the river in view 07 settled.
 
 | Step | Status |
 |---|---|
 | Cube source in Cubature | Built: events, versions, queries, snapshots, the build pool and the settled signal (Cubature's `docs/CUBE-SOURCE.md`), all in the pinned commit |
-| Near terrain, first form | Built behind `-Dquadrature.terrain=own`: every loaded cube is meshed, once the six cubes around it are loaded, from a snapshot with the game's block models, on Cubature's build pool, nearest and in view first; the three opaque layers are drawn from those meshes in place of the game's draw. Translucent terrain, layers other mods add and block entities are still the game's, which also still builds its own meshes |
+| Near terrain, first form | Built, and the default since 2026-11-21 with reversed depth and face records (`-Dquadrature.terrain=game` leaves terrain to the game): every loaded cube is meshed, once the six cubes around it are loaded, from a snapshot with the game's block models, on Cubature's build pool, nearest and in view first; the three opaque layers are drawn from those meshes in place of the game's draw. Translucent terrain, layers other mods add and block entities are still the game's, which also still builds its own meshes |
 | Frame against the game's terrain | All 17 forest tour views pass the near-terrain profile against a game-drawn run of the same instance; the worst differs in 0.0624% of pixels, most of them on a river the game draws, and 1,228 pixels differ over the tour outside that river, single pixels with no direction. The game's rule for when a cube is meshed and the matrix it gives each render chunk are reproduced; without the matrix 14 views passed. Scoring is within one instance because light around some terrain differs between instances ([VERIFICATION.md](VERIFICATION.md)) |
 | First numbers | 1.15 ms to mesh a cube, face links included; 584 MiB for 4,090 meshes in the game's 28-byte vertex format; 963 draws in a settled frame on average and 1,370 at most; opaque terrain 0.74 ms on the CPU and 2.27 ms on the GPU with the selection comparison running, against 0.65 and 2.36 ms for the game's own draw in the same instance; 0.25 ms for a search, reused on two frames in three |
 | Why the game omits terrain Quadrature draws | Answered. Every cube Quadrature drew and the game did not was one the game's occlusion search leaves out, 93.8% of them because none of the cube's six neighbors was reached; they changed no pixels and cost draws ([VERIFICATION.md](VERIFICATION.md)) |

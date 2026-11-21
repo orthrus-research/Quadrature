@@ -2,11 +2,11 @@
 
 **Status:** Phase 1 is closed and Phase 2 is in progress, with work on distant terrain and
 shading begun. By default the mod checks the platform, stops with a message where it is not
-supported, and times each stage of the game's own world rendering on the CPU and the GPU.
-Behind switches, all off by default, it draws near terrain meshed from Cubature's cube source
-(`-Dquadrature.terrain=own`), distant terrain sampled from the client terrain preview
-(`-Dquadrature.distant=own`) and a shading stage handed over in a folder
-(`-Dquadrature.stage=true`). [PLAN.md](docs/PLAN.md) gives each phase's status.
+supported, draws near terrain meshed from Cubature's cube source in the whole frame's reversed
+depth, and times each stage of the frame on the CPU and the GPU; `-Dquadrature.terrain=game`
+leaves terrain to the game. Behind switches, off by default, it draws distant terrain sampled
+from the client terrain preview (`-Dquadrature.distant=own`) and a shading stage handed over in
+a folder (`-Dquadrature.stage=true`). [PLAN.md](docs/PLAN.md) gives each phase's status.
 
 Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on Cleanroom with
 Cubature. It draws the whole frame: near terrain meshed directly from cubes, distant terrain
@@ -42,13 +42,15 @@ Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 25):
 `./gradlew runClient` starts a development client. Adding `-PdevWorld=<seconds>` enters a
 flat development world unattended, logs each stage's CPU and GPU time every five seconds,
 and quits after that many seconds. Adding `-PstateAudit` also reads OpenGL state at every
-stage boundary and reports what each stage leaves changed. Adding `-PreversedDepth` switches the
-whole frame to reversed depth, a prototype that is off by default; `-PdepthSelfTest` with it checks
-the projection translations against the driver. `-Pprobe=offscreen` or `-Pprobe=visible` runs a
+stage boundary and reports what each stage leaves changed. The whole frame uses reversed depth
+unless `-Dquadrature.reversedDepth=false` (`-PconventionalDepth` in the development client, which
+leaves terrain to the game, having no Cubature); `-PdepthSelfTest` checks the projection
+translations against the driver. `-Pprobe=offscreen` or `-Pprobe=visible` runs a
 development stage of Quadrature's own inside the world pass.
 
 Own terrain needs a cubic world, so it runs in an instance with Cubature, not in the development
-client: start the game with `-Dquadrature.terrain=own`. The build takes Cubature's API from one
+client; without Cubature the game stops at loading with a message, unless started with
+`-Dquadrature.terrain=game`. The build takes Cubature's API from one
 JAR, pinned in `platform.json` by commit and hash and kept in `pins/`, which is not in the
 repository; the build stops if the file is missing or is not the one pinned. `./gradlew
 refreshCubature` builds that JAR at the pinned commit (`-PcubatureCommit=<commit>` to move the

@@ -884,8 +884,8 @@ holds, or in place of what has not arrived, is told two things.
   each column from the cube source settles both.
 
 **The walk over a model's quads.** The game's dispatcher writes a block's vertices and
-keeps nothing of the quad they came from. Behind `-Dquadrature.faces=true` or
-`-Dquadrature.faces.check=true` the mesher walks a model's quads itself, in the game's
+keeps nothing of the quad they came from. With face records, on unless
+`-Dquadrature.faces=false`, or `-Dquadrature.faces.check=true` the mesher walks a model's quads itself, in the game's
 order, and hands each to the game's lighter and consumer, so the vertices are the game's
 and each four are known by sprite, face, tint, layer and block state. A block the game
 would not draw by its model through its lighting pipeline is left to the dispatcher. With

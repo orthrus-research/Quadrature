@@ -535,7 +535,8 @@ class PlanTest(unittest.TestCase):
         self.plan = {"riven": str(root / "riven"), "artifact": str(root / "riven.jar"),
                      "cubicArtifact": str(root / "cubature.jar"), "clientMods": [str(root / "quadrature.jar")],
                      "instance": "fresh", "out": str(root / "out"), "options": "-Dquadrature.terrain=own",
-                     "runs": [{"label": "1", "tour": str(root / "tour.json"), "options": "-Dquadrature.gbuffer=true"},
+                     "runs": [{"label": "1", "tour": str(root / "tour.json"),
+                               "options": "-Dquadrature.gbuffer=true -Dquadrature.reversedDepth=false"},
                               {"label": "2", "flight": {"start": [0, 0, 0, 0, 0], "route": [[600, 0, 0]]}}]}
 
     def tearDown(self):
@@ -558,6 +559,13 @@ class PlanTest(unittest.TestCase):
         problems = "\n".join(diagnostics.check(self.plan))
         self.assertIn("flight speed 500.0 outside 0.1..100", problems)
         self.assertIn("leaves no room for the flight", problems)
+
+    def test_own_terrain_reversed_depth_and_faces_are_on_unless_set_off(self):
+        self.plan["options"] = ""
+        self.plan["runs"][0]["options"] = "-Dquadrature.gbuffer=true"
+        self.assertNotIn("-Dquadrature.gbuffer needs", "\n".join(diagnostics.check(self.plan)))
+        self.plan["runs"][0]["options"] = "-Dquadrature.gbuffer=true -Dquadrature.terrain=game"
+        self.assertIn("-Dquadrature.gbuffer needs -Dquadrature.terrain=own", "\n".join(diagnostics.check(self.plan)))
 
     def test_a_sound_plan_passes(self):
         (self.root / "tour.json").write_text(json.dumps([{"x": 1, "y": 2, "z": 3}, {"x": 9, "y": 2, "z": 3}]), encoding="utf-8")

@@ -523,8 +523,8 @@ public final class TerrainHook {
         }
     }
 
-    /** Whether own terrain was asked for on the command line. */
+    /** Whether own terrain draws: on unless {@code -Dquadrature.terrain=game} leaves terrain to the game. */
     public static boolean requested() {
-        return "own".equals(System.getProperty("quadrature.terrain"));
+        return !"game".equals(System.getProperty("quadrature.terrain", "own"));
     }
 }

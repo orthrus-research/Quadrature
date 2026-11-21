@@ -132,16 +132,17 @@ final class CubeMesher {
     private int unnumbered;
 
     /**
-     * A diagnostic, off unless {@code -Dquadrature.faces.check=true}: every cube is also drawn by the
+     * A diagnostic, off unless {@code -Dquadrature.faces.check=true} with {@code -Dquadrature.faces=false}
+     * (it meshes the game's way and sets the walk beside it): every cube is also drawn by the
      * mesher's own walk over each model's quads, into buffers that are not drawn from; what the walk
      * wrote is set beside what the game's dispatcher wrote, byte for byte, and sorted into face records.
      */
-    static final boolean FACE_CHECK = Boolean.getBoolean("quadrature.faces.check") && !Boolean.getBoolean("quadrature.faces");
+    static final boolean FACE_CHECK = Boolean.getBoolean("quadrature.faces.check") && "false".equals(System.getProperty("quadrature.faces"));
     /**
-     * Off unless {@code -Dquadrature.faces=true}: a block drawn by its model is drawn through the
+     * On unless {@code -Dquadrature.faces=false}: a block drawn by its model is drawn through the
      * mesher's own walk, and the cube's quads are sorted into face records and kept vertices.
      */
-    static final boolean FACES = Boolean.getBoolean("quadrature.faces");
+    static final boolean FACES = !"false".equals(System.getProperty("quadrature.faces"));
     /**
      * Whether a block drawn by its model is drawn through the mesher's own walk in plain vertex meshes as well,
      * which writes the same vertices as the game's dispatcher with one kept position for its face tests and none

@@ -21,7 +21,7 @@ import java.util.Set;
  */
 public final class DepthCallRewriter implements IClassTransformer {
 
-    private static final boolean REQUESTED = Boolean.getBoolean("quadrature.reversedDepth");
+    private static final boolean REQUESTED = !"false".equals(System.getProperty("quadrature.reversedDepth"));
     private static final String TARGET = "cc/orthrus/quadrature/depth/DepthCalls";
     private static final String OWN_PACKAGE = "cc.orthrus.quadrature.";
     private static final byte[] MARKER = "/opengl/".getBytes(StandardCharsets.US_ASCII);

@@ -847,6 +847,10 @@ REQUIRES = {
 }
 
 
+# Switches that are on unless set otherwise: own terrain, reversed depth and face records.
+DEFAULTS = {"quadrature.terrain": "own", "quadrature.reversedDepth": "true", "quadrature.faces": "true"}
+
+
 def properties(options: str) -> dict[str, str]:
     return dict(re.findall(r"-D([\w.]+)=(\S+)", options))
 
@@ -917,7 +921,8 @@ def check(plan: dict, plan_path: Path | None = None) -> list[str]:
         for switch, needs in REQUIRES.items():
             if switch in options and options[switch] not in ("false", "off"):
                 for need, value in needs:
-                    if need not in options or (value is not None and options[need] != value):
+                    found = options.get(need, DEFAULTS.get(need))
+                    if found is None or (value is not None and found != value):
                         problems.append(f"{label}: -D{switch} needs -D{need}" + (f"={value}" if value else ""))
         if options.get("quadrature.handoff.evaluate") == "dlss":
             shim = Path(options.get("quadrature.handoff.shim", ""))
