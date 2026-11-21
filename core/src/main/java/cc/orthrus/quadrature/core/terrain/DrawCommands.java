@@ -16,6 +16,10 @@ import java.util.Arrays;
  * <p>Filled in three steps: {@link #begin}, then {@link #record} and {@link #add} for each cube in the
  * order it should be drawn, then {@link #finish}, after which the buffers and the runs may be read.
  * One instance serves one view and allocates only when a frame needs more than any before it.
+ *
+ * <p>For culling on the GPU each record may carry a tag, a number that names its cube from frame to frame
+ * ({@link #NO_TAG} where none was given), and the list also gives, after {@link #finish}, each command's run
+ * and each run's first command, so that a compute stage can sort commands into runs of its own.
  */
 public final class DrawCommands {
 
@@ -23,6 +27,9 @@ public final class DrawCommands {
     public static final int COMMAND_BYTES = 16;
     /** The bytes one record takes. */
     public static final int RECORD_BYTES = 128;
+
+    /** The tag of a record given none. */
+    public static final int NO_TAG = -1;
 
     private static final int LAYERS = CubeSlots.LAYERS;
 
@@ -39,6 +46,10 @@ public final class DrawCommands {
     private int[] cursor = new int[LAYERS * 4];
     private ByteBuffer commandBytes = buffer(1024 * COMMAND_BYTES);
     private ByteBuffer recordBytes = buffer(512 * RECORD_BYTES);
+    private int[] tags = new int[512];
+    private ByteBuffer tagBytes = buffer(512 * 4);
+    private ByteBuffer runBytes = buffer(1024 * 4);
+    private ByteBuffer startBytes = buffer(LAYERS * 4 * 4);
 
     private static ByteBuffer buffer(int bytes) {
         return ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder());
@@ -67,6 +78,20 @@ public final class DrawCommands {
      * @return the record's index, to pass to {@link #add}
      */
     public int record(float[] matrix, int at) {
+        return record(matrix, at, NO_TAG);
+    }
+
+    /**
+     * Adds a cube's record with a tag.
+     *
+     * @param tag a number naming the cube from frame to frame, or {@link #NO_TAG}
+     * @return the record's index, to pass to {@link #add}
+     */
+    public int record(float[] matrix, int at, int tag) {
+        if (records == tags.length) {
+            tags = Arrays.copyOf(tags, records * 2);
+        }
+        tags[records] = tag;
         if ((records + 1) * RECORD_BYTES > recordBytes.capacity()) {
             ByteBuffer larger = buffer(recordBytes.capacity() * 2);
             recordBytes.position(0).limit(records * RECORD_BYTES);
@@ -118,6 +143,56 @@ public final class DrawCommands {
         }
         commandBytes.position(0).limit(entries * COMMAND_BYTES);
         recordBytes.position(0).limit(records * RECORD_BYTES);
+        // Absolute writes are bounded by the limit, which the last frame left at its own size.
+        tagBytes.clear();
+        runBytes.clear();
+        startBytes.clear();
+        if (records * 4 > tagBytes.capacity()) {
+            tagBytes = buffer(Math.max(records * 4, tagBytes.capacity() * 2));
+        }
+        for (int i = 0; i < records; i++) {
+            tagBytes.putInt(i * 4, tags[i]);
+        }
+        tagBytes.position(0).limit(records * 4);
+        if (entries * 4 > runBytes.capacity()) {
+            runBytes = buffer(Math.max(entries * 4, runBytes.capacity() * 2));
+        }
+        if (LAYERS * pages * 4 > startBytes.capacity()) {
+            startBytes = buffer(LAYERS * pages * 4);
+        }
+        for (int index = 0; index < LAYERS * pages; index++) {
+            startBytes.putInt(index * 4, runStart[index]);
+            for (int j = runStart[index], end = runStart[index] + runCount[index]; j < end; j++) {
+                runBytes.putInt(j * 4, index);
+            }
+        }
+        runBytes.position(0).limit(entries * 4);
+        startBytes.position(0).limit(LAYERS * pages * 4);
+    }
+
+    /** Each record's tag, a 32-bit integer a record. */
+    public ByteBuffer tags() {
+        return tagBytes;
+    }
+
+    /** Each command's run ({@link #run}), a 32-bit integer a command, in the order of {@link #commands}. */
+    public ByteBuffer runs() {
+        return runBytes;
+    }
+
+    /** Each run's first command, a 32-bit integer a run, runs numbered by {@link #run}. */
+    public ByteBuffer starts() {
+        return startBytes;
+    }
+
+    /** The number of a layer's and page's run. */
+    public int run(int layer, int page) {
+        return layer * pages + page;
+    }
+
+    /** How many runs there are: a layer and a page each. */
+    public int runSlots() {
+        return LAYERS * pages;
     }
 
     /** Every command, run after run; its position and limit bound what was written. */

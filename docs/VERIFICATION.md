@@ -1426,6 +1426,34 @@ tested against its published depth. On the RTX 3060 at 1280 by 720, radius 12, f
 - **Nothing is left changed.** With the measure on, opaque terrain leaves the same five fixed-function
   changes in the 41 audited items as own terrain without it.
 
+### Culling on the GPU, first form
+
+Behind `quadrature.terrain.cull=gpu` (`GpuCulling`; `alternate` culls and draws whole by turns of 600
+frames and times both, so the two are compared at one place and in one power state), in two phases: the
+cubes visible the frame before are drawn first, from the commands the client thread wrote; after the last
+opaque layer a pyramid is built from the frame's depth, from half resolution up, four levels a dispatch;
+every record is tested, the newly visible cubes drawn, each earlier layer under the state the game drew
+it in, and each cube's bit kept for the next frame. `quadrature.terrain.cull.check=true` compares the
+pyramid with `DepthPyramid` built on the CPU from the same depth every 600 frames. On the RTX 3060,
+2026-11-20:
+
+- **No picture changes.** Culled against the same instance drawn whole, all 17 forest views pass under
+  `near.json`, the worst 0.0012% of pixels, most identical. Every one of 219 pyramid checks over four
+  tours was exact to the bit. The state audit is unchanged.
+- **It leaves out nearly what the measure found possible**: 32.1% of the player's drawn vertices over the
+  forest tour and 44.0% over the caves at 1280 by 720, radius 12, against 34% and 45%; phase 2 draws
+  0.04% to 0.85%.
+- **On this card it does not yet pay.** Its fixed cost exceeds the drawing it saves:
+
+  | Culled and whole by turns | Left out | Whole | Culled | Pyramid (copy) | Test |
+  |---|---|---|---|---|---|
+  | Caves, 1280 by 720, radius 12 | 44% | 1.090 ms | 1.391 ms | 0.63 ms | 0.08 ms |
+  | Dwell tour, 2560 by 1440, radius 16, light on | 15% | 1.879 ms | 2.068 ms | 0.38 (0.22) ms | 0.04 ms |
+  | Caves, 2560 by 1440, radius 16, light on | 51% | 0.835 ms | 1.079 ms | 0.56 (0.34) ms | 0.04 ms |
+
+  The card stayed mostly in P3 and P5 even at 2560 by 1440 with the light on: terrain at radius 16 does
+  not load it. Copying the depth buffer is about 60% of the pyramid. It is off by default.
+
 ### Rays through the scene
 
 Measured 2026-11-18 and 19 on the RTX 3060 12 GB, driver 610.88, with the benchmark of ARCHITECTURE

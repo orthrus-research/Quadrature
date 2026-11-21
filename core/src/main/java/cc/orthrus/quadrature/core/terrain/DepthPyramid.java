@@ -105,7 +105,12 @@ public final class DepthPyramid {
      * texels each way.
      */
     public static int levelFor(int minX, int minY, int maxX, int maxY, int[] widths, int[] heights) {
-        int level = 0;
+        return levelFor(minX, minY, maxX, maxY, widths, heights, 0);
+    }
+
+    /** As {@link #levelFor(int, int, int, int, int[], int[])}, at {@code minimum} or above. */
+    public static int levelFor(int minX, int minY, int maxX, int maxY, int[] widths, int[] heights, int minimum) {
+        int level = Math.min(minimum, widths.length - 1);
         while (level < widths.length - 1
             && (under(maxX, level, widths[level]) - under(minX, level, widths[level]) > 1
                 || under(maxY, level, heights[level]) - under(minY, level, heights[level]) > 1)) {
@@ -121,7 +126,15 @@ public final class DepthPyramid {
 
     /** The farthest depth under a rectangle of pixels, inclusive, as the test reads it. */
     public float farthestUnder(int minX, int minY, int maxX, int maxY) {
-        int level = levelFor(minX, minY, maxX, maxY, widths, heights);
+        return farthestUnder(minX, minY, maxX, maxY, 0);
+    }
+
+    /**
+     * As {@link #farthestUnder(int, int, int, int)}, read at {@code minimum} or above: a pyramid kept without
+     * its finest levels, as the GPU keeps it from half resolution, reads so.
+     */
+    public float farthestUnder(int minX, int minY, int maxX, int maxY, int minimum) {
+        int level = levelFor(minX, minY, maxX, maxY, widths, heights, minimum);
         int x0 = under(minX, level, widths[level]);
         int x1 = under(maxX, level, widths[level]);
         int y0 = under(minY, level, heights[level]);
@@ -154,6 +167,12 @@ public final class DepthPyramid {
      */
     public Result test(float[] viewProjection, int[] viewport, boolean conventional, float minX, float minY, float minZ,
                        float maxX, float maxY, float maxZ) {
+        return test(viewProjection, viewport, conventional, 0, minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /** As the test above, reading the pyramid at level {@code minimum} or above. */
+    public Result test(float[] viewProjection, int[] viewport, boolean conventional, int minimum, float minX, float minY,
+                       float minZ, float maxX, float maxY, float maxZ) {
         float left = Float.POSITIVE_INFINITY;
         float right = Float.NEGATIVE_INFINITY;
         float bottom = Float.POSITIVE_INFINITY;
@@ -192,7 +211,7 @@ public final class DepthPyramid {
         int maxPixelX = Math.min(x1, (int) Math.floor(right));
         int minPixelY = Math.max(y0, (int) Math.floor(bottom));
         int maxPixelY = Math.min(y1, (int) Math.floor(top));
-        return nearest < farthestUnder(minPixelX, minPixelY, maxPixelX, maxPixelY) ? Result.HIDDEN : Result.KEPT;
+        return nearest < farthestUnder(minPixelX, minPixelY, maxPixelX, maxPixelY, minimum) ? Result.HIDDEN : Result.KEPT;
     }
 
     /** A clip w at or under this is taken as the eye's plane. */

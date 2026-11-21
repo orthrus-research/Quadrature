@@ -215,6 +215,10 @@ public final class Terrain
     private final CubeSlots slots = new CubeSlots();
     /** What testing the seen cubes against a depth pyramid would leave out, where measured. */
     private final OcclusionMeasure occlusion = OcclusionMeasure.ON ? new OcclusionMeasure() : null;
+    /** Culling of the player's opaque terrain on the GPU, where on. */
+    private final GpuCulling culling = GpuCulling.ON ? new GpuCulling() : null;
+    private final GpuCulling.LayerState[] cullStates = {new GpuCulling.LayerState(), new GpuCulling.LayerState(),
+        new GpuCulling.LayerState()};
     private final DrawCommands mainList = new DrawCommands();
     private final DrawCommands lightList = new DrawCommands();
     /**
@@ -1255,7 +1259,7 @@ public final class Terrain
             }
             CubeMatrix.compose(modelView, (float) ((CubeKey.x(key) << 4) - originX),
                 (float) ((CubeKey.y(key) << 4) - originY), (float) ((CubeKey.z(key) << 4) - originZ), matrix, 0);
-            int index = list.record(matrix, 0);
+            int index = list.record(matrix, 0, slot);
             int page = ArenaAllocator.page(faceSlots.block(slot));
             for (int layer = 0; layer < CubeSlots.LAYERS; layer++) {
                 int vertices = faceSlots.count(slot, layer);
@@ -1930,6 +1934,22 @@ public final class Terrain
         }
     }
 
+    /**
+     * Culling's phase 2, at the last opaque layer: each layer's newly visible cubes, the earlier layers under the
+     * state the game drew them in, then the last layer's state put back.
+     */
+    private void drawSecond() {
+        for (int layer = 0; layer < CubeSlots.LAYERS; layer++) {
+            cullStates[layer].apply();
+            drawsThisFrame += program.drawIndirectCount(mainList, layer, arena, culling.kept(GpuCulling.VERTICES, 2),
+                culling.counts(GpuCulling.VERTICES, 2));
+            if (FACES) {
+                drawsThisFrame += program.drawFacesCount(mainFaceList, layer, faceArena, culling.kept(GpuCulling.FACES, 2),
+                    culling.counts(GpuCulling.FACES, 2));
+            }
+        }
+    }
+
     /** Draws the opaque layers of one view's lists into the layer of the light's depth bound. */
     private int drawDepthLayers(DrawCommands list, DrawCommands faceList, View view) {
         program.uploadDepth(list);
@@ -1999,7 +2019,7 @@ public final class Terrain
             }
             CubeMatrix.compose(modelView, (float) ((CubeKey.x(key) << 4) - originX),
                 (float) ((CubeKey.y(key) << 4) - originY), (float) ((CubeKey.z(key) << 4) - originZ), matrix, 0);
-            int index = list.record(matrix, 0);
+            int index = list.record(matrix, 0, main ? slot : DrawCommands.NO_TAG);
             int page = ArenaAllocator.page(block);
             for (int layer = 0; layer < CubeSlots.LAYERS; layer++) {
                 int vertices = slots.count(slot, layer);
@@ -2096,10 +2116,25 @@ public final class Terrain
                 drawnVerticesThisFrame += count;
             }
         } else {
-            // One draw for each page that holds any of this layer, however many cubes are seen.
-            drawsThisFrame += program.drawIndirect(mainList, index, arena);
-            if (FACES) {
-                drawsThisFrame += program.drawFaces(mainFaceList, index, faceArena);
+            if (culling != null && layer == BlockRenderLayer.SOLID) {
+                culling.begin(view, mainList, program.commandBuffer(), program.recordBuffer(), FACES ? mainFaceList : null,
+                    program.faceCommandBuffer(0), program.faceRecordBuffer(0));
+            }
+            if (culling != null && culling.active()) {
+                // Phase 1: what was visible the frame before. Each layer's state is kept for its phase 2.
+                cullStates[index].capture();
+                drawsThisFrame += program.drawIndirectCount(mainList, index, arena, culling.kept(GpuCulling.VERTICES, 1),
+                    culling.counts(GpuCulling.VERTICES, 1));
+                if (FACES) {
+                    drawsThisFrame += program.drawFacesCount(mainFaceList, index, faceArena, culling.kept(GpuCulling.FACES, 1),
+                        culling.counts(GpuCulling.FACES, 1));
+                }
+            } else {
+                // One draw for each page that holds any of this layer, however many cubes are seen.
+                drawsThisFrame += program.drawIndirect(mainList, index, arena);
+                if (FACES) {
+                    drawsThisFrame += program.drawFaces(mainFaceList, index, faceArena);
+                }
             }
             for (int i = 0, apart = loose.size(); i < apart; i++) {
                 CubeMesh mesh = loose.get(i);
@@ -2110,6 +2145,13 @@ public final class Terrain
                     drawnVerticesThisFrame += mesh.count(index);
                 }
             }
+        }
+        if (culling != null && layer == BlockRenderLayer.CUTOUT && !DIRECT) {
+            if (culling.active()) {
+                culling.second();
+                drawSecond();
+            }
+            culling.end();
         }
         if (occlusion != null && layer == BlockRenderLayer.CUTOUT && !DIRECT) {
             occlusion.measure(view, visible, slots, FACES ? faceSlots : null);

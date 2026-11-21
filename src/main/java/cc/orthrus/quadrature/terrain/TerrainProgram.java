@@ -14,6 +14,7 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL40;
 import org.lwjgl.opengl.GL43;
 import org.lwjgl.opengl.GL45;
+import org.lwjgl.opengl.GL46;
 
 /**
  * The shader and vertex layout that draw cube meshes as the game's fixed-function path would: the
@@ -491,6 +492,77 @@ final class TerrainProgram {
             GL43.glMultiDrawArraysIndirect(QUADS, list.runOffset(layer, page), count, DrawCommands.COMMAND_BYTES);
             draws++;
         }
+        return draws;
+    }
+
+    /** The player's commands and records as last uploaded, for culling on the GPU to read. */
+    int commandBuffer() {
+        return commandBuffer;
+    }
+
+    int recordBuffer() {
+        return recordBuffer;
+    }
+
+    /** A view's face-record commands and records as last uploaded (0 the player's). */
+    int faceCommandBuffer(int which) {
+        return faceCommandBuffers[which];
+    }
+
+    int faceRecordBuffer(int which) {
+        return faceRecordBuffers[which];
+    }
+
+    /**
+     * As {@link #drawIndirect}, from commands a compute stage kept: {@code kept} holds each run at the list's
+     * offsets and {@code counts} each run's count, which the GPU reads.
+     */
+    int drawIndirectCount(DrawCommands list, int layer, TerrainArena arena, int kept, int counts) {
+        GL20.glUseProgram(indirectProgram);
+        GL20.glUniform1i(indirectFogModeLocation, fogMode);
+        inUse = 2;
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, recordBuffer);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, kept);
+        GL15.glBindBuffer(GL46.GL_PARAMETER_BUFFER, counts);
+        int draws = 0;
+        for (int page = 0; page < list.pages(); page++) {
+            int count = list.runCount(layer, page);
+            if (count == 0) {
+                continue;
+            }
+            boundBuffer = arena.buffer(page);
+            GL45.glVertexArrayVertexBuffer(vertexArray, 0, boundBuffer, 0, vertexStride);
+            GL46.glMultiDrawArraysIndirectCount(QUADS, list.runOffset(layer, page), list.run(layer, page) * 4L, count,
+                DrawCommands.COMMAND_BYTES);
+            draws++;
+        }
+        GL15.glBindBuffer(GL46.GL_PARAMETER_BUFFER, 0);
+        return draws;
+    }
+
+    /** As {@link #drawFaces}, from commands a compute stage kept, the counts read on the GPU. */
+    int drawFacesCount(DrawCommands list, int layer, TerrainArena faces, int kept, int counts) {
+        GL30.glBindVertexArray(emptyVertexArray);
+        GL20.glUseProgram(facesProgram);
+        GL20.glUniform1i(facesFogModeLocation, fogMode);
+        inUse = 3;
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, RECORDS_BINDING, faceRecordBuffers[0]);
+        GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, SPRITES_BINDING, spriteBuffer);
+        GL15.glBindBuffer(GL40.GL_DRAW_INDIRECT_BUFFER, kept);
+        GL15.glBindBuffer(GL46.GL_PARAMETER_BUFFER, counts);
+        int draws = 0;
+        for (int page = 0; page < list.pages(); page++) {
+            int count = list.runCount(layer, page);
+            if (count == 0) {
+                continue;
+            }
+            GL30.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, FACES_BINDING, faces.buffer(page));
+            GL46.glMultiDrawArraysIndirectCount(QUADS, list.runOffset(layer, page), list.run(layer, page) * 4L, count,
+                DrawCommands.COMMAND_BYTES);
+            draws++;
+        }
+        GL15.glBindBuffer(GL46.GL_PARAMETER_BUFFER, 0);
+        GL30.glBindVertexArray(vertexArray);
         return draws;
     }
 

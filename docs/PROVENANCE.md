@@ -981,22 +981,30 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   Quadrature's.
 - Added: 2026-11-18
 
-### Depth pyramid and a cube's test against it
+### Depth pyramid, a cube's test against it, and culling in two phases
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/terrain/DepthPyramid.java`,
-  `src/main/java/cc/orthrus/quadrature/terrain/OcclusionMeasure.java`
+  `core/src/main/java/cc/orthrus/quadrature/core/terrain/DrawCommands.java` (tags, runs and starts),
+  `src/main/java/cc/orthrus/quadrature/terrain/OcclusionMeasure.java`,
+  `src/main/java/cc/orthrus/quadrature/terrain/GpuCulling.java`,
+  `src/main/java/cc/orthrus/quadrature/terrain/TerrainProgram.java` (`drawIndirectCount`, `drawFacesCount`)
 - Source: Greene, Kass and Miller, "Hierarchical Z-Buffer Visibility", SIGGRAPH 1993 (a pyramid
   of depth, each level the farthest of the level below, and a box rejected where its nearest
   depth lies beyond the farthest under its screen extent); Haar and Aaltonen, "GPU-Driven
   Rendering Pipelines", SIGGRAPH 2015 (the test made in compute, a level chosen so a box
-  covers a few texels). Facts used: the OpenGL 4.6 compatibility specification (the sizes of a
-  texture's levels, image load and store, `glCopyImageSubData` between a depth renderbuffer
-  and a texture, memory barriers, timestamp queries).
+  covers a few texels; two phases, the objects visible the frame before drawn first, the
+  pyramid built from them, and the rest tested against it). Facts used: the OpenGL 4.6
+  compatibility specification (the sizes of a texture's levels, image load and store,
+  `glCopyImageSubData` between a depth renderbuffer and a texture, memory barriers, timestamp
+  queries, compute shared memory, `glMultiDrawArraysIndirectCount` and the parameter buffer).
 - Taken: the ideas. The levels sized as OpenGL sizes a texture's, odd rows and columns folded
   into the last texel so a texel holds the farthest of exactly the pixels under it, the level
   chosen as the finest where a rectangle lies under two texels each way, and a box at the
-  eye's plane kept untested are Quadrature's.
-- Not taken: any culling or renderer source. As built it only measures what the test would
-  leave out, against the frame's own depth; nothing is left out of a draw.
+  eye's plane kept untested are Quadrature's. So are the pyramid built from half resolution
+  four levels a dispatch, with the texels at the last row or column reading their whole
+  footprint so that every level equals the reference; the commands the client thread wrote
+  sorted by compute into runs of their own; a bit per cube found by a tag its record carries;
+  and phase 2 drawn at the last opaque layer under each earlier layer's state.
+- Not taken: any culling or renderer source, and any downsampler's source.
 - Added: 2026-11-20
 
 ## Design sources

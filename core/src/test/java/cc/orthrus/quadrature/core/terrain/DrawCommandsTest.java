@@ -121,4 +121,54 @@ class DrawCommandsTest {
         assertEquals(7.62939453e-06f, CubeMatrix.CHUNK_OFFSET);
         assertEquals(1.00000095f, CubeMatrix.CHUNK_SCALE);
     }
+
+    @Test
+    void tagsRunsAndStartsDescribeTheListForTheGpu() {
+        DrawCommands list = new DrawCommands();
+        list.begin(2);
+        int a = list.record(matrix(100), 0, 41);
+        list.add(0, 1, 500, 40, a);
+        list.add(1, 0, 900, 8, a);
+        int b = list.record(matrix(200), 0);
+        list.add(0, 0, 0, 12, b);
+        int c = list.record(matrix(300), 0, 7);
+        list.add(0, 1, 700, 16, c);
+        list.finish();
+
+        ByteBuffer tags = list.tags();
+        assertEquals(3 * 4, tags.remaining());
+        assertArrayEquals(new int[] {41, DrawCommands.NO_TAG, 7}, new int[] {tags.getInt(0), tags.getInt(4), tags.getInt(8)});
+        ByteBuffer runs = list.runs();
+        ByteBuffer starts = list.starts();
+        assertEquals(list.runSlots() * 4, starts.remaining());
+        for (int layer = 0; layer < CubeSlots.LAYERS; layer++) {
+            for (int page = 0; page < 2; page++) {
+                int run = list.run(layer, page);
+                int start = starts.getInt(run * 4);
+                assertEquals(list.runOffset(layer, page), (long) start * DrawCommands.COMMAND_BYTES);
+                for (int j = start; j < start + list.runCount(layer, page); j++) {
+                    assertEquals(run, runs.getInt(j * 4));
+                }
+            }
+        }
+        assertEquals(list.commandCount() * 4, runs.remaining());
+    }
+
+    @Test
+    void aLargerFrameAfterASmallerOneIsWrittenWhole() {
+        DrawCommands list = new DrawCommands();
+        list.begin(1);
+        list.add(0, 0, 0, 4, list.record(matrix(1), 0, 3));
+        list.finish();
+        list.begin(3);
+        for (int i = 0; i < 40; i++) {
+            int record = list.record(matrix(i), 0, i);
+            list.add(i % CubeSlots.LAYERS, i % 3, i * 4, 4, record);
+        }
+        list.finish();
+        assertEquals(40 * 4, list.tags().remaining());
+        assertEquals(39, list.tags().getInt(39 * 4));
+        assertEquals(40 * 4, list.runs().remaining());
+        assertEquals(list.runSlots() * 4, list.starts().remaining());
+    }
 }

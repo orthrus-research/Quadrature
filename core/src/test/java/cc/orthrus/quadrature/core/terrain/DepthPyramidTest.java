@@ -104,6 +104,7 @@ class DepthPyramidTest {
                 }
             }
             assertTrue(pyramid.farthestUnder(minX, minY, maxX, maxY) <= least);
+            assertTrue(pyramid.farthestUnder(minX, minY, maxX, maxY, 1) <= pyramid.farthestUnder(minX, minY, maxX, maxY));
         }
     }
 
@@ -191,7 +192,7 @@ class DepthPyramidTest {
                 float y = random.nextFloat() * 30 - 15;
                 float z = -(5 + random.nextFloat() * 120);
                 float size = 1 + random.nextFloat() * 16;
-                DepthPyramid.Result result = pyramid.test(m, viewport, x, y, z - size, x + size, y + size, z);
+                DepthPyramid.Result result = pyramid.test(m, viewport, false, i % 2, x, y, z - size, x + size, y + size, z);
                 if (result != DepthPyramid.Result.HIDDEN) {
                     continue;
                 }
