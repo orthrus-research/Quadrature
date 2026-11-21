@@ -810,6 +810,27 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   renderer.
 - Added: 2026-11-20
 
+### The game's chunk system taken over in cubic worlds
+- Code: `src/main/java/cc/orthrus/quadrature/terrain/GameChunks.java`, `EntityPass.java`, `EntityPassHost.java`,
+  `CubicWorlds.java`, `AddedLayerCube.java`, the added layers in `CubeMesher.java`, `BuiltCube.java` and
+  `Terrain.java`; `mixin/MixinRenderGlobalChunks.java`, `mixin/MixinViewFrustumChunks.java`, the added-layer case in
+  `mixin/MixinRenderGlobal.java`; the reference-build check in `Quadrature.java`
+- Source: original. Facts used, read from the game's decompiled sources as Forge and Cleanroom patch them: that
+  `RenderGlobal.setupTerrain` positions, searches and queues the render chunks and fills the list `renderEntities` and
+  `renderBlockLayer` read; that `renderEntities` finds entities through each listed render chunk's section and block
+  entities through its compiled chunk, under the tests kept here (the render pass, `RenderManager.shouldRender` or
+  riding the player, the view entity in first person, the old height limits with `isBlockLoaded`, the frustum test of
+  a block entity's render box), and draws global block entities from a set its rebuild fills through
+  `updateTileEntities`; that `ChunkRenderDispatcher` makes ten rebuild buffer sets a core up to a share of the heap;
+  that `ViewFrustum.setCountChunksXYZ` sizes the grid before its render chunks are made; and that a layer a mod adds
+  to `BlockRenderLayer` is meshed by the rebuild like any other and drawn through `renderBlockLayer`. Cubature's API
+  (`ICube.getEntitySet`, `getTileEntityMap`) gives each cube's entities and block entities. GTCEu: Reloaded's bloom
+  layer, read in its own sources, is the added layer met in the surveyed pack.
+- Taken: the tests of the game's two loops and its set of global block entities, as behavior. The entity and
+  block-entity passes over Quadrature's own view, the global set kept as cubes are placed and forgotten, and the added
+  layers' meshing and draw are Quadrature's own. No code from another renderer.
+- Added: 2026-11-21
+
 ### Entities' own motion for the temporal pass
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/scale/EntityMotion.java`,
   `src/main/java/cc/orthrus/quadrature/frame/EntityMotions.java`, the entity path of `MOTION_COMPUTE` in `ScalerShaders.java`

@@ -1060,6 +1060,39 @@ are `NearFade`'s, in `core`. Near translucent terrain drawn by the game does not
   and the opaque depth beneath them; both are to be published as textures once shading
   writes them.
 
+### 6.7 The game's chunk system
+
+In a cubic world under own terrain Quadrature takes over the game's chunk system (D24, PLAN
+item 12g; `GameChunks`). It is decided per world when the game loads its renderers for it,
+before the cube source attaches: own terrain asked for and the world cubic.
+`-Dquadrature.terrain.gameChunks=keep` keeps the game's system running beside own terrain.
+
+- **What stops.** The game's terrain setup does nothing after its own reaction to a changed
+  view distance, and its chunk updates nothing at all, so it never positions, searches,
+  rebuilds or uploads a render chunk, and its list of render chunks to draw stays empty. Its
+  grid holds one render chunk, and its rebuild dispatcher one buffer set where it would make
+  ten a core (`MixinRenderGlobalChunks`, `MixinViewFrustumChunks`).
+- **Entities and block entities.** The game's entity pass keeps its own frame, outlines,
+  global block entities and breaking overlays; its two loops over the empty list find
+  nothing, and at the same two points Quadrature's take their place over the cubes the
+  player's view saw, nearest first, reading each cube's entities and block entities from the
+  cube through Cubature's API, under the game's own tests (`EntityPass`). The view's search
+  lists every loaded cube it reaches, empty ones included, and never leaves out one the
+  game's search would reach. Block entities whose renderer draws them from anywhere go to
+  the game's set of global block entities as their cubes are placed and forgotten.
+- **Layers other mods add.** A layer another mod adds to the game's list after the
+  translucent one is asked of each block, meshed through the game's dispatcher with the
+  layer set, as the game's rebuild would mesh it, into a buffer of the cube's own, and drawn
+  for the seen cubes nearest first, unsorted, wherever the game's renderer is asked to draw
+  that layer, into whatever framebuffer is bound (`AddedLayerCube`). GTCEu: Reloaded's bloom
+  layer is drawn so, inside its own wrap of the game's translucent draw. At most three.
+- **Mods that hook the rebuild.** An event or a wrap of a call inside the game's rebuild no
+  longer runs (PLAN item 12, mods that add to the game's chunk meshes).
+- **A game-drawn run.** The game's system draws a cubic world only through Cubature's
+  integration with it, which builds of Cubature since this takeover do not carry;
+  `-Dquadrature.terrain=game` and `gameChunks=keep` stop at loading with a message unless
+  Cubature's reference build, the last with that integration, is installed.
+
 ## 7. Distant terrain
 
 - **Structure.** Rings of cubes at doubling scale around the camera: level L covers twice

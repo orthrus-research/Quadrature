@@ -114,6 +114,15 @@ public final class Terrain
     private final Long2ObjectOpenHashMap<CubeMesh> meshes = new Long2ObjectOpenHashMap<>();
     /** Each cube's translucent quads, where own terrain draws that layer ({@link TranslucentCube#OWN}). */
     private final Long2ObjectOpenHashMap<TranslucentCube> translucents = new Long2ObjectOpenHashMap<>();
+    /** Each layer another mod adds ({@link CubeMesher#ADDED}): the cubes that draw in it. */
+    @SuppressWarnings("unchecked")
+    private final Long2ObjectOpenHashMap<AddedLayerCube>[] addedLayers = new Long2ObjectOpenHashMap[CubeMesher.ADDED.length];
+
+    {
+        for (int a = 0; a < addedLayers.length; a++) {
+            addedLayers[a] = new Long2ObjectOpenHashMap<>();
+        }
+    }
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
     /**
      * Off unless {@code -Dquadrature.scene=true}: the cells of every cube that is meshed are kept for
@@ -511,6 +520,52 @@ public final class Terrain
         return world == attachedWorld;
     }
 
+    @Override
+    public CubeList seen() {
+        return attached ? visible : null;
+    }
+
+    @Override
+    public boolean drawsAdded(BlockRenderLayer layer) {
+        return attached && addedIndex(layer) >= 0;
+    }
+
+    private static int addedIndex(BlockRenderLayer layer) {
+        for (int a = 0; a < CubeMesher.ADDED.length; a++) {
+            if (CubeMesher.ADDED[a] == layer) {
+                return a;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Draws a layer another mod adds for what the view sees, nearest first, under the state the mod or the game has
+     * set for it and into whatever framebuffer is bound, as the game's draw of that layer's render chunks would.
+     */
+    private void drawAdded(int added, View view) {
+        Long2ObjectOpenHashMap<AddedLayerCube> cubes = addedLayers[added];
+        if (cubes.isEmpty()) {
+            return;
+        }
+        double cameraX = view.originX();
+        double cameraY = view.originY();
+        double cameraZ = view.originZ();
+        net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
+        DriverMessages.enter("terrain " + CubeMesher.ADDED[added]);
+        program.begin(view);
+        for (int i = 0, seen = visible.count(); i < seen; i++) {
+            AddedLayerCube cube = cubes.get(visible.key(i));
+            if (cube != null) {
+                program.draw(cube.mesh, 0, (float) ((cube.x << 4) - cameraX), (float) ((cube.y << 4) - cameraY),
+                    (float) ((cube.z << 4) - cameraZ));
+            }
+        }
+        program.end();
+        DriverMessages.leave();
+        net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
+    }
+
     // Events from the cube source.
 
     @Override
@@ -584,9 +639,11 @@ public final class Terrain
         }
         release(meshes.remove(key));
         releaseTranslucent(key);
+        releaseAdded(key);
         links.remove(key);
         slots.release(key);
         releaseFaceSlot(key);
+        EntityPass.forgotten(x, y, z);
         tableVersion++;
         unsettle(key);
         if (scene != null) {
@@ -594,8 +651,16 @@ public final class Terrain
         }
     }
 
-    private void releaseTranslucent(long key) {
-        TranslucentCube cube = translucents.remove(key);
+    private void releaseAdded(long key) {
+        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : addedLayers) {
+            AddedLayerCube cube = cubes.remove(key);
+            if (cube != null) {
+                cube.delete();
+            }
+        }
+    }
+
+    private void releaseTranslucent(long key) {        TranslucentCube cube = translucents.remove(key);
         if (cube != null) {
             cube.delete();
         }
@@ -647,12 +712,19 @@ public final class Terrain
             cube.delete();
         }
         translucents.clear();
+        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : addedLayers) {
+            for (AddedLayerCube cube : cubes.values()) {
+                cube.delete();
+            }
+            cubes.clear();
+        }
         dirty.clear();
         // The pool drops a world's builds when the world goes; those still held are let go here as well.
         for (IClientBuildWork.Task<BuiltCube> task : tasks.values()) {
             task.cancel();
         }
         tasks.clear();
+        EntityPass.cleared();
         decided.clear();
         readsOf.clear();
         causes.clear();
@@ -930,7 +1002,9 @@ public final class Terrain
         readsOf.put(key, 0L);
         release(meshes.remove(key));
         releaseTranslucent(key);
+        releaseAdded(key);
         emptied++;
+        EntityPass.forgotten(x, y, z);
         setLinks(key, CubeConnectivity.ALL);
         if (settled.add(key)) {
             settledVersion++;
@@ -967,6 +1041,7 @@ public final class Terrain
         if (settled.add(key)) {
             settledVersion++;
         }
+        EntityPass.placed((net.minecraft.world.World) attachedWorld, x, y, z);
         if (scene != null) {
             // The states first met are told to the scene before the cells that use them.
             for (int packed : built.newStates) {
@@ -994,6 +1069,12 @@ public final class Terrain
         releaseTranslucent(key);
         if (built.translucentCount() > 0) {
             translucents.put(key, new TranslucentCube(x, y, z, built.translucentVertices(), built.translucentCount()));
+        }
+        releaseAdded(key);
+        for (int a = 0; a < addedLayers.length; a++) {
+            if (built.addedCount(a) > 0) {
+                addedLayers[a].put(key, new AddedLayerCube(x, y, z, built.addedVertices(a), built.addedCount(a)));
+            }
         }
         CubeMesh old = meshes.remove(key);
         if (CAUSES) {
@@ -2056,6 +2137,11 @@ public final class Terrain
     public void draw(BlockRenderLayer layer, View view) {
         if (layer == BlockRenderLayer.TRANSLUCENT) {
             drawTranslucent(view);
+            return;
+        }
+        int added = addedIndex(layer);
+        if (added >= 0) {
+            drawAdded(added, view);
             return;
         }
         double cameraX = view.originX();

@@ -23,10 +23,13 @@ public abstract class MixinRenderGlobal {
         at = @At("HEAD"), cancellable = true)
     private void quadrature$drawLayer(BlockRenderLayer layer, double partialTicks, int pass, Entity viewer,
         CallbackInfoReturnable<Integer> callback) {
-        // The three layers the game itself calls opaque, and the translucent one where own terrain draws it.
-        // Any other layer, such as those other mods add to the enumeration, is left to the game.
+        // The three layers the game itself calls opaque, the translucent one where own terrain draws it, and the
+        // layers other mods add to the enumeration where Quadrature has taken over the game's chunk system (their
+        // own draws call here for them, as GTCEu: Reloaded's bloom does inside the game's translucent draw). Where it
+        // has not, such a layer is left to the game.
         boolean own = layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.CUTOUT_MIPPED
-            || layer == BlockRenderLayer.CUTOUT || layer == BlockRenderLayer.TRANSLUCENT && TerrainHook.drawsTranslucent();
+            || layer == BlockRenderLayer.CUTOUT || layer == BlockRenderLayer.TRANSLUCENT && TerrainHook.drawsTranslucent()
+            || layer.ordinal() > BlockRenderLayer.TRANSLUCENT.ordinal() && TerrainHook.drawsAdded(layer);
         if (own && TerrainHook.active()) {
             TerrainHook.draw(layer, partialTicks, viewer);
             callback.setReturnValue(0);

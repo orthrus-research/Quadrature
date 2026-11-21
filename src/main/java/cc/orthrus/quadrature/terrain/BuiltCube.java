@@ -91,6 +91,27 @@ final class BuiltCube {
         return translucentCount;
     }
 
+    /** Each added layer's vertices and how many ({@link CubeMesher#ADDED}); null where the cube draws none. */
+    private byte[][] added;
+    private int[] addedCounts;
+
+    void added(int layer, int layers, byte[] vertices, int vertexCount) {
+        if (added == null) {
+            added = new byte[layers][];
+            addedCounts = new int[layers];
+        }
+        added[layer] = vertices;
+        addedCounts[layer] = vertexCount;
+    }
+
+    byte[] addedVertices(int layer) {
+        return added == null ? null : added[layer];
+    }
+
+    int addedCount(int layer) {
+        return added == null ? 0 : addedCounts[layer];
+    }
+
     /** The sides whose blocks a build read, from {@link #reads}. */
     static int blockSides(long reads) {
         return (int) (reads & 0x7FF_FFFFL);
@@ -126,6 +147,12 @@ final class BuiltCube {
             if (translucentCount > 0) {
                 hash = hash * 31 + translucentCount;
                 hash = hash * 1_000_003 + java.util.Arrays.hashCode(translucent);
+            }
+            if (added != null) {
+                for (int layer = 0; layer < added.length; layer++) {
+                    hash = hash * 31 + addedCounts[layer];
+                    hash = hash * 1_000_003 + java.util.Arrays.hashCode(added[layer]);
+                }
             }
             content = hash;
             contentKnown = true;

@@ -3,6 +3,7 @@ package cc.orthrus.quadrature.terrain;
 import cc.orthrus.quadrature.core.material.MaterialTable;
 import cc.orthrus.quadrature.core.scene.LightScene;
 import cc.orthrus.quadrature.core.terrain.CoverageMap;
+import cc.orthrus.quadrature.core.terrain.CubeList;
 import cc.orthrus.quadrature.core.terrain.SearchEdge;
 import cc.orthrus.quadrature.core.scene.PublishedScene;
 import cc.orthrus.quadrature.core.view.ShadingTargets;
@@ -35,6 +36,16 @@ public final class TerrainHook {
 
         /** Fills and returns the player's view for the frame about to be drawn. */
         View mainView(double partialTicks, Entity viewer);
+
+        /** The cubes the player's view saw at its last search, nearest first, or null when nothing is drawn. */
+        default CubeList seen() {
+            return null;
+        }
+
+        /** Whether own terrain draws this layer, one another mod adds to the game's list, in the current world. */
+        default boolean drawsAdded(BlockRenderLayer layer) {
+            return false;
+        }
 
         /** Draws one layer for a view: an opaque one, or the translucent one where own terrain draws it. */
         void draw(BlockRenderLayer layer, View view);
@@ -166,6 +177,21 @@ public final class TerrainHook {
 
     public static boolean active() {
         return drawer != null && drawer.active();
+    }
+
+    /** The cubes the player's view saw at its last search, nearest first, or null when own terrain draws nothing. */
+    public static CubeList seen() {
+        Drawer installed = drawer;
+        return installed == null ? null : installed.seen();
+    }
+
+    /**
+     * Whether own terrain draws this layer, one another mod adds to the game's list after the translucent one, in the
+     * current world: where Quadrature takes over the game's chunk system (PLAN item 12g).
+     */
+    public static boolean drawsAdded(BlockRenderLayer layer) {
+        Drawer installed = drawer;
+        return installed != null && installed.drawsAdded(layer);
     }
 
     /** Whether own terrain draws the translucent layer as well as the opaque ones (PLAN item 12e). */

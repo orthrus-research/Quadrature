@@ -229,6 +229,13 @@ Quadrature's. A game-drawn run of a bright instance fails that view against the 
 at 0.31% and differs in no other view by more than 0.013%. The cause is not established;
 it lies in the world's light, which is Cubature's.
 
+Since the game's chunk system is taken over (D24), the game draws a cubic world only with
+Cubature's reference build, the last that carries its integration with that system
+(30bd6d77), and an instance holds one Cubature for all its runs. A game-drawn reference is
+therefore taken in an instance prepared with the reference build; a run of the current
+Cubature is set beside a run of the reference build in a second instance prepared with a
+copy of the first one's world (Riven's `adopt_world`), whose saved light is the same.
+
 Measured 2026-11-15 on a fresh instance prepared like the near-terrain reference, with the
 Cubature build that carries the cube source. The forest tour was captured four times: the
 game's terrain to settle the instance, the game's terrain again, `-Dquadrature.terrain=own`,
@@ -1424,6 +1431,31 @@ and without Cubature the game stops at loading with a message. On the RTX 3060:
   the 7% two captures of one configuration differ by. Both captures ran the Cubature of Riven's accepted
   pin (19f9961a), not the one Quadrature pins.
 
+### The game's chunk system taken over
+
+Since 2026-11-21 Quadrature takes over the game's chunk system in cubic worlds (ARCHITECTURE 6.7,
+D24); `quadrature.terrain.gameChunks=keep` keeps it running beside own terrain. On the RTX 3060, one
+fresh instance with Cubature's reference build, textures held still in every run:
+
+- **The forest tour.** Taken over, with the state audit: all 17 views pass under `near.json` against the
+  game's drawing, worst 0.0579%, and against own terrain with the game's system kept, 16 identical byte for
+  byte and the last 0.0001%. The state each stage leaves is the same as before the takeover. Kept, the game
+  made 80,619 chunk rebuilds over the tour, 28.9 s on its threads; taken over, none.
+- **Entities and block entities.** A tour of its own builds the same row three times, at heights 200 and
+  300 in the air and at -40 in a room lit by sea lanterns: a chest, a sign, a bed, a skull, a shulker box, a
+  structure block showing its box (a global renderer), a GTCEu: Reloaded lamp whose glowing face is drawn in
+  its bloom layer, a still golem and an armor stand. Taken over, every one is drawn at every height. Set
+  against the game's system kept, the views differ within what two kept runs differ by, and only where those
+  do: on the items the tour's golems drop, which turn, and where the game's flickering block light moves its
+  light map's levels (the room at -40). With the lamps lit, the lamp and the light it casts are the same
+  taken over and kept.
+
+**Cubature without its chunk-render integration.** A second instance, prepared with Cubature 69e1b2d2 and
+the same jar of Quadrature and given a copy of the first instance's world after its runs: its forest tour is
+identical byte for byte, all 17 views, to the first instance's taken-over run, and its entity tour draws
+every entity and block entity, differing from the first instance's taken-over run within the spread of two
+runs of one configuration.
+
 ### Mods that read depth back
 
 Two mods of the surveyed pack read the depth under the pointer and unproject it to name a block in a
@@ -2070,6 +2102,7 @@ Each is a system property, read once, and costs nothing when unset.
 
 | Property | Effect |
 |---|---|
+| `quadrature.terrain.gameChunks=keep` | The game's chunk system keeps running beside own terrain in cubic worlds, as before the takeover; needs Cubature's reference build (The game's chunk system taken over). The selection diagnostics (`terrain.compare`, `terrain.gameSelection`) read the game's search and need it |
 | `quadrature.terrain.compare=true` | On one settled frame in 240, logs the cubes Quadrature draws beside the chunks the game selected; for each cube only Quadrature draws, which of the game's conditions left it out; for each cube only the game draws, whether a mesh is held, whether the cube is loaded and whether the view sees it |
 | `quadrature.terrain.layerCache=off` | The mesher asks each block for its layers every time instead of once a state; `=alternate` keeps them for every other build and times both kinds apart (Layers kept per state) |
 | `quadrature.terrain.layerCache.check=true` | Every kept answer is asked again and differences counted; `LAYER CHECK FAILED` in the terrain line on any |

@@ -113,24 +113,27 @@ As of 2026-11-13.
 
 Phase 1 is closed. Its condition, a cubic world matching the vanilla image within the
 stated tolerance, is met for a frame Quadrature observes, and for one in which a stage of
-its own runs inside the envelope. Phase 2 turned reversed depth on by default with own terrain (2026-11-21).
+its own runs inside the envelope. Phase 2 turned reversed depth on by default with own terrain and took over
+the game's chunk system (2026-11-21).
 
 The development client reaches a world on its own with `./gradlew runClient -PdevWorld=<seconds>`,
 logs stage times every five seconds, and quits.
 
 ## Phase 2 status
 
-As of 2026-11-21. Own terrain, reversed depth and face records are the defaults: with no switches,
-16 of 17 forest views pass against the game's own drawing (view 07's river aside) and the baseline flight
-holds the game's frame times ([VERIFICATION.md](VERIFICATION.md), own terrain by default). What remains
-for the phase to close: Cubature's chunk-render Mixins deleted, which is Cubature's change; ModularUI's
-schema renderer driven as GregTech's was (GregTech's picks the same blocks in reversed depth); the river in
-view 07 settled.
+As of 2026-11-21 Phase 2's conditions are met. Own terrain, reversed depth and face records are the defaults:
+with no switches and textures held still, all 17 forest views pass against the game's own drawing, and the
+baseline flight holds the game's frame times ([VERIFICATION.md](VERIFICATION.md), own terrain by default; the
+river in view 07). Both preview renderers that pick by depth, GregTech's and ModularUI's, pick the same blocks
+in reversed depth (VERIFICATION, mods that read depth back). Quadrature takes over the game's chunk system in
+cubic worlds (D24, item 12g), and Cubature's integration with that system is deleted on Cubature's branch
+`refactor/remove-vanilla-chunk-render` (69e1b2d2), which Quadrature pins; the phase closes when that branch
+joins Cubature's main and Riven's pin follows, since every client Riven prepares then needs Quadrature.
 
 | Step | Status |
 |---|---|
 | Cube source in Cubature | Built: events, versions, queries, snapshots, the build pool and the settled signal (Cubature's `docs/CUBE-SOURCE.md`), all in the pinned commit |
-| Near terrain, first form | Built, and the default since 2026-11-21 with reversed depth and face records (`-Dquadrature.terrain=game` leaves terrain to the game): every loaded cube is meshed, once the six cubes around it are loaded, from a snapshot with the game's block models, on Cubature's build pool, nearest and in view first; the three opaque layers are drawn from those meshes in place of the game's draw. Translucent terrain, layers other mods add and block entities are still the game's, which also still builds its own meshes |
+| Near terrain, first form | Built, and the default since 2026-11-21 with reversed depth and face records (`-Dquadrature.terrain=game` leaves terrain to the game): every loaded cube is meshed, once the six cubes around it are loaded, from a snapshot with the game's block models, on Cubature's build pool, nearest and in view first; every layer, the translucent one and those other mods add included, is drawn from those meshes in place of the game's draw, and in cubic worlds the game's chunk system no longer runs (item 12g) |
 | Frame against the game's terrain | All 17 forest tour views pass the near-terrain profile against a game-drawn run of the same instance; the worst differs in 0.0624% of pixels, most of them on a river the game draws, and 1,228 pixels differ over the tour outside that river, single pixels with no direction. The game's rule for when a cube is meshed and the matrix it gives each render chunk are reproduced; without the matrix 14 views passed. Scoring is within one instance because light around some terrain differs between instances ([VERIFICATION.md](VERIFICATION.md)) |
 | First numbers | 1.15 ms to mesh a cube, face links included; 584 MiB for 4,090 meshes in the game's 28-byte vertex format; 963 draws in a settled frame on average and 1,370 at most; opaque terrain 0.74 ms on the CPU and 2.27 ms on the GPU with the selection comparison running, against 0.65 and 2.36 ms for the game's own draw in the same instance; 0.25 ms for a search, reused on two frames in three |
 | Why the game omits terrain Quadrature draws | Answered. Every cube Quadrature drew and the game did not was one the game's occlusion search leaves out, 93.8% of them because none of the cube's six neighbors was reached; they changed no pixels and cost draws ([VERIFICATION.md](VERIFICATION.md)) |
@@ -273,8 +276,8 @@ features' own counters; pool figures are samples, which agree with the clock on 
 
 ### Engine take-over (item 12)
 
-Under own terrain the game's opaque-layer meshes are never drawn, but the game still builds them. It also builds the
-rest the same way: the translucent layer, the block entity lists and its visibility graph. Quadrature takes this
+Under own terrain the game's opaque-layer meshes were never drawn, but the game still built them. It also built the
+rest the same way: the translucent layer, the block entity lists and its visibility graph. Quadrature took this
 work over in steps. Before the next step starts, each is verified against a game-drawn run of the same instance
 (17 of 17 views under the near profile) and measured on the base plan's cave tour.
 
@@ -286,8 +289,9 @@ work over in steps. Before the next step starts, each is verified against a game
 | 12d | The face test by table, for blocks that keep the game's own test: per state, which faces its shape fills and whether it is an opaque cube, read in place of `Block.shouldSideBeRendered` | The same faces, checked per cube against the game's test as `quadrature.faces.check` does | As 12c |
 | 12e | Translucent terrain in Quadrature, meshed with the other layers and ordered back to front per cube as the eye moves. The game's chunk rebuild then stops altogether | Translucent views within the near profile. First, a policy for mods that add to the game's chunk meshes (the risk below) | The game's meshing threads idle |
 | 12f | Block entities and entities come from Quadrature's view: the game's entity pass reads the visible cubes that hold them, not the game's render chunks | The same entities and block entities drawn | The frame thread's entity pass. Cubature's lookup per render chunk (6.5 to 9.4% of the frame thread's samples) is gone |
+| 12g | The game's chunk system taken over in cubic worlds (D24): no terrain setup, search, rebuild or rebuild buffers of the game's; entities and block entities from Quadrature's view (12f); layers other mods add meshed and drawn by Quadrature. Cubature's integration with that system is then deleted | Every picture unchanged, entities, block entities and an added layer at heights the game's grid never reached included; the same with Cubature's integration deleted | The game's rebuilds gone; Phase 2 closes |
 
-12a and 12b need no new technique. Steps 12c to 12f each get a PROVENANCE record in the commit that adds them.
+12a and 12b need no new technique. Steps 12c to 12g each get a PROVENANCE record in the commit that adds them.
 
 12a is done: the game's chunk rebuild answers false to the per-block layer test for the three opaque layers
 wherever own terrain draws that render chunk's world (`MixinRenderChunkLayers`, `GameChunkRebuilds`,
@@ -297,30 +301,43 @@ and with no position made for a face test, is now the default for model blocks (
 for the old path). That covers most of what 12d set out to save, the positions the game's face test makes; a table
 of each state's faces would save only two calls a face, so 12d waits for a profile that shows them.
 
-12f's measure, Cubature's cube lookup for every render chunk in the entity pass, is met in Cubature instead (its branch for underground costs, 46a9d9e5): each column counts its cubes holding entities, and of 179 million requests over a forest tour with golems in view 99.8% were answered without a lookup, none wrongly. What remained of 12f, the entity pass taking Quadrature's visible cubes in place of the game's render chunks, is not needed: under the policy for 12e the game's rebuild still finds the block entity lists, the lookup it cost is met, and under own terrain the game's terrain setup and its whole entity pass take 0.016 and 0.067 ms of the client thread a frame at the median of a forest tour, so the most it could save is under a tenth of a millisecond. It is taken up again if a frame's time is ever traced to them.
+12f is done as part of 12g, below. Its measure, Cubature's cube lookup for every render chunk in the entity pass, went with that pass, and the count of cubes holding entities Cubature kept to spare it the lookup went with it.
 
 12b is not needed while 12a holds: the game's rebuilds on the client thread took 0.14 s over the forest tour and
 0.76 s over the generating cave tour once they left the opaque layers out, about a tenth of a percent of the
 client thread, where they had been 49% of its samples over the base cave tour. It is taken up again if a frame's
 time is ever traced to them.
 
-**Policy for 12e (decided 2026-11-20).** Stopping the game's chunk rebuild altogether would take away
-what mods add through it: layers of their own (GregTech CEu's bloom layer, CTM's extra layers a quad), changes to
-the layer a block draws in (Fluidlogged API), and events inside the rebuild (RenderChunk rebuildChunk Hooks, which
-BetterFoliage and others use); in the surveyed pack five mods patch `RenderChunk` and three
-`BlockRendererDispatcher` (research R5, 11.3). The rebuild therefore stays as the point where they join, and 12a's
-rule extends to every layer Quadrature draws: a render chunk with nothing else in it costs the game only its pass
-over the blocks for the visibility graph and the block entity lists. A layer, a hook or an event a mod adds keeps
-working as it does today, drawn by the game. Quadrature meshes another mod's layer only where that mod is examined
-and the result passes its own views.
+**Mods that add to the game's chunk meshes (D24, 2026-11-21).** With the game's chunk system taken over (12g), what
+mods add through its rebuild needs a place in Quadrature's build: layers of their own (GregTech CEu's bloom layer,
+CTM's extra layers a quad), changes to the layer a block draws in (Fluidlogged API), and events inside the rebuild
+(RenderChunk rebuildChunk Hooks, which BetterFoliage and others use); in the surveyed pack five mods patch
+`RenderChunk` and three `BlockRendererDispatcher` (research R5, 11.3). A layer a mod adds to the game's list is meshed
+and drawn by Quadrature; a block's layers are asked of `Block.canRenderInLayer`, so a mod that changes them there is
+followed; an event or a wrap of a call inside the rebuild no longer runs, and a mod that relies on one is examined and
+given its place. In the current stack that is GTCEu: Reloaded alone: its bloom layer is drawn (12g), and its filter of
+machine renderers, a wrap inside the rebuild, no longer runs, so every machine in view is handed to its renderer each
+frame, which draws nothing for most; the filter belongs in GTCEu: Reloaded's own renderer lookup.
 
-12e is done under that policy: under own terrain Quadrature meshes the translucent layer
+12e is done: under own terrain Quadrature meshes the translucent layer
 through the game's dispatcher, sorts each cube's quads by the game's rule as the eye moves, and draws the cubes
 farthest first at the game's translucent pass, and the game's rebuild leaves the layer out (ARCHITECTURE 6.5). On the
 water tour it draws what the game draws at all 7 views against own terrain with the game's translucent layer, and
 the game's rebuilds took 26.2 s against 36.8 s with only the opaque layers left out (VERIFICATION, translucent
 terrain), and the forest tour passes all 17 views against the game's draw with it. `-Dquadrature.terrain.translucent=game`
 leaves the layer to the game.
+
+12g is done (D24): in a cubic world under own terrain the game's terrain setup and chunk updates do nothing, its grid
+holds one render chunk and its rebuild buffers are one set; entities and block entities are drawn for the cubes
+Quadrature's view sees, from each cube's own lists, and global block entities are handed to the game's set as cubes
+are placed and forgotten; layers other mods add (GTCEu: Reloaded's bloom layer here) are meshed and drawn by Quadrature
+(ARCHITECTURE 6.7). `-Dquadrature.terrain.gameChunks=keep` keeps the game's system beside own terrain. On the forest
+tour, textures held still, it passes all 17 views against the game's drawing and against its own run with the game's
+system kept (16 identical byte for byte), with the state audit unchanged and none of the 80,619 rebuilds the game made
+over the same tour kept; entities, block entities and a lit bloom lamp at heights 200, 300 and -40 are drawn as the
+game's system draws them (VERIFICATION, the game's chunk system taken over). Cubature's integration with the game's
+chunk system for cubic worlds is then deleted (Cubature 69e1b2d2): on a copy of the same world the forest tour is
+identical byte for byte in all 17 views, and the entity tour within the spread of two runs of one configuration.
 
 ## Reading rules
 

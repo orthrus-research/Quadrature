@@ -41,6 +41,11 @@ public final class Quadrature {
      * Raise the driver floor and the branch below which the gate warns, for a test run, so the stop screen and
      * the warning can be exercised on a current driver. Like the memory floor, they can only make the gate stricter.
      */
+    /**
+     * A class only Cubature's integration with the game's chunk system ships, the region cache its render chunks read a
+     * cubic world through; looked for as a resource, so nothing is loaded.
+     */
+    private static final String CUBATURE_GAME_CHUNKS = "io/github/opencubicchunks/cubicchunks/core/client/RenderCubeCache.class";
     private static final String TEST_DRIVER_FLOOR = "quadrature.test.driverFloorBranch";
     private static final String TEST_DRIVER_WARNING = "quadrature.test.driverWarnBelowBranch";
 
@@ -79,6 +84,16 @@ public final class Quadrature {
             foreign.add(new GateFailure("Cubature is not installed.",
                 "Quadrature draws cubic worlds, from Cubature.",
                 "Install Cubature, or start the game with -Dquadrature.terrain=game to leave terrain to the game."));
+        }
+        boolean gameDrawsCubes = !cc.orthrus.quadrature.terrain.TerrainHook.requested()
+            || cc.orthrus.quadrature.terrain.GameChunks.KEEP;
+        if (gameDrawsCubes && Loader.isModLoaded("cubicchunks") && loader.getResource(CUBATURE_GAME_CHUNKS) == null) {
+            // The game's chunk system draws a cubic world only through Cubature's integration with it, which builds of
+            // Cubature since that system was taken over no longer carry: kept as a reference build for game-drawn runs.
+            foreign = new java.util.ArrayList<>(foreign);
+            foreign.add(new GateFailure("This Cubature does not let the game's chunk system draw cubic worlds.",
+                "-Dquadrature.terrain=game and -Dquadrature.terrain.gameChunks=keep need a Cubature that does: its reference build.",
+                "Install Cubature's reference build for a game-drawn run, or start the game without those options."));
         }
         if (!foreign.isEmpty()) {
             foreign.forEach(failure -> LOGGER.fatal("Stopping: {} {}", failure.found(), failure.required()));

@@ -4,6 +4,6 @@
   "package": "cc.orthrus.quadrature.mixin",
   "refmap": "quadrature.mixins.refmap.json",
   "compatibilityLevel": "JAVA_25",
-  "client": ["MixinEntityRenderer", "MixinEntityRendererDistant", "MixinEntityRendererFog", "MixinEntityRendererScale", "MixinFramebuffer", "MixinFramebufferScale", "MixinGlStateManager", "MixinMinecraft", "MinecraftScaleAccess", "MixinRenderChunkLayers", "MixinRenderGlobal", "MixinRenderGlobalScale", "MixinTextureMapStill", "RenderGlobalScaleAccess", "RenderGlobalAccess", "RenderInfoAccess", "ViewFrustumAccess"],
+  "client": ["MixinEntityRenderer", "MixinEntityRendererDistant", "MixinEntityRendererFog", "MixinEntityRendererScale", "MixinFramebuffer", "MixinFramebufferScale", "MixinGlStateManager", "MixinMinecraft", "MinecraftScaleAccess", "MixinRenderChunkLayers", "MixinRenderGlobal", "MixinRenderGlobalChunks", "MixinRenderGlobalScale", "MixinTextureMapStill", "RenderGlobalScaleAccess", "RenderGlobalAccess", "RenderInfoAccess", "ViewFrustumAccess", "MixinViewFrustumChunks", "RenderGlobalChunksAccess", "ViewFrustumChunksAccess"],
   "injectors": {"defaultRequire": 1}
 }

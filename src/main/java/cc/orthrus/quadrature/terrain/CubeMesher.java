@@ -54,6 +54,34 @@ final class CubeMesher {
     private boolean translucentDrawing;
     private int translucentCount;
     /**
+     * Layers other mods add to the game's list after the translucent one, such as GTCEu: Reloaded's bloom layer, meshed
+     * where Quadrature takes over the game's chunk system ({@link GameChunks}, PLAN item 12g): drawn by the game's
+     * dispatcher alone, block by block, as the game's chunk rebuild draws them. At most three, the bits a kept layer
+     * answer has left; more are reported once and left out.
+     */
+    static final net.minecraft.util.BlockRenderLayer[] ADDED = addedLayers();
+    private static final int ADDED_SHIFT = 4;
+    private final BufferBuilder[] added = new BufferBuilder[ADDED.length];
+    private final boolean[] addedStarted = new boolean[ADDED.length];
+    private final boolean[] addedDrawing = new boolean[ADDED.length];
+    private final int[] addedCounts = new int[ADDED.length];
+
+    private static net.minecraft.util.BlockRenderLayer[] addedLayers() {
+        net.minecraft.util.BlockRenderLayer[] all = net.minecraft.util.BlockRenderLayer.values();
+        int from = net.minecraft.util.BlockRenderLayer.TRANSLUCENT.ordinal() + 1;
+        if (!GameChunks.takesOverCubicWorlds() || all.length <= from) {
+            return new net.minecraft.util.BlockRenderLayer[0];
+        }
+        int count = Math.min(3, all.length - from);
+        if (all.length - from > count) {
+            Quadrature.LOGGER.error("Other mods add {} layers to the game's; own terrain draws the first {}: {}",
+                all.length - from, count, java.util.Arrays.toString(java.util.Arrays.copyOfRange(all, from, all.length)));
+        }
+        Quadrature.LOGGER.info("Own terrain draws the layers other mods add: {}",
+            java.util.Arrays.toString(java.util.Arrays.copyOfRange(all, from, from + count)));
+        return java.util.Arrays.copyOfRange(all, from, from + count);
+    }
+    /**
      * Each state's layers as its block answers {@code canRenderInLayer}, asked once a state and kept: bit {@code i} for
      * {@code LAYERS[i]}, bit 3 for the translucent layer. Another mod's handler of that call may be dear (GTCEu
      * Reloaded's looks up the block's model every call), and the mesher would ask it four times a block. Dropped when
@@ -117,6 +145,11 @@ final class CubeMesher {
         }
         if (translucent != null && block.canRenderInLayer(state, BlockRenderLayer.TRANSLUCENT)) {
             mask |= TRANSLUCENT_BIT;
+        }
+        for (int a = 0; a < ADDED.length; a++) {
+            if (block.canRenderInLayer(state, ADDED[a])) {
+                mask |= 1 << ADDED_SHIFT + a;
+            }
         }
         return mask;
     }
@@ -327,6 +360,13 @@ final class CubeMesher {
             translucent.getByteBuffer().duplicate().get(bytes);
             built.translucent(bytes, translucentCount);
         }
+        for (int a = 0; a < ADDED.length; a++) {
+            if (addedCounts[a] > 0) {
+                byte[] bytes = new byte[addedCounts[a] * CubeMesh.STRIDE];
+                added[a].getByteBuffer().duplicate().get(bytes);
+                built.added(a, ADDED.length, bytes, addedCounts[a]);
+            }
+        }
         return built;
     }
 
@@ -438,6 +478,28 @@ final class CubeMesher {
                                 }
                             }
                         }
+                        for (int a = 0; a < ADDED.length; a++) {
+                            if ((layers & 1 << ADDED_SHIFT + a) == 0) {
+                                continue;
+                            }
+                            ForgeHooksClient.setRenderLayer(ADDED[a]);
+                            if (added[a] == null) {
+                                added[a] = new BufferBuilder(1 << 14);
+                            }
+                            if (!addedStarted[a]) {
+                                addedStarted[a] = true;
+                                addedDrawing[a] = true;
+                                added[a].begin(QUADS, DefaultVertexFormats.BLOCK);
+                                added[a].setTranslation(-minX, -minY, -minZ);
+                            }
+                            try {
+                                dispatcher.renderBlock(state, pos, world, added[a]);
+                            } catch (RuntimeException e) {
+                                if (failures++ < 5) {
+                                    Quadrature.LOGGER.error("A block model failed for {} at {}", state, pos, e);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -466,6 +528,14 @@ final class CubeMesher {
             translucent.finishDrawing();
             translucentDrawing = false;
             translucentCount = translucent.getVertexCount();
+        }
+        for (int a = 0; a < ADDED.length; a++) {
+            addedCounts[a] = 0;
+            if (addedStarted[a]) {
+                added[a].finishDrawing();
+                addedDrawing[a] = false;
+                addedCounts[a] = added[a].getVertexCount();
+            }
         }
         if (FACES) {
             for (int layer = 0; layer < LAYERS.length; layer++) {
@@ -699,6 +769,18 @@ final class CubeMesher {
             translucent.reset();
         }
         translucentCount = 0;
+        for (int a = 0; a < ADDED.length; a++) {
+            if (addedStarted[a]) {
+                if (addedDrawing[a]) {
+                    added[a].finishDrawing();
+                    addedDrawing[a] = false;
+                }
+                addedStarted[a] = false;
+                added[a].setTranslation(0, 0, 0);
+                added[a].reset();
+            }
+            addedCounts[a] = 0;
+        }
         if (walk != null) {
             walk.begin();
         }

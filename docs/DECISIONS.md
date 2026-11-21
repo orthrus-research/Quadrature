@@ -217,3 +217,15 @@ and 77%, it scored no better and cost more. A tier renders below the output only
 benchmark predicts that costs less than drawing at the output's resolution with the temporal pass
 alone; 67% and 77% are the scales LOW and MEDIUM go down to where it does (the user's decision of
 2026-11-20).
+
+## 2026-11-21
+
+**D24. Quadrature takes over the game's chunk system in cubic worlds.**
+In a cubic world under own terrain the game's terrain setup, its search over render chunks, its chunk
+rebuilds and its rebuild buffers do not run; entities and block entities are drawn for the cubes
+Quadrature's view sees, and layers other mods add to the game's list are meshed and drawn by Quadrature
+(the user's decision of 2026-11-21, which replaces the policy of 2026-11-20 that kept the game's rebuild as
+the point where mods join). What a mod adds through the rebuild itself, an event inside it or a wrap of a
+call it makes, no longer runs; a mod that needs it is examined and given its place in Quadrature's own
+build. Cubature's integration with the game's chunk system in cubic worlds is then deleted (D10). A
+game-drawn run of a cubic world needs Cubature's reference build, the last that carries it.
