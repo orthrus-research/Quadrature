@@ -1423,6 +1423,23 @@ and without Cubature the game stops at loading with a message. On the RTX 3060:
   the 7% two captures of one configuration differ by. Both captures ran the Cubature of Riven's accepted
   pin (19f9961a), not the one Quadrature pins.
 
+### Mods that read depth back
+
+Two mods of the surveyed pack read the depth under the pointer and unproject it to name a block in a
+preview: GregTech's world scene renderer and ModularUI's schema renderer (research R1, 9a.7). Behind
+`-Dquadrature.check.picking=true` (`dev/PickingCheck`), once the player has been ten seconds in a world, a
+screen of Quadrature's own is open for one frame, in which GregTech's `ImmediateWorldSceneRenderer`,
+reached by reflection, draws twelve blocks of stone at 61 pointer positions: a grid of 25 over its
+rectangle and the centers of each block's top face and two faces toward the camera. Its depth read, its
+matrices read back and its trace all run in its own classes, which the depth call rewriter translates; for
+each pointer the check sets the block it names and the point it unprojects beside the block and surface
+point found on the CPU along the same ray from the same camera.
+
+On the RTX 3060, 2026-11-21, one instance run with reversed depth and then conventional: all 61 pointers
+named the expected block in both; over the 39 on blocks the unprojected point lay 0.0122 blocks from the
+surface on average and 0.0279 at worst in both, half a pixel's offset, the two runs' points differing by
+about 0.00002 blocks. ModularUI's schema renderer, which reads depth the same way, was not driven.
+
 ### What a depth pyramid would leave out
 
 Before culling on the GPU is built (ARCHITECTURE 6.4, steps 2 to 4), what it can save was measured
@@ -2072,6 +2089,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.faces=false` | Draws the walk's vertices alone, with no face records; records, the default, need indirect draws |
 | `quadrature.terrain=game` | Leaves terrain to the game: own terrain, the default, draws nothing, and the game's chunk rebuild and draw run as without Quadrature |
 | `quadrature.reversedDepth=false` | Conventional depth for the whole frame, where reversed depth is the default (D17) |
+| `quadrature.check.picking=true` | Ten seconds into a world, draws GregTech's world scene renderer in a screen for one frame at 61 pointers and logs, for each, the block it names and how far its unprojected depth lies from the surface (Mods that read depth back) |
 | `quadrature.exitOnOutOfMemory=true` | After the `CLIENT OUT OF MEMORY` notice, the client quits, so a launcher waiting on it fails at once instead of waiting on a world the game has dropped. Every lab run sets it |
 | `quadrature.testOutOfMemory=<seconds>` | That many seconds after the first world is entered, the game loop asks for an array no heap holds, to show the notice and the quit in a real run |
 | `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |

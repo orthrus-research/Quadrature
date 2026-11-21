@@ -92,6 +92,9 @@ public final class Quadrature {
         if (session != null) {
             MinecraftForge.EVENT_BUS.register(session);
         }
+        if (cc.orthrus.quadrature.dev.PickingCheck.ON) {
+            MinecraftForge.EVENT_BUS.register(new cc.orthrus.quadrature.dev.PickingCheck());
+        }
     }
 
     /**

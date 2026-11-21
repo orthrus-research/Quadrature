@@ -489,7 +489,10 @@ way hosted code can, including inside a display list that sets the matrix mode a
 one has changed it, and compares what the driver then holds; all cases pass. Also checked
 in the development client: with the switch on, a sky pixel
 reads 0 from the driver and 1 through the translator. A preview's picking in the game was
-not exercised.
+exercised on 2026-11-21 (`-Dquadrature.check.picking=true`): GregTech's world scene renderer,
+driven in a screen at 61 pointers, named the block a ray meets first at every one, in reversed
+and conventional depth alike, its unprojected points within 0.03 blocks of the surface in both
+(VERIFICATION, mods that read depth back). ModularUI's schema renderer was not driven.
 
 Cost, measured 2026-11-13 with four flight captures (lifecycle flight workload, RTX 3060,
 no distant terrain, frame rate capped at 120), two with the switch off and two with it on:

@@ -77,7 +77,7 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 4 | The distant terrain composite and its transition band, by prototype (research R1, 2.2) |
 | Phase 2 | The state audit repeated on more views and with a larger pack installed |
 | Phase 2 | Hosted drawing that lies exactly on Quadrature's terrain: its depth and the game's fixed-function depth are not bit-identical (research R1, 9a.7) |
-| Phase 2 | Reversed depth on by default; a scripted scene with a screen open, for multiblock preview picking and other mods' own depth code |
+| Phase 2 | Reversed depth on by default (done 2026-11-21); a scripted scene with a screen open for multiblock preview picking (GregTech's renderer done 2026-11-21, ModularUI's schema renderer open) |
 | Phase 2 | Implementing the cube source in Cubature, and whether cube data can be shared between snapshots |
 | Phase 2 | Face merging against per-face output with smooth lighting on |
 | Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
@@ -125,8 +125,9 @@ logs stage times every five seconds, and quits.
 As of 2026-11-21. Own terrain, reversed depth and face records are the defaults: with no switches,
 16 of 17 forest views pass against the game's own drawing (view 07's river aside) and the baseline flight
 holds the game's frame times ([VERIFICATION.md](VERIFICATION.md), own terrain by default). What remains
-for the phase to close: Cubature's chunk-render Mixins deleted, which is Cubature's change; mods' own
-depth code in a scripted scene with a screen open; the river in view 07 settled.
+for the phase to close: Cubature's chunk-render Mixins deleted, which is Cubature's change; ModularUI's
+schema renderer driven as GregTech's was (GregTech's picks the same blocks in reversed depth); the river in
+view 07 settled.
 
 | Step | Status |
 |---|---|
