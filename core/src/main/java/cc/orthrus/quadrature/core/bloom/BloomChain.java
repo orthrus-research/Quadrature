@@ -79,6 +79,20 @@ public final class BloomChain {
         return Math.max(LEAST_LEVELS, Math.min(MOST_LEVELS, requested));
     }
 
+    /**
+     * A level's weight in the sum, finest first: rising to 1 at the coarsest, as GTCEu: Reloaded's default style weighs
+     * its five levels (0.2 to 1.0), so that in the 8-bit picture the glow's light lies in its wide halo rather than in a
+     * core that clamps (P3-V1).
+     */
+    public static double levelWeight(int level, int levels) {
+        return (level + 1) / (double) levels;
+    }
+
+    /** The levels' weights summed: what a source of one color comes out of the chain multiplied by. */
+    public static double levelWeights(int levels) {
+        return (levels + 1) / 2.0;
+    }
+
     /** A side of a level: the output's side halved {@code level + 1} times, each time rounded up. */
     public static int levelSide(int outputSide, int level) {
         int halvings = level + 1;

@@ -25,12 +25,14 @@ import org.lwjgl.opengl.GL45;
  * program's emissive variant and a framebuffer holding both targets; a contribution in a second draw of its vertices
  * by a program of the stage's own. No brightness threshold: what glows is what the mods declare.
  *
- * <p>The chain. From the picture's color times the weight over black, worked out a texel at a time for the first
- * halving, which also carries in its fourth channel the luma of the color times the difference of the weights; four
- * more halvings, each level the output's size halved and rounded up; doublings that add a tent of the level below,
- * its reads the kind's radius apart in that level's texels; and the composite, which gives GTCEu: Reloaded's rule
- * from the two channels (research R4, 7c). Kinds of different radii share the chain at the radius of the first kind
- * drawn in the frame.
+ * <p>The chain. The picture's color times the weight over black, formed a texel at a time into a texture of products
+ * that the first halving reads between texels exactly; that halving also carries in its fourth channel the luma of
+ * the color times the difference of the weights; four more halvings, each level the output's size halved and rounded
+ * up; doublings that add each level, weighed 0.2 to 1.0 from the finest, to a tent of the sum below, its reads the
+ * kind's radius apart in that level's texels; and the composite, which gives GTCEu: Reloaded's rule from the two
+ * channels (research R4, 7c). Kinds of different radii share the chain at the radius of the first kind drawn in the
+ * frame. (A tile of the products in shared memory, read at a stride of two, cost the first halving 0.44 ms at 1280 by
+ * 720 in P3-V1; the texture of products and the hardware's own filtering replace it.)
  *
  * <p>Where. Without the temporal scaler the glow is worked out from the picture after translucent terrain and laid
  * over it there, where GTCEu: Reloaded's own path laid its glow. Where the scaler makes the picture it is worked out
@@ -40,7 +42,7 @@ import org.lwjgl.opengl.GL45;
  *
  * <p>{@code -Dquadrature.bloom=off} draws the emissive stage without glow; {@code =alternate} glows on the frames a mix
  * of the frame's number chooses, so the summary compares the two kinds of frame paired over one run.
- * {@code -Dquadrature.bloom.levels} (2 to 6, 5), {@code .gain} (4.5, {@link #CALIBRATED_GAIN}) and
+ * {@code -Dquadrature.bloom.levels} (2 to 6, 5), {@code .gain} (1.5, {@link #CALIBRATED_GAIN}) and
  * {@code .brightnessWeighted} (false, for high dynamic range) set the chain.
  *
  * <p>Client thread. Objects are made on first use and remade when a size or the picture's framebuffer changes. Nothing
@@ -63,11 +65,11 @@ final class BloomStage {
     private static final float[] CLEAR = {0, 0, 0, 0};
 
     /**
-     * The calibration gain (D27), set in P3-V1 against GTCEu: Reloaded's own glow: its default style weighs its five
-     * levels 0.2 to 1.0, 3 in all, and applies the strength twice, so its glow is about 3 times 1.5 the chain's; the
-     * light the two add around its lamps, in one world, came out 4.4 to 5.0 apart on three views of four.
+     * The calibration gain (D27), set in P3-V1 against GTCEu: Reloaded's own glow. Its default style multiplies its
+     * levels' weighted sum by the strength before its blend multiplies by the strength again; with the chain's levels
+     * weighed as its are ({@link BloomChain#levelWeight}), the gain that brings the two level is that strength, 1.5.
      */
-    static final float CALIBRATED_GAIN = 4.5f;
+    static final float CALIBRATED_GAIN = 1.5f;
 
     private static float gain(String value) {
         try {
@@ -77,6 +79,7 @@ final class BloomStage {
         }
     }
 
+    private int productProgram;
     private int firstProgram;
     private int downProgram;
     private int upProgram;
@@ -85,15 +88,19 @@ final class BloomStage {
     private int linear;
     private boolean broken;
 
-    private int firstResolved;
+    private int productResolved;
     private int firstBrightness;
     private int upRadius;
+    private int upCurrentWeight;
+    private int upLowerWeight;
     private int compositeScale;
     private int weightTextured;
     private int weightKind;
 
     /** The weight target and the two framebuffers it is drawn into, both sharing the picture's depth. */
     private int weights;
+    /** The products the first halving reads, the drawn picture's size. */
+    private int products;
     private int pictureAndWeights;
     private int weightsAlone;
     private int drawnWidth;
@@ -306,14 +313,20 @@ final class BloomStage {
         long began = System.nanoTime();
         GL33.glQueryCounter(stamps[ring][2], GL33.GL_TIMESTAMP);
         int levels = down.length;
-        // The first halving: the picture's color times the weight over black, worked out a texel at a time.
-        GL20.glUseProgram(firstProgram);
-        GL20.glUniform1i(firstResolved, resolved ? 1 : 0);
-        GL20.glUniform1i(firstBrightness, BRIGHTNESS_WEIGHTED ? 1 : 0);
+        // The products: the picture's color times the weight over black, a texel at a time, at the drawn size.
+        GL20.glUseProgram(productProgram);
+        GL20.glUniform1i(productResolved, resolved ? 1 : 0);
         GL45.glBindTextureUnit(2, color);
         GL45.glBindTextureUnit(3, weights);
         GL33.glBindSampler(2, linear);
         GL33.glBindSampler(3, linear);
+        GL42.glBindImageTexture(0, products, 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_R11F_G11F_B10F);
+        dispatch(drawnWidth, drawnHeight);
+        GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+        // The first halving: bilinear reads of the products, into level 0.
+        GL20.glUseProgram(firstProgram);
+        GL20.glUniform1i(firstBrightness, BRIGHTNESS_WEIGHTED ? 1 : 0);
+        GL45.glBindTextureUnit(2, products);
         GL42.glBindImageTexture(0, down[0], 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RGBA16F);
         dispatch(levelWidth[0], levelHeight[0]);
         GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
@@ -331,10 +344,12 @@ final class BloomStage {
         if (PASS_TIMES) {
             GL33.glQueryCounter(stamps[ring][5], GL33.GL_TIMESTAMP);
         }
-        // Doublings: each level adds the tent of the one below it, the last standing as itself.
+        // Doublings: each level, weighed, adds the tent of the sum below it; the coarsest level is that sum at first.
         GL20.glUseProgram(upProgram);
         GL20.glUniform1f(upRadius, radius);
         for (int level = levels - 2; level >= 0; level--) {
+            GL20.glUniform1f(upCurrentWeight, (float) BloomChain.levelWeight(level, levels));
+            GL20.glUniform1f(upLowerWeight, level == levels - 2 ? (float) BloomChain.levelWeight(levels - 1, levels) : 1f);
             GL45.glBindTextureUnit(2, level == levels - 2 ? down[levels - 1] : up[level + 1]);
             GL45.glBindTextureUnit(3, down[level]);
             GL42.glBindImageTexture(0, up[level], 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RGBA16F);
@@ -346,7 +361,7 @@ final class BloomStage {
         }
         // The composite, in place on the output's picture.
         GL20.glUseProgram(compositeProgram);
-        GL20.glUniform1f(compositeScale, GAIN / levels);
+        GL20.glUniform1f(compositeScale, levels > 1 ? GAIN : GAIN * (float) BloomChain.levelWeight(0, 1));
         GL45.glBindTextureUnit(2, levels > 1 ? up[0] : down[0]);
         GL42.glBindImageTexture(0, output.framebufferTexture, 0, false, 0, GL15.GL_READ_WRITE, GL11.GL_RGBA8);
         dispatch(outputWidth, outputHeight);
@@ -383,7 +398,7 @@ final class BloomStage {
             mean(glowNanos, glowFrames), glowFrames == 0 ? 0.0 : glowClientNanos / 1e6 / glowFrames, glowFrames,
             glowsAfterScale, down.length, levelWidth.length > 0 ? levelWidth[0] : 0, levelHeight.length > 0 ? levelHeight[0] : 0,
             drawnWidth, drawnHeight, GAIN, BRIGHTNESS_WEIGHTED ? "on" : "off")
-            + (passFrames == 0 ? "" : String.format("; glow passes, GPU over %d frames: first halving %.3f ms, halvings "
+            + (passFrames == 0 ? "" : String.format("; glow passes, GPU over %d frames: products and first halving %.3f ms, halvings "
                 + "%.3f, doublings %.3f, composite %.3f", passFrames, mean(passNanos[0], passFrames),
                 mean(passNanos[1], passFrames), mean(passNanos[2], passFrames), mean(passNanos[3], passFrames)));
     }
@@ -411,6 +426,7 @@ final class BloomStage {
             return;
         }
         weights = texture(GL30.GL_RG8, drawnWidth, drawnHeight);
+        products = texture(GL30.GL_R11F_G11F_B10F, drawnWidth, drawnHeight);
         pictureAndWeights = GL45.glCreateFramebuffers();
         GL45.glNamedFramebufferTexture(pictureAndWeights, GL30.GL_COLOR_ATTACHMENT0, pictureTexture, 0);
         GL45.glNamedFramebufferTexture(pictureAndWeights, GL30.GL_COLOR_ATTACHMENT1, weights, 0);
@@ -473,6 +489,7 @@ final class BloomStage {
             return true;
         }
         try {
+            productProgram = computeProgram("products", PRODUCT);
             firstProgram = computeProgram("first halving", FIRST);
             downProgram = computeProgram("halving", DOWN);
             upProgram = computeProgram("doubling", UP);
@@ -482,9 +499,11 @@ final class BloomStage {
             broken = true;
             return false;
         }
-        firstResolved = GL20.glGetUniformLocation(firstProgram, "resolved");
+        productResolved = GL20.glGetUniformLocation(productProgram, "resolved");
         firstBrightness = GL20.glGetUniformLocation(firstProgram, "brightnessWeighted");
         upRadius = GL20.glGetUniformLocation(upProgram, "radius");
+        upCurrentWeight = GL20.glGetUniformLocation(upProgram, "currentWeight");
+        upLowerWeight = GL20.glGetUniformLocation(upProgram, "lowerWeight");
         compositeScale = GL20.glGetUniformLocation(compositeProgram, "scale");
         weightTextured = GL20.glGetUniformLocation(weightProgram, "textured");
         weightKind = GL20.glGetUniformLocation(weightProgram, "kindWeights");
@@ -509,12 +528,15 @@ final class BloomStage {
                 GL30.glDeleteFramebuffers(framebuffer);
             }
         }
-        if (weights != 0) {
-            GL11.glDeleteTextures(weights);
+        for (int texture : new int[] {weights, products}) {
+            if (texture != 0) {
+                GL11.glDeleteTextures(texture);
+            }
         }
         pictureAndWeights = 0;
         weightsAlone = 0;
         weights = 0;
+        products = 0;
     }
 
     private void releaseChain() {
@@ -589,53 +611,57 @@ final class BloomStage {
     // read, image unit 0 for what is written.
 
     /**
-     * The first halving, into the first level: thirteen taps of the picture's color times the weight over black, each
-     * a bilinear read of those products formed exactly from a tile of them in shared memory (an eight-by-eight group
-     * of the level reads at most 22 by 22 texels of the picture: two picture texels a level texel or fewer); the
-     * groups weighed by brightness where asked. The fourth channel: the luma of that times one less the ratio of the
-     * weights over white and over black, read from the weight target at the same taps.
+     * The products the first halving reads, at the drawn picture's size: the color times the weight over black (from
+     * the color's alpha where resolved, else from the weight target) times the greatest weight. A bilinear read of
+     * them is the bilinear read of the products, exact, which a read of each factor apart would not be.
+     */
+    static final String PRODUCT = String.join("\n",
+        "#version 460 core",
+        "layout(local_size_x = 8, local_size_y = 8) in;",
+        "layout(binding = 0, r11f_g11f_b10f) uniform writeonly image2D target;",
+        "layout(binding = 2) uniform sampler2D color;",
+        "layout(binding = 3) uniform sampler2D weights;",
+        "uniform int resolved;",
+        BloomChain.glsl(),
+        "void main() {",
+        "    ivec2 p = ivec2(gl_GlobalInvocationID.xy);",
+        "    ivec2 size = imageSize(target);",
+        "    if (p.x >= size.x || p.y >= size.y) {",
+        "        return;",
+        "    }",
+        "    vec4 c = texelFetch(color, p, 0);",
+        "    float a = resolved != 0 ? c.a : texelFetch(weights, p, 0).r;",
+        "    imageStore(target, p, vec4(c.rgb * a * GREATEST_WEIGHT, 0.0));",
+        "}");
+
+    /**
+     * The first halving, into the first level: thirteen bilinear reads of the products, half a texel of the level
+     * apart, the groups weighed by brightness where asked. The fourth channel: the luma of that times one less the ratio
+     * of the weights over white and over black, read from the weight target at the same taps.
      */
     static final String FIRST = String.join("\n",
         "#version 460 core",
         "layout(local_size_x = 8, local_size_y = 8) in;",
         "layout(binding = 0, rgba16f) uniform writeonly image2D target;",
-        "layout(binding = 2) uniform sampler2D color;",
+        "layout(binding = 2) uniform sampler2D products;",
         "layout(binding = 3) uniform sampler2D weights;",
-        "uniform int resolved;",
         "uniform int brightnessWeighted;",
         BloomChain.glsl(),
-        "shared vec3 tile[24][24];",
         "void main() {",
-        "    ivec2 size = imageSize(target);",
-        "    ivec2 drawn = textureSize(color, 0);",
-        "    vec2 ratio = vec2(drawn) / vec2(size);",
-        "    vec2 h = 0.5 * ratio;",
-        "    ivec2 origin = ivec2(floor((vec2(gl_WorkGroupID.xy * 8u) + 0.5) * ratio - 2.0 * h - 0.5));",
-        "    ivec2 last = drawn - 1;",
-        "    for (uint i = gl_LocalInvocationIndex; i < 576u; i += 64u) {",
-        "        ivec2 q = clamp(origin + ivec2(int(i % 24u), int(i / 24u)), ivec2(0), last);",
-        "        vec4 c = texelFetch(color, q, 0);",
-        "        float a = resolved != 0 ? c.a : texelFetch(weights, q, 0).r;",
-        "        tile[i / 24u][i % 24u] = c.rgb * a * GREATEST_WEIGHT;",
-        "    }",
-        "    barrier();",
         "    ivec2 p = ivec2(gl_GlobalInvocationID.xy);",
+        "    ivec2 size = imageSize(target);",
         "    if (p.x >= size.x || p.y >= size.y) {",
         "        return;",
         "    }",
-        "    vec2 center = (vec2(p) + 0.5) * ratio;",
+        "    vec2 uv = (vec2(p) + 0.5) / vec2(size);",
+        "    vec2 h = 0.5 / vec2(size);",
         "    vec3 taps[13];",
         "    float overBlack = 0.0;",
         "    float overWhite = 0.0;",
         "    for (int t = 0; t < 13; t++) {",
-        "        vec2 at = center + vec2(TAPS[t]) * h;",
-        "        vec2 f = at - 0.5;",
-        "        vec2 low = floor(f);",
-        "        vec2 w = f - low;",
-        "        ivec2 b0 = clamp(ivec2(low) - origin, ivec2(0), ivec2(23));",
-        "        ivec2 b1 = clamp(ivec2(low) + 1 - origin, ivec2(0), ivec2(23));",
-        "        taps[t] = mix(mix(tile[b0.y][b0.x], tile[b0.y][b1.x], w.x), mix(tile[b1.y][b0.x], tile[b1.y][b1.x], w.x), w.y);",
-        "        vec2 m = texture(weights, at / vec2(drawn)).rg;",
+        "        vec2 at = uv + vec2(TAPS[t]) * h;",
+        "        taps[t] = texture(products, at).rgb;",
+        "        vec2 m = texture(weights, at).rg;",
         "        overBlack += TAP_WEIGHTS[t] * m.r;",
         "        overWhite += TAP_WEIGHTS[t] * m.g;",
         "    }",
@@ -675,7 +701,10 @@ final class BloomStage {
         "    imageStore(target, p, sum);",
         "}");
 
-    /** A doubling: its own level plus a three-by-three tent of the level below, its reads the radius apart there. */
+    /**
+     * A doubling: its own level, weighed, plus a three-by-three tent of the sum below, its reads the radius apart there;
+     * the coarsest level, read first as that sum, is weighed here too.
+     */
     static final String UP = String.join("\n",
         "#version 460 core",
         "layout(local_size_x = 8, local_size_y = 8) in;",
@@ -683,6 +712,8 @@ final class BloomStage {
         "layout(binding = 2) uniform sampler2D lower;",
         "layout(binding = 3) uniform sampler2D current;",
         "uniform float radius;",
+        "uniform float currentWeight;",
+        "uniform float lowerWeight;",
         BloomChain.glsl(),
         "void main() {",
         "    ivec2 p = ivec2(gl_GlobalInvocationID.xy);",
@@ -692,10 +723,10 @@ final class BloomStage {
         "    }",
         "    vec2 uv = (vec2(p) + 0.5) / vec2(size);",
         "    vec2 t = radius / vec2(textureSize(lower, 0));",
-        "    vec4 sum = texelFetch(current, p, 0);",
+        "    vec4 sum = currentWeight * texelFetch(current, p, 0);",
         "    for (int n = -1; n <= 1; n++) {",
         "        for (int m = -1; m <= 1; m++) {",
-        "            sum += TENT[(n + 1) * 3 + (m + 1)] * texture(lower, uv + vec2(m, n) * t);",
+        "            sum += (lowerWeight * TENT[(n + 1) * 3 + (m + 1)]) * texture(lower, uv + vec2(m, n) * t);",
         "        }",
         "    }",
         "    imageStore(target, p, sum);",

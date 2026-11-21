@@ -97,6 +97,12 @@ class BloomChainTest {
             assertEquals(heights[level], BloomChain.levelSide(1080, level));
         }
         assertEquals(1, BloomChain.levelSide(1, 5));
+        // Five levels weigh 0.2 to 1.0 from the finest, 3 in all, as GTCEu: Reloaded's default style does.
+        double[] weights = {0.2, 0.4, 0.6, 0.8, 1.0};
+        for (int level = 0; level < 5; level++) {
+            assertEquals(weights[level], BloomChain.levelWeight(level, 5), 1e-12);
+        }
+        assertEquals(3.0, BloomChain.levelWeights(5), 1e-12);
         assertEquals(2, BloomChain.levels(1));
         assertEquals(6, BloomChain.levels(9));
         assertEquals(0.5f, BloomChain.radius(0.1f));
@@ -110,7 +116,8 @@ class BloomChainTest {
         float low = 0.2f;
         float high = 0.5f;
         double[] color = {0.8, 0.4, 0.1};
-        Chain chain = new Chain(23, 17, 23, 17, 3, 1f, false);
+        // A gain of one over the levels' weights brings a source of one color out as itself.
+        Chain chain = new Chain(23, 17, 23, 17, 3, 1f, false, 1 / BloomChain.levelWeights(3));
         chain.fill(color, BloomChain.overBlack(strength, base, high), BloomChain.overWhite(strength, base, low));
         double[] background = {0.3, 0.5, 0.2};
         for (int y = 0; y < 17; y++) {
@@ -126,7 +133,7 @@ class BloomChainTest {
 
     @Test
     void aSinglePointGlowsTheSameEveryWayRound() {
-        Chain chain = new Chain(33, 33, 33, 33, 4, 1f, false);
+        Chain chain = new Chain(33, 33, 33, 33, 4, 1f, false, 1.5);
         chain.point(16, 16, new double[] {1, 1, 1}, 0.9, 0.45);
         double[] black = {0, 0, 0};
         for (int y = 0; y < 33; y++) {
@@ -143,8 +150,8 @@ class BloomChainTest {
 
     @Test
     void theBrightnessWeightingHoldsALoneBrightTexelBack() {
-        Chain plain = new Chain(32, 32, 32, 32, 3, 1f, false);
-        Chain weighed = new Chain(32, 32, 32, 32, 3, 1f, true);
+        Chain plain = new Chain(32, 32, 32, 32, 3, 1f, false, 1.5);
+        Chain weighed = new Chain(32, 32, 32, 32, 3, 1f, true, 1.5);
         double[] bright = {8, 8, 8};
         plain.point(16, 16, bright, 1, 1);
         weighed.point(16, 16, bright, 1, 1);
@@ -165,6 +172,7 @@ class BloomChainTest {
         private final int levels;
         private final float radius;
         private final boolean brightnessWeighted;
+        private final double gain;
         private final double[][] color;
         private final double[][] weights;
         private double[][][] top;
@@ -172,7 +180,7 @@ class BloomChainTest {
         private int topHeight;
 
         Chain(int drawnWidth, int drawnHeight, int outputWidth, int outputHeight, int levels, float radius,
-            boolean brightnessWeighted) {
+            boolean brightnessWeighted, double gain) {
             this.drawnWidth = drawnWidth;
             this.drawnHeight = drawnHeight;
             this.outputWidth = outputWidth;
@@ -180,6 +188,7 @@ class BloomChainTest {
             this.levels = levels;
             this.radius = radius;
             this.brightnessWeighted = brightnessWeighted;
+            this.gain = gain;
             color = new double[drawnWidth * drawnHeight][3];
             weights = new double[drawnWidth * drawnHeight][2];
         }
@@ -213,9 +222,16 @@ class BloomChainTest {
                 down[i] = halve(down[i - 1], sizes[i - 1][0], sizes[i - 1][1], w, h);
                 sizes[i] = new int[] {w, h};
             }
+            // The coarsest level stands as itself, weighed; each doubling adds its own level, weighed, to the tent of the
+            // sum below it.
             double[][][] up = down[levels - 1];
             for (int i = levels - 2; i >= 0; i--) {
-                up = doubled(down[i], sizes[i][0], sizes[i][1], up, sizes[i + 1][0], sizes[i + 1][1]);
+                double lowerWeight = i == levels - 2 ? BloomChain.levelWeight(levels - 1, levels) : 1;
+                up = doubled(down[i], sizes[i][0], sizes[i][1], up, sizes[i + 1][0], sizes[i + 1][1],
+                    BloomChain.levelWeight(i, levels), lowerWeight);
+            }
+            if (levels == 1) {
+                up = scaled(up, BloomChain.levelWeight(0, 1));
             }
             top = up;
             topWidth = sizes[0][0];
@@ -297,18 +313,21 @@ class BloomChainTest {
         }
 
         private double[][][] doubled(double[][][] current, int width, int height, double[][][] lower, int lowerWidth,
-            int lowerHeight) {
+            int lowerHeight, double currentWeight, double lowerWeight) {
             double[][][] out = new double[height][width][];
             for (int y = 0; y < height; y++) {
                 for (int x = 0; x < width; x++) {
                     // The tent around this texel's place in the lower level, its reads r texels of that level apart.
                     double lx = (x + 0.5) * lowerWidth / width;
                     double ly = (y + 0.5) * lowerHeight / height;
-                    double[] sum = current[y][x].clone();
+                    double[] sum = new double[4];
+                    for (int c = 0; c < 4; c++) {
+                        sum[c] = current[y][x][c] * currentWeight;
+                    }
                     for (int n = -1; n <= 1; n++) {
                         for (int m = -1; m <= 1; m++) {
                             double[] tap = bilinear(lower, lowerWidth, lowerHeight, lx + m * radius, ly + n * radius);
-                            double weight = BloomChain.TENT[(n + 1) * 3 + (m + 1)];
+                            double weight = BloomChain.TENT[(n + 1) * 3 + (m + 1)] * lowerWeight;
                             for (int c = 0; c < 4; c++) {
                                 sum[c] += tap[c] * weight;
                             }
@@ -320,10 +339,24 @@ class BloomChainTest {
             return out;
         }
 
+        private static double[][][] scaled(double[][][] level, double factor) {
+            double[][][] out = new double[level.length][][];
+            for (int y = 0; y < level.length; y++) {
+                out[y] = new double[level[y].length][];
+                for (int x = 0; x < level[y].length; x++) {
+                    out[y][x] = new double[4];
+                    for (int c = 0; c < 4; c++) {
+                        out[y][x][c] = level[y][x][c] * factor;
+                    }
+                }
+            }
+            return out;
+        }
+
         double[] composite(double[] background, int x, int y) {
             double[] b = bilinear(top, topWidth, topHeight, (x + 0.5) * topWidth / outputWidth,
                 (y + 0.5) * topHeight / outputHeight);
-            double scale = 1.0 / levels;
+            double scale = gain;
             return BloomChain.composite(background, new double[] {b[0] * scale, b[1] * scale, b[2] * scale}, b[3] * scale);
         }
 

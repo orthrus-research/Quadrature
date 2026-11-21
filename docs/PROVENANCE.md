@@ -1065,8 +1065,11 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   three-by-three tent while doubling; a weight on each group by brightness on the first halving; no threshold), its
   filters as Christensen's LearnOpenGL article of 2022 reports them. Karis, "Tone mapping", 2013 (the weight 1/(1 +
   luma)). James and O'Rorke, "Real-Time Glow", GPU Gems, 2004 (glow from marked sources). GTCEu: Reloaded's generated
-  configuration documentation (the composite rule and its three groups' values). Research R4, 7c.
-- Taken: the chain, its filters and the groups' weights. The two weights a kind becomes and the algebra that gives the
+  configuration documentation (the composite rule and its three groups' values), and its own bloom programs at
+  8ca6b98c9 read as behavior (the background's brightness as HSL lightness, its levels weighed 0.2 to 1.0 from the
+  finest, the strength applied twice). Research R4, 7c.
+- Taken: the chain, its filters and the groups' weights; GTCEu: Reloaded's level weights and brightness measure, as
+  behavior, no code. The two weights a kind becomes and the algebra that gives the
   composite rule from them, the weight target drawn beside the color, the first halving formed exactly from a tile of
   products in shared memory, the weight resolved in the temporal history's alpha, the levels sized from the output,
   and every constant are Quadrature's.

@@ -1272,8 +1272,9 @@ and its rules for change are research R5, 10.2.
 - **The glow.** One chain for every kind (D27; `BloomStage`, `core` `BloomChain`): the
   picture's color times the weight over black, formed a texel at a time for the first
   halving, which carries the darkening of the weight over white in a fourth channel; five
-  levels sized from the output; doublings by a tent at the first drawn kind's radius; the
-  composite, which gives GTCEu: Reloaded's rule. Without the temporal scaler it runs after
+  levels sized from the output; doublings by a tent at the first drawn kind's radius, each
+  level weighed 0.2 to 1.0 from the finest as GTCEu: Reloaded's default style weighs its own;
+  the composite, which gives GTCEu: Reloaded's rule with the background's lightness. Without the temporal scaler it runs after
   translucent terrain on the picture, where that mod's own path laid its glow. Where the
   scaler makes the picture, the temporal pass resolves the weight over black into its
   history's alpha as it resolves the color, and the chain reads that output after the scale
@@ -1281,7 +1282,7 @@ and its rules for change are research R5, 10.2.
   where the handoff makes the picture, from the drawn picture and the weights as drawn.
   `-Dquadrature.bloom=off` draws the emissive stage without glow, and `=alternate` glows on
   frames chosen by a mix of the frame's number, so the stage's cost is compared within one
-  run; `.levels`, `.gain` (4.5, calibrated against GTCEu: Reloaded's own glow) and
+  run; `.levels`, `.gain` (1.5, calibrated against GTCEu: Reloaded's own glow) and
   `.brightnessWeighted` (high dynamic range, Phase 5) set the chain. A declared layer none of
   whose cubes the view saw is skipped, so the glow runs only on frames where something that
   glows was drawn.
