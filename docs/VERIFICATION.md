@@ -1428,17 +1428,22 @@ and without Cubature the game stops at loading with a message. On the RTX 3060:
 Two mods of the surveyed pack read the depth under the pointer and unproject it to name a block in a
 preview: GregTech's world scene renderer and ModularUI's schema renderer (research R1, 9a.7). Behind
 `-Dquadrature.check.picking=true` (`dev/PickingCheck`), once the player has been ten seconds in a world, a
-screen of Quadrature's own is open for one frame, in which GregTech's `ImmediateWorldSceneRenderer`,
-reached by reflection, draws twelve blocks of stone at 61 pointer positions: a grid of 25 over its
-rectangle and the centers of each block's top face and two faces toward the camera. Its depth read, its
-matrices read back and its trace all run in its own classes, which the depth call rewriter translates; for
-each pointer the check sets the block it names and the point it unprojects beside the block and surface
+screen of Quadrature's own is open for one frame, in which each renderer, reached by reflection, draws the
+same twelve blocks of stone from the same camera, at 61 pointer positions: a grid of 25 over its picture
+and the centers of each block's top face and two faces toward the camera. GregTech's
+`ImmediateWorldSceneRenderer` draws once a pointer, into the screen. ModularUI's `SchemaRenderer` draws
+once into its own framebuffer, 1,080 pixels a side, and from its after-render callback, while that
+framebuffer and its matrices are current, it is asked for each pointer for the point it unprojects
+(`screenToWorldPos`) and the block its trace from there names (`rayTrace`). In both, the depth read, the
+matrices read back and the trace run in the mod's own classes, which the depth call rewriter translates;
+for each pointer the check sets the block named and the point unprojected beside the block and surface
 point found on the CPU along the same ray from the same camera.
 
-On the RTX 3060, 2026-11-21, one instance run with reversed depth and then conventional: all 61 pointers
-named the expected block in both; over the 39 on blocks the unprojected point lay 0.0122 blocks from the
-surface on average and 0.0279 at worst in both, half a pixel's offset, the two runs' points differing by
-about 0.00002 blocks. ModularUI's schema renderer, which reads depth the same way, was not driven.
+On the RTX 3060, 2026-11-21, one instance run with reversed depth and then conventional: in both, all 61
+pointers of each renderer named the expected block. The unprojected point lay from the surface, in both
+modes alike, 0.0124 blocks on average and 0.0279 at worst over GregTech's 39 pointers on blocks, and
+0.0051 and 0.0114 over ModularUI's 41, half a pixel's offset at each one's scale; between the two modes
+each pointer named the same block and its point moved by at most 0.00004 blocks.
 
 ### What a depth pyramid would leave out
 
@@ -2089,7 +2094,7 @@ Each is a system property, read once, and costs nothing when unset.
 | `quadrature.faces=false` | Draws the walk's vertices alone, with no face records; records, the default, need indirect draws |
 | `quadrature.terrain=game` | Leaves terrain to the game: own terrain, the default, draws nothing, and the game's chunk rebuild and draw run as without Quadrature |
 | `quadrature.reversedDepth=false` | Conventional depth for the whole frame, where reversed depth is the default (D17) |
-| `quadrature.check.picking=true` | Ten seconds into a world, draws GregTech's world scene renderer in a screen for one frame at 61 pointers and logs, for each, the block it names and how far its unprojected depth lies from the surface (Mods that read depth back) |
+| `quadrature.check.picking=true` | Ten seconds into a world, draws GregTech's world scene renderer and ModularUI's schema renderer in a screen for one frame at 61 pointers each and logs, for each pointer, the block named and how far the unprojected depth lies from the surface (Mods that read depth back) |
 | `quadrature.exitOnOutOfMemory=true` | After the `CLIENT OUT OF MEMORY` notice, the client quits, so a launcher waiting on it fails at once instead of waiting on a world the game has dropped. Every lab run sets it |
 | `quadrature.testOutOfMemory=<seconds>` | That many seconds after the first world is entered, the game loop asks for an array no heap holds, to show the notice and the quit in a real run |
 | `quadrature.gbuffer=true` | With faces and reversed depth: each opaque layer is drawn again into the targets for shading |

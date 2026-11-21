@@ -77,7 +77,6 @@ refusals in a client; a real second renderer; the canonical 32 km world; an 8 GB
 | Phase 4 | The distant terrain composite and its transition band, by prototype (research R1, 2.2) |
 | Phase 2 | The state audit repeated on more views and with a larger pack installed |
 | Phase 2 | Hosted drawing that lies exactly on Quadrature's terrain: its depth and the game's fixed-function depth are not bit-identical (research R1, 9a.7) |
-| Phase 2 | Reversed depth on by default (done 2026-11-21); a scripted scene with a screen open for multiblock preview picking (GregTech's renderer done 2026-11-21, ModularUI's schema renderer open) |
 | Phase 2 | Implementing the cube source in Cubature, and whether cube data can be shared between snapshots |
 | Phase 2 | Face merging against per-face output with smooth lighting on |
 | Phase 2 | The first-run lighting difference, settled with one light dump (recorded for Cubature) |
