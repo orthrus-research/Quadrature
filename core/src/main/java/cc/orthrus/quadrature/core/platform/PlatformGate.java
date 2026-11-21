@@ -58,7 +58,60 @@ public final class PlatformGate {
                 "Quadrature requires " + requirements.minimumMemoryMiB() / 1024 + " GB of GPU memory.",
                 "Use a graphics card with more memory."));
         }
+        // The driver floor comes after the capabilities, so that a missing capability is what is reported first (D20).
+        DriverFloor floor = floorFor(profile.vendor(), requirements.driverFloors());
+        if (floor != null) {
+            DriverVersion driver = DriverVersion.parse(profile.versionString(), floor.vendor());
+            if (driver != null && floor.knownBad().contains(driver.version())) {
+                failures.add(new GateFailure(
+                    "The graphics driver is " + floor.vendor() + " " + driver.version() + ", a build known to fail with Quadrature.",
+                    "Quadrature does not run on this driver build.",
+                    "Install another driver version, newer or older, of the R" + floor.floorBranch() + " branch or later."));
+            } else if (driver != null && driver.branch() < floor.floorBranch()) {
+                failures.add(new GateFailure(
+                    "The graphics driver is " + floor.vendor() + " " + driver.version() + ".",
+                    "Quadrature requires an " + floor.vendor() + " driver of the R" + floor.floorBranch() + " branch or later.",
+                    "Install a newer graphics driver: on Windows, the current " + floor.vendor() + " driver for the card; "
+                        + "on Linux, a driver of R" + floor.floorBranch() + " or later from the distribution's newer packages "
+                        + "or from " + floor.vendor() + "."));
+            }
+        }
         return failures;
+    }
+
+    /**
+     * What the gate reports without stopping the game, in the same form as a failure: a driver below the
+     * vendor's current production branch, or a driver version that could not be read. Read only once
+     * {@link #evaluate} found nothing.
+     */
+    public static List<GateFailure> warnings(PlatformProfile profile, PlatformRequirements requirements) {
+        List<GateFailure> warnings = new ArrayList<>();
+        DriverFloor floor = floorFor(profile.vendor(), requirements.driverFloors());
+        if (floor == null) {
+            return warnings;
+        }
+        DriverVersion driver = DriverVersion.parse(profile.versionString(), floor.vendor());
+        if (driver == null) {
+            warnings.add(new GateFailure(
+                "The graphics driver's version could not be read from \"" + profile.versionString() + "\".",
+                "Quadrature is tested on " + floor.vendor() + " drivers of the R" + floor.warnBelowBranch() + " branch or later.",
+                "If the game misbehaves, update the graphics driver."));
+        } else if (driver.branch() < floor.warnBelowBranch()) {
+            warnings.add(new GateFailure(
+                "The graphics driver is " + floor.vendor() + " " + driver.version() + ".",
+                "Quadrature is tested on " + floor.vendor() + " drivers of the R" + floor.warnBelowBranch() + " branch or later.",
+                "Update the graphics driver when convenient."));
+        }
+        return warnings;
+    }
+
+    private static DriverFloor floorFor(String vendor, List<DriverFloor> floors) {
+        for (DriverFloor floor : floors) {
+            if (vendorAdmitted(vendor, List.of(floor.vendor()))) {
+                return floor;
+            }
+        }
+        return null;
     }
 
     /** One failure per installed renderer Quadrature does not run beside. */

@@ -3,6 +3,7 @@ package cc.orthrus.quadrature;
 import cc.orthrus.quadrature.core.platform.Capability;
 import cc.orthrus.quadrature.core.platform.GateFailure;
 import cc.orthrus.quadrature.core.platform.PlatformGate;
+import cc.orthrus.quadrature.core.platform.DriverFloor;
 import cc.orthrus.quadrature.core.platform.PlatformRequirements;
 import cc.orthrus.quadrature.dev.DevSession;
 import cc.orthrus.quadrature.platform.ForeignRenderers;
@@ -36,10 +37,21 @@ public final class Quadrature {
      */
     private static final String TEST_MEMORY_FLOOR = "quadrature.test.minimumGpuMemoryMiB";
 
+    /**
+     * Raise the driver floor and the branch below which the gate warns, for a test run, so the stop screen and
+     * the warning can be exercised on a current driver. Like the memory floor, they can only make the gate stricter.
+     */
+    private static final String TEST_DRIVER_FLOOR = "quadrature.test.driverFloorBranch";
+    private static final String TEST_DRIVER_WARNING = "quadrature.test.driverWarnBelowBranch";
+
     /** The supported platform, from platform.json through the generated build constants. */
     static final PlatformRequirements REQUIREMENTS = new PlatformRequirements(
         EnumSet.allOf(Capability.class), List.of(QuadratureBuild.GRAPHICS_VENDOR),
-        Math.max(QuadratureBuild.MINIMUM_GPU_MEMORY_MIB, Long.getLong(TEST_MEMORY_FLOOR, 0L)));
+        Math.max(QuadratureBuild.MINIMUM_GPU_MEMORY_MIB, Long.getLong(TEST_MEMORY_FLOOR, 0L)),
+        List.of(new DriverFloor(QuadratureBuild.GRAPHICS_VENDOR,
+            Math.max(QuadratureBuild.DRIVER_FLOOR_BRANCH, Integer.getInteger(TEST_DRIVER_FLOOR, 0)),
+            Math.max(QuadratureBuild.DRIVER_WARN_BELOW_BRANCH, Integer.getInteger(TEST_DRIVER_WARNING, 0)),
+            List.of(QuadratureBuild.DRIVER_KNOWN_BAD))));
 
     @Mod.EventHandler
     public void postInit(FMLPostInitializationEvent event) {

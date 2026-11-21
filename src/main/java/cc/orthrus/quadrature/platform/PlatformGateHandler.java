@@ -42,6 +42,13 @@ public final class PlatformGateHandler {
             failures = PlatformGate.evaluate(profile, requirements);
             if (failures.isEmpty()) {
                 Quadrature.LOGGER.info("Platform gate passed.");
+                List<GateFailure> warnings = PlatformGate.warnings(profile, requirements);
+                for (GateFailure warning : warnings) {
+                    Quadrature.LOGGER.warn("Platform: {} {} {}", warning.found(), warning.required(), warning.remedy());
+                }
+                if (!warnings.isEmpty()) {
+                    DriverToast.show(warnings.get(0));
+                }
                 if (TierBench.enabled()) {
                     try {
                         TierBench.atGate(profile, PlatformReader.memorySource(profile.extensions()));

@@ -40,9 +40,13 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   and profile queries); NVIDIA, `GL_NVX_gpu_memory_info` specification (token `0x9047`,
   total dedicated memory in kilobytes); Khronos registry, `NV_mesh_shader` and
   `EXT_mesh_shader` (extension names); Forge 1.12.2,
-  `CustomModLoadingErrorDisplayException` (the loading error screen).
-- Taken: the extension names and query tokens as published.
-- Added: 2026-11-13
+  `CustomModLoadingErrorDisplayException` (the loading error screen); NVIDIA, the data center
+  drivers' supported branches (R580 and R620 long-term support, R595 production, with their
+  end-of-life dates, as of 2026-11-04) and the form of the driver's version in the context's
+  version string, for the driver floor (D20); Minecraft 1.12.2, `SystemToast` (the warning's
+  toast).
+- Taken: the extension names, query tokens and branch numbers as published.
+- Added: 2026-11-13; the driver floor 2026-11-21
 
 ### The light's depth drawn by tiles and spread over frames
 - Code: `core/src/main/java/cc/orthrus/quadrature/core/view/LightBox.java`, `LightTiles.java`,

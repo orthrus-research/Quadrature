@@ -9,6 +9,10 @@ ext.cleanroom_version = platform.cleanroom.version
 if (platform.schema != 1) {
     throw new GradleException('platform.json has an unknown schema.')
 }
+if (!(platform.graphics.driver?.floorBranch instanceof Integer) || !(platform.graphics.driver?.warnBelowBranch instanceof Integer)
+        || !(platform.graphics.driver?.knownBad instanceof List)) {
+    throw new GradleException('platform.json names no driver floor (graphics.driver: floorBranch, warnBelowBranch, knownBad).')
+}
 if (System.getProperty('java.runtime.version') != platform.java.runtimeVersion ||
         System.getProperty('java.vendor') != platform.java.vendor) {
     throw new GradleException("Run Gradle with ${platform.java.vendor} ${platform.java.runtimeVersion}; " +
@@ -173,6 +177,9 @@ final class QuadratureBuild {
     static final String CLEANROOM = \"${cleanroom_version}\";
     static final String GRAPHICS_VENDOR = \"${platform.graphics.vendor}\";
     static final long MINIMUM_GPU_MEMORY_MIB = ${platform.graphics.minimumMemoryMiB}L;
+    static final int DRIVER_FLOOR_BRANCH = ${platform.graphics.driver.floorBranch};
+    static final int DRIVER_WARN_BELOW_BRANCH = ${platform.graphics.driver.warnBelowBranch};
+    static final String[] DRIVER_KNOWN_BAD = {${platform.graphics.driver.knownBad.collect { '"' + it + '"' }.join(', ')}};
     private QuadratureBuild() {}
 }
 """, 'UTF-8')

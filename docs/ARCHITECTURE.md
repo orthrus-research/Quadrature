@@ -60,7 +60,13 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
   mesh programs are written for `GL_NV_mesh_shader`. **Decided.**
 - The gate keeps a driver floor per admitted vendor and applies it after the capability
   check. For NVIDIA it stops below the R580 branch and warns below the current production
-  branch (D20). **Decided; not built.**
+  branch, R595 (D20). **Built:** `DriverFloor` and `DriverVersion` in `core`, the branch read
+  as the leading number of the driver's version in the context's version string ("4.6.0
+  NVIDIA 610.88", "4.6.0 NVIDIA 610.57.04"), the numbers and a list of known-bad builds (empty)
+  in `platform.json`. A driver below the floor or on the list is refused with the remedy named;
+  one below the warning branch, or whose version cannot be read, is logged and shown once as a
+  toast, and the game goes on. `quadrature.test.driverFloorBranch` and
+  `quadrature.test.driverWarnBelowBranch` raise either number for a test, never lower it.
 - GPU memory is read through `GpuMemorySource`, with a source per vendor (D8); NVIDIA's,
   `NvxMemorySource`, reads `GL_NVX_gpu_memory_info`, and a driver that reports nothing gets
   `GpuMemorySource.NONE`. **Built.**
@@ -1481,7 +1487,7 @@ measured, that will separate them.
 | Deferred shading with clustered lights | Default | Phase 5 prototype |
 | Far shadows, indirect light | Candidate; the trace they share through the bricks built and measured (5.2) | Phase 5 prototypes |
 | Shader format | Candidate | Two concrete shaders |
-| Driver floor R580, a warning below the production branch | Decided (D20); not built | |
+| Driver floor R580, a warning below the production branch | Decided (D20); built | |
 | Quality tiers on two axes, speed by a startup benchmark and memory by what the driver reports | Decided (D22); built behind a switch, calibrated on the RTX 3060 (12.1.1) | The groups not yet counted; a second card; a driver update |
 | Own temporal anti-aliasing and spatial scaler; DLSS through a Vulkan bridge as an option | Decided (D21, D23); own temporal pass and plain scaler built behind switches (4.8); the handoff to Vulkan measured (4.9) | DLSS's own evaluation; motion vectors for hosted draws; ghosting under motion |
 

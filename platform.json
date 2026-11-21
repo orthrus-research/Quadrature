@@ -25,6 +25,11 @@
     "profile": "compatibility",
     "vendor": "NVIDIA",
     "minimumGeneration": "Turing",
-    "minimumMemoryMiB": 8192
+    "minimumMemoryMiB": 8192,
+    "driver": {
+      "floorBranch": 580,
+      "warnBelowBranch": 595,
+      "knownBad": []
+    }
   }
 }
