@@ -72,7 +72,9 @@ public final class OrthLibBridge implements ModInterface {
      * {@link IllegalStateException} naming both where another provider holds the interface.
      */
     public static ModInterface start() {
-        return new OrthLibBridge(RenderInterface.registerProvider(new Provider()));
+        OrthLibBridge bridge = new OrthLibBridge(RenderInterface.registerProvider(new Provider()));
+        InterfaceSelfTest.startIfAsked();
+        return bridge;
     }
 
     @Override

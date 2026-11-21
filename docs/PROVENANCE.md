@@ -1036,7 +1036,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 
 ### The render interface's provider: declared layers, scopes and the emissive stage
 - Code: `src/main/java/cc/orthrus/quadrature/modinterface/ModInterface.java`, `ModInterfaces.java`;
-  `src/orthlib/java/cc/orthrus/quadrature/orthlib/OrthLibBridge.java`; the declared layers in `CubeMesher.java`,
+  `src/orthlib/java/cc/orthrus/quadrature/orthlib/OrthLibBridge.java`, `InterfaceSelfTest.java` (a diagnostic consumer of
+  the interface's public calls); the declared layers in `CubeMesher.java`,
   `BuiltCube.java` and `Terrain.java` (`followDeclarations`, `drawEmissive`, `drawContributions`); the emissive stage's
   points in `TerrainHook.java`; the registration in `Quadrature.java`
 - Source: original, to OrthLib's render interface (its design document) and research R5, 10.2 (handles, capabilities
