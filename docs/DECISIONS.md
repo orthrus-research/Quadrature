@@ -236,8 +236,10 @@ program or depth texture, and no GL call for them. It declares its emissive laye
 contributions, geometry with its format, blend and bloom kind stated, through OrthLib's interface, which
 Quadrature implements; Quadrature draws them. Where no renderer provides the interface, OrthLib's
 absence answers route the declared layer's geometry into the fallback layer the mod names, which the game
-draws at full brightness, and drop contributions: emissive textures without glow (the user's decision of
-2026-11-21). Quadrature's bloom is one technique of its own (D2), chosen by research; GTCEu: Reloaded's
+draws at full brightness, and OrthLib draws the contributions plainly through the game's own drawing:
+everything appears, nothing glows, and the fusion reactor's ring stays visible (the user's decisions of
+2026-11-21). The rule is per world pass: one whose contributions Quadrature does not draw, in a world its
+own terrain does not draw for instance, gets OrthLib's plain drawing. Quadrature's bloom is one technique of its own (D2), chosen by research; GTCEu: Reloaded's
 bloom styles are retired, and its strength, base, limits and radius carry over as each bloom kind's
 parameters (the user's decision of 2026-11-21).
 

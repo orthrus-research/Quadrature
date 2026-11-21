@@ -1233,8 +1233,10 @@ contributions, geometry it writes into a buffer the provider begins, in a stated
 primitive and blend, bound to a world and a bloom kind. It holds OrthLib's handles, each its
 own lease, and its code is the same with a provider or without one. Without one, OrthLib's
 absence answers put a declared layer's geometry in its fallback layer, which the game draws
-at full brightness, and contributions are accepted and never drawn. The contract's format
-and its rules for change are research R5, 10.2.
+at full brightness, and OrthLib draws the contributions plainly at the end of the world
+pass through the game's own drawing: everything appears, nothing glows. It does the same in
+every world pass the provider does not mark as one whose contributions it draws. The
+contract's format and its rules for change are research R5, 10.2.
 
 - **The provider.** Quadrature registers as the interface's one provider while it loads,
   after OrthLib, through a bridge of a few classes reached by name only where OrthLib is
@@ -1268,7 +1270,10 @@ and its rules for change are research R5, 10.2.
   translucent terrain at that point, and reads nothing back from the driver. A
   contribution's draw sets every piece of state it depends on, so a mod's callback before it
   cannot reach it; under the state audit the stage, the callbacks and the glow are stretches
-  of their own.
+  of their own. Where own terrain meshes declared layers apart, the stage first marks the
+  world pass as one whose contributions Quadrature draws, so OrthLib leaves them out of the
+  plain drawing it gives every other pass; a contribution not yet in the frame's snapshot
+  then appears a frame later, glowing, rather than once without glow.
 - **The glow.** One chain for every kind (D27; `BloomStage`, `core` `BloomChain`): the
   picture's color times the weight over black, formed a texel at a time for the first
   halving, which carries the darkening of the weight over white in a fourth channel; five
@@ -1284,8 +1289,10 @@ and its rules for change are research R5, 10.2.
   frames chosen by a mix of the frame's number, so the stage's cost is compared within one
   run; `.levels`, `.gain` (1.5, calibrated against GTCEu: Reloaded's own glow) and
   `.brightnessWeighted` (high dynamic range, Phase 5) set the chain. A declared layer none of
-  whose cubes the view saw is skipped, so the glow runs only on frames where something that
-  glows was drawn.
+  whose cubes the view saw is skipped, and so is a contribution whose written vertices lie
+  wholly outside the view's volume, as GTCEu: Reloaded's own path left its effects outside
+  the view undrawn (the interface gives a source no view volume of its own to test), so the
+  glow runs only on frames where something that glows was drawn in view.
 - **Not in version 1.** A mod's own stage at a named point in the graph, and read access to
   frame resources (scene depth with its convention, color), wait for a mod that needs them
   (requirement rule 4): the first consumer's depth texture and passes served only its own

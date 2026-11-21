@@ -20,9 +20,9 @@
   },
   "orthlib": {
     "version": "0.5.0-dev",
-    "commit": "e64ad720537194177110cb1085a3633526c98995",
-    "jar": "orthlib-0.5.0-dev-e64ad720.jar",
-    "sha256": "76f4242ab4544cda9345c3dec84e81479e8645de84229cdbf4da6dcee1fa9921"
+    "commit": "0c2995e6c1d838be8c2b4975eec68b923eb0f1c4",
+    "jar": "orthlib-0.5.0-dev-0c2995e6.jar",
+    "sha256": "8d4c5445ac263ceb0cba7faefe97d010678c14339e169eede1a965205d849f83"
   },
   "cubature": {
     "version": "1.12.2-0.1.4.0",

@@ -1048,10 +1048,14 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   and that `WorldVertexBufferUploader` resets the cache's color after a draw with colors; GTCEu: Reloaded's own bloom
   path at commit `8ca6b98c9a14531c4d49cb242ae28769766396c1`, read as behavior (its emissive layer and tickets drawn
   after entities at the translucent draw, the layer writing depth, its glow's source the picture's color where the
-  emissive geometry covers it).
-- Taken: the point in the frame and the source of the glow's color, as behavior. The snapshot's translation and its
-  layer generation, the scopes opened around each build, the meshes kept a layer, and the stage's state rule are
-  Quadrature's own. No code from another renderer or from GTCEu: Reloaded.
+  emissive geometry covers it, and its fusion ring and cable heat left undrawn outside the view's frustum); OrthLib's
+  mark for a world pass whose contributions the provider draws (`ProviderHandle.drawingContributions()`, its design
+  document's amendment at commit `4c9e42a`).
+- Taken: the point in the frame, the source of the glow's color and leaving what lies outside the view undrawn, as
+  behavior. The snapshot's translation and its layer generation, the scopes opened around each build, the meshes kept a
+  layer, the stage's state rule, the pass's mark, and the test of a contribution by the box around the vertices it
+  wrote against the view's planes (`View.boxVisible`) are Quadrature's own. No code from another renderer or from GTCEu:
+  Reloaded.
 - Added: 2026-11-21
 
 ### Bloom

@@ -180,4 +180,9 @@ public final class OrthLibBridge implements ModInterface {
             new FrameView(frame.partialTicks(), frame.cameraX(), frame.cameraY(), frame.cameraZ(), frame.viewer(),
                 frame.world()));
     }
+
+    @Override
+    public void drawingContributions() {
+        handle.drawingContributions();
+    }
 }

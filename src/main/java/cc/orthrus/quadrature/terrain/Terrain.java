@@ -632,6 +632,12 @@ public final class Terrain
      */
     @Override
     public void drawEmissive(View view, float partialTicks, Entity viewer) {
+        if (TerrainHook.drawsDeclaredLayers()) {
+            // The contributions are this stage's to draw in every pass it runs for, so OrthLib leaves them out of the
+            // plain drawing it gives each pass no provider marks (D25). The mark comes before the way out below: a
+            // contribution not yet in this frame's snapshot then waits a frame rather than appearing once plainly.
+            cc.orthrus.quadrature.modinterface.ModInterfaces.current().drawingContributions();
+        }
         cc.orthrus.quadrature.modinterface.ModInterface.Declarations now = declarations;
         if (declaredLayers.length == 0 && now.contributions().isEmpty()) {
             return;
@@ -668,7 +674,7 @@ public final class Terrain
             // A frame for the mods' sources needs a viewer and a world; the interface refuses one without.
             if (!now.contributions().isEmpty() && viewer != null && minecraft.world != null) {
                 drawContributions(now, new cc.orthrus.quadrature.modinterface.ModInterface.Frame(partialTicks,
-                    view.originX(), view.originY(), view.originZ(), viewer, minecraft.world), glows);
+                    view.originX(), view.originY(), view.originZ(), viewer, minecraft.world), glows, view);
             }
         } finally {
             translucentState(minecraft);
@@ -695,9 +701,14 @@ public final class Terrain
         net.minecraft.client.renderer.GlStateManager.shadeModel(org.lwjgl.opengl.GL11.GL_SMOOTH);
     }
 
-    /** Draws each contribution into the picture, and where the frame glows its bloom kind's weights a second time. */
+    /**
+     * Draws each contribution into the picture, and where the frame glows its bloom kind's weights a second time. One
+     * whose vertices lie wholly outside the view's volume is drawn into neither, as GTCEu: Reloaded's own path left its
+     * effects outside the view undrawn: the interface gives a source no view volume to test (version 1.0), so the test
+     * is made here, on what it wrote, and the glow then runs only on frames where something that glows is in view.
+     */
     private void drawContributions(cc.orthrus.quadrature.modinterface.ModInterface.Declarations now,
-        cc.orthrus.quadrature.modinterface.ModInterface.Frame frame, boolean glows) {
+        cc.orthrus.quadrature.modinterface.ModInterface.Frame frame, boolean glows, View view) {
         cc.orthrus.quadrature.modinterface.ModInterface mod = cc.orthrus.quadrature.modinterface.ModInterfaces.current();
         net.minecraft.client.Minecraft minecraft = net.minecraft.client.Minecraft.getMinecraft();
         for (cc.orthrus.quadrature.modinterface.ModInterface.Contribution contribution : now.contributions()) {
@@ -729,13 +740,13 @@ public final class Terrain
                     net.minecraft.client.renderer.GlStateManager.depthMask(false);
                 }
             }
-            if (!drawContribution(mod, contribution, frame)) {
+            if (!drawContribution(mod, contribution, frame, view)) {
                 continue;
             }
             if (glows && contribution.kind() >= 0
                 && bloom.contributionTarget(now.kinds().get(contribution.kind()), contribution.textured())) {
                 try {
-                    drawContribution(mod, contribution, frame);
+                    drawContribution(mod, contribution, frame, null);
                 } finally {
                     bloom.endTargets();
                 }
@@ -743,10 +754,13 @@ public final class Terrain
         }
     }
 
-    /** Has a contribution write its vertices and draws them; false where it wrote nothing it could draw. */
+    /**
+     * Has a contribution write its vertices and draws them; false where it wrote nothing it could draw, or, given a
+     * view, nothing inside that view's volume.
+     */
     private static boolean drawContribution(cc.orthrus.quadrature.modinterface.ModInterface mod,
         cc.orthrus.quadrature.modinterface.ModInterface.Contribution contribution,
-        cc.orthrus.quadrature.modinterface.ModInterface.Frame frame) {
+        cc.orthrus.quadrature.modinterface.ModInterface.Frame frame, @javax.annotation.Nullable View cull) {
         net.minecraft.client.renderer.Tessellator tessellator = net.minecraft.client.renderer.Tessellator.getInstance();
         net.minecraft.client.renderer.BufferBuilder buffer = tessellator.getBuffer();
         buffer.begin(contribution.triangles() ? org.lwjgl.opengl.GL11.GL_TRIANGLES : org.lwjgl.opengl.GL11.GL_QUADS,
@@ -759,13 +773,45 @@ public final class Terrain
         } finally {
             cc.orthrus.quadrature.frame.FrameHost.auditBoundary(EMISSIVE_STRETCH);
         }
-        if (!written) {
+        if (!written || cull != null && !writtenInView(buffer, cull)) {
             buffer.finishDrawing();
             buffer.reset();
             return false;
         }
         tessellator.draw();
         return true;
+    }
+
+    /**
+     * Whether any of the vertices written into a begun buffer may lie in the view's volume: the box around their
+     * positions, which are relative to the view's origin and come first in every layout a contribution states.
+     */
+    private static boolean writtenInView(net.minecraft.client.renderer.BufferBuilder buffer, View view) {
+        int count = buffer.getVertexCount();
+        if (count == 0) {
+            return false;
+        }
+        java.nio.ByteBuffer bytes = buffer.getByteBuffer();
+        int stride = buffer.getVertexFormat().getSize();
+        float minX = Float.POSITIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY;
+        float minZ = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
+        float maxY = Float.NEGATIVE_INFINITY;
+        float maxZ = Float.NEGATIVE_INFINITY;
+        for (int v = 0, at = 0; v < count; v++, at += stride) {
+            float x = bytes.getFloat(at);
+            float y = bytes.getFloat(at + 4);
+            float z = bytes.getFloat(at + 8);
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            maxZ = Math.max(maxZ, z);
+        }
+        return view.boxVisible(minX + view.originX(), minY + view.originY(), minZ + view.originZ(),
+            maxX + view.originX(), maxY + view.originY(), maxZ + view.originZ());
     }
 
     /**

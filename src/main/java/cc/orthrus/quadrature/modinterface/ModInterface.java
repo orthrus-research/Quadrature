@@ -40,6 +40,10 @@ public interface ModInterface {
         public boolean write(Contribution contribution, BufferBuilder buffer, Frame frame) {
             return false;
         }
+
+        @Override
+        public void drawingContributions() {
+        }
     };
 
     /** What is declared now, as one immutable snapshot; any thread. */
@@ -64,6 +68,12 @@ public interface ModInterface {
      * the frame's camera; client thread. False where it drew nothing, or failed and was retired by the interface.
      */
     boolean write(Contribution contribution, BufferBuilder buffer, Frame frame);
+
+    /**
+     * States that Quadrature draws the live contributions in the current world pass, with their glow, so the interface
+     * leaves them out of the plain drawing it gives every pass no provider marks; client thread, before the pass ends.
+     */
+    void drawingContributions();
 
     /**
      * One snapshot of the declarations. The generation changes with every declaration or retirement; the layer
