@@ -229,3 +229,14 @@ the point where mods join). What a mod adds through the rebuild itself, an event
 call it makes, no longer runs; a mod that needs it is examined and given its place in Quadrature's own
 build. Cubature's integration with the game's chunk system in cubic worlds is then deleted (D10). A
 game-drawn run of a cubic world needs Cubature's reference build, the last that carries it.
+
+**D25. Mods draw bloom and emissive geometry only through OrthLib's render interface.**
+GTCEu: Reloaded keeps no rendering of its own for bloom and emissive geometry: no pass, framebuffer,
+program or depth texture, and no GL call for them. It declares its emissive layer and submits its
+contributions, geometry with its format, blend and bloom kind stated, through OrthLib's interface, which
+Quadrature implements; Quadrature draws them. Where no renderer provides the interface, OrthLib's
+absence answers route the declared layer's geometry into the fallback layer the mod names, which the game
+draws at full brightness, and drop contributions: emissive textures without glow (the user's decision of
+2026-11-21). Quadrature's bloom is one technique of its own (D2), chosen by research; GTCEu: Reloaded's
+bloom styles are retired, and its strength, base, limits and radius carry over as each bloom kind's
+parameters (the user's decision of 2026-11-21).
