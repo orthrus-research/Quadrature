@@ -7,7 +7,8 @@ import java.util.Locale;
  * tested: a bloom kind's two weights, the chain's levels, a halving's thirteen taps, a doubling's tent, and the
  * composite, which gives GTCEu: Reloaded's documented rule from the two weights.
  *
- * <p>The rule is OUT = BG + BLOOM s (b + LT + (1 - Y) (HT - LT)), Y the background's luma. Its factor is
+ * <p>The rule is OUT = BG + BLOOM s (b + LT + (1 - Y) (HT - LT)), Y the background's brightness: its HSL lightness,
+ * (max + min) / 2 of its channels, as GTCEu: Reloaded's blend computes it (its documentation leaves it undefined). Its factor is
  * g0 - Y (g0 - g1), with g0 = s (b + HT) the weight over black and g1 = s (b + LT) the weight over white, so it is
  * linear in the glow: one chain carries the g0-weighted color and, in a fourth channel, the luma of the
  * (g0 - g1)-weighted color, and the composite takes the ratio of the two back. Where one kind lights a pixel that is
@@ -84,27 +85,32 @@ public final class BloomChain {
         return Math.max(1, (outputSide + (1 << halvings) - 1) >> halvings);
     }
 
-    /** Rec. 709 luma. */
+    /** Rec. 709 luma: the measure the chain's fourth channel carries the darkening by. */
     public static double luma(double red, double green, double blue) {
         return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
     }
 
-    /** GTCEu: Reloaded's documented composite of one kind's glow over a background, for comparison. */
+    /** HSL lightness, (max + min) / 2: the background's brightness in GTCEu: Reloaded's blend. */
+    public static double lightness(double red, double green, double blue) {
+        return (Math.max(red, Math.max(green, blue)) + Math.min(red, Math.min(green, blue))) / 2;
+    }
+
+    /** GTCEu: Reloaded's composite of one kind's glow over a background, for comparison. */
     public static double[] reference(double[] background, double[] glow, float strength, float base, float lowLimit,
         float highLimit) {
-        double y = luma(background[0], background[1], background[2]);
+        double y = lightness(background[0], background[1], background[2]);
         double factor = strength * (base + lowLimit + (1 - y) * (highLimit - lowLimit));
         return new double[] {background[0] + glow[0] * factor, background[1] + glow[1] * factor,
             background[2] + glow[2] * factor};
     }
 
     /**
-     * The chain's composite: the background plus the glow's weighted color, darkened by the background's luma times
+     * The chain's composite: the background plus the glow's weighted color, darkened by the background's lightness times
      * the ratio the fourth channel carries against the weighted color's own luma. Not clamped; the stage's store is.
      */
     public static double[] composite(double[] background, double[] weighted, double darkening) {
         double ratio = Math.min(1, Math.max(0, darkening / Math.max(luma(weighted[0], weighted[1], weighted[2]), LEAST_LUMA)));
-        double y = luma(background[0], background[1], background[2]);
+        double y = lightness(background[0], background[1], background[2]);
         double factor = 1 - y * ratio;
         return new double[] {background[0] + weighted[0] * factor, background[1] + weighted[1] * factor,
             background[2] + weighted[2] * factor};
@@ -160,11 +166,12 @@ public final class BloomChain {
             String.format(Locale.ROOT, "const float GREATEST_WEIGHT = %.6f;", GREATEST_WEIGHT),
             String.format(Locale.ROOT, "const float LEAST_LUMA = %.6e;", LEAST_LUMA),
             "float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }",
-            "// The composite: the background plus the weighted glow, darkened by the background's luma times the ratio",
-            "// the fourth channel carries against the weighted glow's own luma (BloomChain.composite).",
+            "float lightness(vec3 c) { return (max(c.r, max(c.g, c.b)) + min(c.r, min(c.g, c.b))) * 0.5; }",
+            "// The composite: the background plus the weighted glow, darkened by the background's lightness times the",
+            "// ratio the fourth channel carries against the weighted glow's own luma (BloomChain.composite).",
             "vec3 composite(vec3 background, vec4 glow) {",
             "    float ratio = clamp(glow.a / max(luma(glow.rgb), LEAST_LUMA), 0.0, 1.0);",
-            "    return background + glow.rgb * (1.0 - luma(background) * ratio);",
+            "    return background + glow.rgb * (1.0 - lightness(background) * ratio);",
             "}");
     }
 

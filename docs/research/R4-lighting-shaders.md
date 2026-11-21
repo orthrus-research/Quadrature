@@ -582,6 +582,12 @@ textures s 1.5, b 0.1, HT 0.5, LT 0.2, 5 mips, step 1; fusion reactor 1.5, 0, 1.
 g0 = s(b + HT) and g1 = s(b + LT), linear in BLOOM, so one chain carries the g0-weighted color and
 the luma of the (g0 - g1)-weighted color of every kind, exact where one kind lights a pixel. A
 radius changes the filter: each distinct radius in a frame is a chain; the three groups share one.
+The documentation leaves the background's brightness undefined; GTCEu: Reloaded's blend program
+(`bloom_combine.frag`, read at 8ca6b98c9) takes its HSL lightness, (max + min) / 2, which the composite
+follows. Its default style (Unreal) also multiplies the summed levels by the strength before the blend
+multiplies by it again, and weighs its five levels 0.2 to 1.0 from the finest, so its glow is wider and
+about strength times brighter than the rule alone gives; one calibration gain set against its pictures
+(P3-V1) takes the brightness, and the width differs by design.
 
 **7c.5 Cost. [M]** With RGBA16F levels the chain moves 4 + 9.33(1 - 4^(1-N)) bytes an output pixel,
 13.3 at five levels, and the source 14 a drawn pixel: T = (14 s^2 + 13.3) W H / B + (2N - 1) t_d.

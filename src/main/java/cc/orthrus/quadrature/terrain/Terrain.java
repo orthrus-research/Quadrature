@@ -574,6 +574,16 @@ public final class Terrain
      * The same, and where the weights are not negative a bloom kind's weights into the bound framebuffer's second
      * target as well, through the terrain program's emissive variant.
      */
+    /** Whether any of these cubes is among those the view saw this frame. */
+    private boolean anySeen(Long2ObjectOpenHashMap<AddedLayerCube> cubes) {
+        for (int i = 0, seen = visible.count(); i < seen; i++) {
+            if (cubes.containsKey(visible.key(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void drawLayerCubes(Long2ObjectOpenHashMap<AddedLayerCube> cubes, View view, String name, float overBlack,
         float overWhite) {
         double cameraX = view.originX();
@@ -636,7 +646,9 @@ public final class Terrain
             net.minecraft.client.renderer.GlStateManager.depthMask(true);
             for (int d = 0; d < declaredLayers.length; d++) {
                 Long2ObjectOpenHashMap<AddedLayerCube> cubes = declaredLayers[d];
-                if (cubes.isEmpty()) {
+                // A layer nothing of which is in view draws nothing and weighs nothing: the glow then runs only on
+                // frames where something that glows was drawn.
+                if (cubes.isEmpty() || !anySeen(cubes)) {
                     continue;
                 }
                 cc.orthrus.quadrature.modinterface.ModInterface.DeclaredLayer layer = now.layers().get(d);

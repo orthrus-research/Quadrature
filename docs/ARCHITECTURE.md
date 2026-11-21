@@ -1281,8 +1281,10 @@ and its rules for change are research R5, 10.2.
   where the handoff makes the picture, from the drawn picture and the weights as drawn.
   `-Dquadrature.bloom=off` draws the emissive stage without glow, and `=alternate` glows on
   frames chosen by a mix of the frame's number, so the stage's cost is compared within one
-  run; `.levels`, `.gain` and `.brightnessWeighted` (high dynamic range, Phase 5) set the
-  chain.
+  run; `.levels`, `.gain` (4.5, calibrated against GTCEu: Reloaded's own glow) and
+  `.brightnessWeighted` (high dynamic range, Phase 5) set the chain. A declared layer none of
+  whose cubes the view saw is skipped, so the glow runs only on frames where something that
+  glows was drawn.
 - **Not in version 1.** A mod's own stage at a named point in the graph, and read access to
   frame resources (scene depth with its convention, color), wait for a mod that needs them
   (requirement rule 4): the first consumer's depth texture and passes served only its own

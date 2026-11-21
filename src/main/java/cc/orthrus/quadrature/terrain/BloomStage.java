@@ -40,8 +40,8 @@ import org.lwjgl.opengl.GL45;
  *
  * <p>{@code -Dquadrature.bloom=off} draws the emissive stage without glow; {@code =alternate} glows on the frames a mix
  * of the frame's number chooses, so the summary compares the two kinds of frame paired over one run.
- * {@code -Dquadrature.bloom.levels} (2 to 6, 5), {@code .gain} (1) and {@code .brightnessWeighted} (false, for high
- * dynamic range) set the chain.
+ * {@code -Dquadrature.bloom.levels} (2 to 6, 5), {@code .gain} (4.5, {@link #CALIBRATED_GAIN}) and
+ * {@code .brightnessWeighted} (false, for high dynamic range) set the chain.
  *
  * <p>Client thread. Objects are made on first use and remade when a size or the picture's framebuffer changes. Nothing
  * is read back from the driver while drawing: the stage binds the picture's framebuffer back by its name, and the
@@ -55,16 +55,25 @@ final class BloomStage {
     static final int LEVELS = BloomChain.levels(Integer.getInteger("quadrature.bloom.levels", BloomChain.DEFAULT_LEVELS));
     private static final float GAIN = gain(System.getProperty("quadrature.bloom.gain"));
     private static final boolean BRIGHTNESS_WEIGHTED = Boolean.getBoolean("quadrature.bloom.brightnessWeighted");
+    /** {@code -Dquadrature.bloom.passTimes=true}: the glow's GPU time split by pass in the summary, three stamps more. */
+    private static final boolean PASS_TIMES = Boolean.getBoolean("quadrature.bloom.passTimes");
 
     private static final int GROUP = 8;
     private static final int RING = 4;
     private static final float[] CLEAR = {0, 0, 0, 0};
 
+    /**
+     * The calibration gain (D27), set in P3-V1 against GTCEu: Reloaded's own glow: its default style weighs its five
+     * levels 0.2 to 1.0, 3 in all, and applies the strength twice, so its glow is about 3 times 1.5 the chain's; the
+     * light the two add around its lamps, in one world, came out 4.4 to 5.0 apart on three views of four.
+     */
+    static final float CALIBRATED_GAIN = 4.5f;
+
     private static float gain(String value) {
         try {
-            return value == null ? 1f : Math.max(0f, Float.parseFloat(value));
+            return value == null ? CALIBRATED_GAIN : Math.max(0f, Float.parseFloat(value));
         } catch (NumberFormatException e) {
-            return 1f;
+            return CALIBRATED_GAIN;
         }
     }
 
@@ -109,8 +118,12 @@ final class BloomStage {
     private float radius;
     private boolean weightProgramBound;
 
-    // GPU time: a row of four stamps a frame, the stage's draws and its glow, read when the ring comes round.
-    private final int[][] stamps = new int[RING][4];
+    // GPU time: a row of stamps a frame, read when the ring comes round: the stage's draws begin and end (0, 1), the glow
+    // begins and ends (2, 3), and under passTimes the first halving, the halvings and the doublings end (4, 5, 6).
+    private final int[][] stamps = new int[RING][7];
+    /** Under passTimes: GPU nanoseconds of the first halving, the other halvings, the doublings and the composite. */
+    private final long[] passNanos = new long[4];
+    private long passFrames;
     private final boolean[] stampedDraws = new boolean[RING];
     private final boolean[] stampedGlow = new boolean[RING];
     private final boolean[] glowed = new boolean[RING];
@@ -181,9 +194,20 @@ final class BloomStage {
         if (stampedGlow[ring]) {
             stampedGlow[ring] = false;
             if (GL15.glGetQueryObjecti(row[3], GL15.GL_QUERY_RESULT_AVAILABLE) != 0) {
-                glowNanos += GL33.glGetQueryObjectui64(row[3], GL15.GL_QUERY_RESULT)
-                    - GL33.glGetQueryObjectui64(row[2], GL15.GL_QUERY_RESULT);
+                long begun = GL33.glGetQueryObjectui64(row[2], GL15.GL_QUERY_RESULT);
+                long ended = GL33.glGetQueryObjectui64(row[3], GL15.GL_QUERY_RESULT);
+                glowNanos += ended - begun;
                 glowFrames++;
+                if (PASS_TIMES) {
+                    long first = GL33.glGetQueryObjectui64(row[4], GL15.GL_QUERY_RESULT);
+                    long halvings = GL33.glGetQueryObjectui64(row[5], GL15.GL_QUERY_RESULT);
+                    long doublings = GL33.glGetQueryObjectui64(row[6], GL15.GL_QUERY_RESULT);
+                    passNanos[0] += first - begun;
+                    passNanos[1] += halvings - first;
+                    passNanos[2] += doublings - halvings;
+                    passNanos[3] += ended - doublings;
+                    passFrames++;
+                }
             }
         }
     }
@@ -293,6 +317,9 @@ final class BloomStage {
         GL42.glBindImageTexture(0, down[0], 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RGBA16F);
         dispatch(levelWidth[0], levelHeight[0]);
         GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+        if (PASS_TIMES) {
+            GL33.glQueryCounter(stamps[ring][4], GL33.GL_TIMESTAMP);
+        }
         // The other halvings, each level into the next.
         GL20.glUseProgram(downProgram);
         for (int level = 1; level < levels; level++) {
@@ -300,6 +327,9 @@ final class BloomStage {
             GL42.glBindImageTexture(0, down[level], 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RGBA16F);
             dispatch(levelWidth[level], levelHeight[level]);
             GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+        }
+        if (PASS_TIMES) {
+            GL33.glQueryCounter(stamps[ring][5], GL33.GL_TIMESTAMP);
         }
         // Doublings: each level adds the tent of the one below it, the last standing as itself.
         GL20.glUseProgram(upProgram);
@@ -310,6 +340,9 @@ final class BloomStage {
             GL42.glBindImageTexture(0, up[level], 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RGBA16F);
             dispatch(levelWidth[level], levelHeight[level]);
             GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+        }
+        if (PASS_TIMES) {
+            GL33.glQueryCounter(stamps[ring][6], GL33.GL_TIMESTAMP);
         }
         // The composite, in place on the output's picture.
         GL20.glUseProgram(compositeProgram);
@@ -349,7 +382,10 @@ final class BloomStage {
             MODE, glowingFrames, plainFrames, mean(drawNanos[1], drawFrames[1]), mean(drawNanos[0], drawFrames[0]),
             mean(glowNanos, glowFrames), glowFrames == 0 ? 0.0 : glowClientNanos / 1e6 / glowFrames, glowFrames,
             glowsAfterScale, down.length, levelWidth.length > 0 ? levelWidth[0] : 0, levelHeight.length > 0 ? levelHeight[0] : 0,
-            drawnWidth, drawnHeight, GAIN, BRIGHTNESS_WEIGHTED ? "on" : "off");
+            drawnWidth, drawnHeight, GAIN, BRIGHTNESS_WEIGHTED ? "on" : "off")
+            + (passFrames == 0 ? "" : String.format("; glow passes, GPU over %d frames: first halving %.3f ms, halvings "
+                + "%.3f, doublings %.3f, composite %.3f", passFrames, mean(passNanos[0], passFrames),
+                mean(passNanos[1], passFrames), mean(passNanos[2], passFrames), mean(passNanos[3], passFrames)));
     }
 
     private static double mean(long nanos, long frames) {

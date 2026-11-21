@@ -258,6 +258,8 @@ weighted per pixel by the bloom kinds of what declared emissive layers and contr
 brightness threshold: a kind's strength, base and limits become two weights in one chain, which
 reproduces GTCEu: Reloaded's composite rule exactly where one kind lights a pixel. Under the temporal
 pass the chain reads its output, the weight resolved in its history, and the glow is added after the
-scale pass; without it, after translucent terrain, where GTCEu: Reloaded's own path added it. Kinds of
-different radii share the chain at the first one's radius until a mod sets them apart, and the
-weighting against single bright samples waits for high dynamic range (Phase 5).
+scale pass; without it, after translucent terrain, where GTCEu: Reloaded's own path added it. A
+calibration gain of 4.5, set against GTCEu: Reloaded's own glow in P3-V1, brings the chain's light to
+its brightness; its glow stays wider by design. Kinds of different radii share the chain at the first
+one's radius until a mod sets them apart, and the weighting against single bright samples waits for
+high dynamic range (Phase 5).
