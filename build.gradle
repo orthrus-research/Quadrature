@@ -129,7 +129,8 @@ tasks.register('refreshOrthLib') {
         def checkout = named.getOrElse(new File(common.waitFor() == 0 ? new File(commonDir).parentFile : root, '../OrthLib')
             .canonicalFile)
         def git = { Object... arguments ->
-            def command = (['git', '-C', checkout.path] + arguments.toList())*.toString()
+            // Long paths on: a sibling's deepest files can pass Windows' 260-character limit in a worktree.
+            def command = (['git', '-c', 'core.longpaths=true', '-C', checkout.path] + arguments.toList())*.toString()
             def process = new ProcessBuilder(command).redirectErrorStream(true).start()
             def text = process.inputStream.text.trim()
             [process.waitFor(), text]
@@ -228,7 +229,8 @@ tasks.register('refreshCubature') {
             }
         }
         def git = { Object... arguments ->
-            def command = (['git', '-C', checkout.path] + arguments.toList())*.toString()
+            // Long paths on: a sibling's deepest files can pass Windows' 260-character limit in a worktree.
+            def command = (['git', '-c', 'core.longpaths=true', '-C', checkout.path] + arguments.toList())*.toString()
             def process = new ProcessBuilder(command).redirectErrorStream(true).start()
             def text = process.inputStream.text.trim()
             [process.waitFor(), text]
