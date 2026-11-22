@@ -1,7 +1,30 @@
 # Verification
 
-How rendered frames are captured and compared. This describes what exists; requirement 13
-in [REQUIREMENTS.md](REQUIREMENTS.md) states what verification must eventually cover.
+How rendered frames are captured and compared, and what is checked before a build reaches a GPU.
+This describes what exists; requirement 13 in [REQUIREMENTS.md](REQUIREMENTS.md) states what
+verification must eventually cover.
+
+## Checks
+
+Workbench runs Quadrature's checks from a clean clone of a commit, on Temurin 26.0.2.1+1, and
+keeps the results; `ci.hook` installs a pre-push hook that refuses a commit whose tree has not
+passed them. The jobs are in [actions.toml](../actions.toml):
+
+| Job | What it checks |
+|---|---|
+| `build` | The pinned OrthLib and Cubature JARs (built at their commits or taken from Workbench's pin cache, and refused unless they are the pinned bytes), the build, and the tests of every module |
+| `mixins` | Quadrature's Mixins applied to the game's classes offline by OrthLib's `mixinkit`, strictly, so that an injector that hooks nothing fails: by development names, then from the shipped JAR through its refmap to the classes renamed to production names; no `@Shadow` (`tools/mixin_check.py --refmap`) |
+| `shaders` | Every GLSL stage the mod's classes hold, written out without a game (`./gradlew dumpShaders`) and compiled by glslang (`./gradlew validateShaders`) |
+| `tools` | The tests of the Python tools in `tools/` |
+
+```powershell
+wb run ci.run project=quadrature                                            # HEAD
+wb run ci.run project=quadrature commit=worktree checkout=<linked worktree>  # a working tree as it would be committed
+wb run ci.status project=quadrature
+```
+
+A changed program is validated this way before it runs on a GPU. Nothing in these jobs starts
+the game: game runs are plans on the GPU host.
 
 ## Capturing
 

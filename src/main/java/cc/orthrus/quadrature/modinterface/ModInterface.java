@@ -14,8 +14,8 @@ import net.minecraft.world.World;
 /**
  * What Quadrature reads of the render interface mods declare through (OrthLib's, D25; PLAN item P3-B2), in
  * Quadrature's own terms: declared layers, bloom kinds and emissive contributions, and the calls a provider makes
- * back. It names nothing of OrthLib's, whose classes need Java 26: the bridge that implements it is compiled apart
- * and loaded only where OrthLib is installed (D26). {@link #NONE} declares nothing.
+ * back. It names nothing of OrthLib's: the bridge that implements it is a source set of its own, loaded only where
+ * OrthLib is installed (D26). {@link #NONE} declares nothing.
  */
 public interface ModInterface {
 

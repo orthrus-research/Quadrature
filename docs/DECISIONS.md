@@ -36,12 +36,15 @@ message that names the cause and the remedy. One case has no screen: with Cleanr
 compatibility profile turned off, the game itself aborts during startup before any screen
 exists. There Quadrature writes the cause to the log, and that is accepted as sufficient.
 
-**D7. Platform: OpenGL 4.6 compatibility profile, NVIDIA GPUs, Cleanroom, Java 25.**
+**D7. Platform: OpenGL 4.6 compatibility profile, NVIDIA GPUs, Cleanroom, Java 26.**
 Cleanroom requests OpenGL 4.6 with the compatibility profile by default. The compatibility
 profile lets the game's and other mods' fixed-function drawing run inside Quadrature's frame
 unchanged. Only NVIDIA GPUs are supported, which means tested and promised; the design
 itself stays vendor-neutral (D8). The frame is drawn and presented through OpenGL;
 a Vulkan device is opened beside it only to evaluate DLSS on images the two share (D21).
+Java is Temurin 26.0.2.1+1, the one JDK that builds, tests and runs every project of ours,
+OrthLib and Cubature among them (the user's decision of 2026-11-21: the most advanced of those
+in use); the mod's class files are Java 26's.
 
 **D11. The GPU floor is NVIDIA's Turing generation (RTX 20 series) with 8 GB.**
 Turing is the first generation with mesh shaders and variable-rate shading available in
@@ -243,14 +246,12 @@ own terrain does not draw for instance, gets OrthLib's plain drawing. Quadrature
 bloom styles are retired, and its strength, base, limits and radius carry over as each bloom kind's
 parameters (the user's decision of 2026-11-21).
 
-**D26. The bridge to OrthLib is compiled by Java 26's compiler, for Java 25.**
-OrthLib's classes are Java 26's; Quadrature's stay Java 25's (D7). The few classes that implement
-OrthLib's render interface are a source set of their own, compiled by Java 26's compiler for Java 25,
-which reads OrthLib's classes without the warning on each that Java 25's compiler gives and writes
-class files of the same version as the rest. Nothing else names an OrthLib type: the bridge is reached
-by name only where OrthLib is installed, so a game without OrthLib loads none of it, and a game with
-OrthLib runs on the Java 26 OrthLib needs. The JDK that builds OrthLib's pinned JAR and compiles the
-bridge is pinned beside Java 25 in `platform.json`.
+**D26. The bridge to OrthLib is a source set of its own.**
+The few classes that implement OrthLib's render interface are a source set of their own, compiled
+against OrthLib's JAR, which `platform.json` pins by commit and hash beside Cubature's. Nothing else
+names an OrthLib type: the bridge is reached by name only where OrthLib is installed, so a game
+without OrthLib loads none of it. OrthLib's pinned JAR is built, and the bridge compiled, by the one
+JDK of D7.
 
 **D27. Bloom is a chain of halvings and doublings over a weighted source.**
 Quadrature's bloom (D25) is Mittring's recurrence with Jimenez's filters (research R4, 7c): a

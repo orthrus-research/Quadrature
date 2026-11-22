@@ -9,6 +9,13 @@ version = rootProject.version
 base.archivesName = 'quadrature-nvidia'
 
 def lwjgl = rootProject.platform.cleanroom.lwjgl
+// LWJGL's native library for the system the tests run on.
+def lwjglNatives = {
+    def system = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+    def arm = System.getProperty('os.arch') in ['aarch64', 'arm64']
+    def name = system.startsWith('windows') ? 'windows' : system.startsWith('mac') ? 'macos' : 'linux'
+    "natives-${name}${arm ? '-arm64' : ''}"
+}()
 
 configurations {
     // The Vulkan binding travels inside the module's JAR; nothing else does.
@@ -24,12 +31,12 @@ dependencies {
     compileOnly "org.lwjgl:lwjgl:${lwjgl}"
     compileOnly "org.lwjgl:lwjgl-opengl:${lwjgl}"
     embedded "org.lwjgl:lwjgl-vulkan:${lwjgl}"
-    // The module's tests need no GPU, but LWJGL's memory functions need its native library; the module is
-    // Windows-only, as its Win32 handles are.
+    // The module is Windows-only, as its Win32 handles are, but its tests need no GPU and no Windows: only
+    // LWJGL's memory functions, which need its native library for the system running them.
     testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation "org.lwjgl:lwjgl:${lwjgl}"
-    testRuntimeOnly "org.lwjgl:lwjgl:${lwjgl}:natives-windows"
+    testRuntimeOnly "org.lwjgl:lwjgl:${lwjgl}:${lwjglNatives}"
 }
 
 test {

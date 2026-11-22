@@ -106,6 +106,14 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   measures, chosen from Quadrature's own repeatability measurements.
 - Added: 2026-11-13
 
+### Shader validation
+- Code: `tools/shaders/DumpShaders.java`; `build.gradle` (`dumpShaders`, `validateShaders`)
+- Source: original. Facts used: glslang, the Khronos reference compiler, run as a tool on the
+  stages written out.
+- Taken: nothing. Finding the stages by a version line among a class's constants and naming each
+  stage by what it declares or writes are this project's own.
+- Added: 2026-11-21
+
 ### Stage times by view
 - Code: `tools/stage_views.py`
 - Source: original. Facts used: the client log's own stage report and the tour launcher's

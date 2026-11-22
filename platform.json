@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "id": "quadrature-java25-cleanroom-0.7.14-alpha",
+  "id": "quadrature-java26-cleanroom-0.7.14-alpha",
   "java": {
-    "major": 25,
-    "runtimeVersion": "25.0.5+8-LTS",
+    "major": 26,
+    "runtimeVersion": "26.0.2.1+1",
     "vendor": "Eclipse Adoptium"
   },
   "cleanroom": {
@@ -13,11 +13,6 @@
   "cleanroomGradle": {
     "version": "0.23.0"
   },
-  "orthlibJava": {
-    "major": 26,
-    "runtimeVersion": "26.0.2.1+1",
-    "vendor": "Eclipse Adoptium"
-  },
   "orthlib": {
     "version": "0.5.0-dev",
     "commit": "0c2995e6c1d838be8c2b4975eec68b923eb0f1c4",
@@ -26,9 +21,9 @@
   },
   "cubature": {
     "version": "1.12.2-0.1.4.0",
-    "commit": "a970a130582015ce3fc0dcf5a4f68a03455505d9",
-    "jar": "Cubature-1.12.2-0.1.4.0-a970a130-cleanroom.jar",
-    "sha256": "2b5a125fb92a9459ecf333945c191ffa3fbc1b36325cf0067db6b0d50d952e7c"
+    "commit": "a3536c322b4c164d5a33f2fa7b44a022b6b49fee",
+    "jar": "Cubature-1.12.2-0.1.4.0-a3536c32-cleanroom.jar",
+    "sha256": "d982ff7eccf0d9ca93d3018cd0e283aeeff7cedc49dfcb0bda5c3c15758dea40"
   },
   "graphics": {
     "api": "OpenGL",

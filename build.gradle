@@ -44,15 +44,59 @@ java {
 
 evaluationDependsOn(':core')
 
-ext.cubaturePin = file("pins/${platform.cubature.jar}")
-ext.orthlibPin = file("pins/${platform.orthlib.jar}")
+// The JARs of the sibling builds the mod compiles against, pinned in platform.json by commit and hash, lie in pins/,
+// which is not in the repository, or in the folder -PpinsDir names (Workbench's CI keeps them with its run).
+ext.pinsDir = file(providers.gradleProperty('pinsDir').getOrElse('pins'))
+ext.cubaturePin = new File(pinsDir, platform.cubature.jar)
+ext.orthlibPin = new File(pinsDir, platform.orthlib.jar)
 ext.sha256Of = { File file ->
     java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
 }
+// Workbench's cache of pinned files on this machine, each named by its SHA-256 (WB_PIN_CACHE, set in every CI job): a
+// pinned JAR is built once a machine, then taken from there.
+ext.pinCache = providers.environmentVariable('WB_PIN_CACHE').filter { !it.isEmpty() }.map { new File(it) }.getOrNull()
+ext.replaceWith = { File source, File target ->
+    target.parentFile.mkdirs()
+    def partial = new File(target.parentFile, ".${target.name}.${ProcessHandle.current().pid()}.part")
+    java.nio.file.Files.copy(source.toPath(), partial.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    java.nio.file.Files.move(partial.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+}
+// True when the pinned JAR is in place without a build: the pins folder holds its bytes, or the pin cache gives them.
+ext.placePin = { pin, File jar ->
+    if (jar.isFile() && sha256Of(jar) == pin.sha256) {
+        logger.lifecycle("${jar} holds the pinned bytes.")
+        return true
+    }
+    def cached = pinCache == null ? null : new File(pinCache, pin.sha256 as String)
+    if (cached == null || !cached.isFile() || sha256Of(cached) != pin.sha256) {
+        return false
+    }
+    replaceWith(cached, jar)
+    logger.lifecycle("${jar} taken from the pin cache.")
+    return true
+}
+// A JAR built with the pinned bytes is kept in the pin cache.
+ext.cachePin = { pin, File jar ->
+    def stored = pinCache == null ? null : new File(pinCache, pin.sha256 as String)
+    if (stored != null && !stored.isFile() && sha256Of(jar) == pin.sha256) {
+        replaceWith(jar, stored)
+        logger.lifecycle("${jar.name} kept in the pin cache.")
+    }
+}
+// A sibling's Gradle wrapper as a command: the batch file on Windows; elsewhere the script, run by sh, since a checkout
+// need not mark it executable.
+ext.wrapperCommand = { File directory ->
+    System.getProperty('os.name').startsWith('Windows') ? [new File(directory, 'gradlew.bat').path]
+        : ['sh', new File(directory, 'gradlew').path]
+}
+// The last lines of a sibling build's log, for the failure that names it: a CI run's logs go with its work folder.
+ext.logTail = { File log ->
+    def lines = log.isFile() ? log.readLines('UTF-8') : []
+    (["Last lines of ${log}:"] + lines.takeRight(60)).join(System.lineSeparator())
+}
 
-// The bridge to OrthLib's render interface (PLAN item P3-B2): OrthLib's classes are Java 26's, which Java 25's compiler
-// reads only with a warning a class, so the few classes that implement its interface are compiled by Java 26's compiler,
-// for Java 25 like the rest, and loaded only where OrthLib is installed (D26).
+// The bridge to OrthLib's render interface (PLAN item P3-B2): the few classes that implement its interface are a source
+// set of their own, compiled against the pinned OrthLib JAR and loaded only where OrthLib is installed (D26).
 sourceSets {
     // Its sources lie where Gradle looks for a source set of this name: src/orthlib/java.
     orthlib
@@ -62,8 +106,8 @@ dependencies {
     implementation cleanroom.userdev(cleanroom_version)
     implementation project(':core')
     // Cubature's public API, for the cube source. Compile only: Cubature supplies it at runtime.
-    // The JAR is pinned in platform.json by commit and hash and kept in pins/, which is not in the
-    // repository. Instances are prepared with the same file, so the build and the game read one JAR.
+    // The JAR is pinned in platform.json by commit and hash and kept in the pins folder, which is not
+    // in the repository. Instances are prepared with the same file, so the build and the game read one JAR.
     compileOnly files(cubaturePin)
     orthlibCompileOnly sourceSets.main.output
     orthlibCompileOnly files(orthlibPin)
@@ -71,16 +115,7 @@ dependencies {
 // The bridge sees everything the mod compiles against.
 configurations.orthlibCompileOnly.extendsFrom(configurations.compileClasspath)
 
-tasks.named('compileOrthlibJava') {
-    def orthlibJava = platform.orthlibJava
-    javaCompiler = javaToolchains.compilerFor {
-        languageVersion = JavaLanguageVersion.of(orthlibJava.major as int)
-        vendor = JvmVendorSpec.ADOPTIUM
-    }
-    // Class files for the platform's Java, as every other class of the mod's.
-    options.release = platform.java.major as int
-    dependsOn 'verifyOrthLib'
-}
+tasks.named('compileOrthlibJava') { dependsOn 'verifyOrthLib' }
 
 // The pinned OrthLib JAR is checked when the bridge compiles against it, as Cubature's is.
 tasks.register('verifyOrthLib') {
@@ -101,27 +136,21 @@ tasks.register('verifyOrthLib') {
     }
 }
 
-// Builds the OrthLib JAR for pins/ at the commit platform.json pins (-PorthlibCommit to move the pin), from the
-// sibling checkout (or -PorthlibCheckout), in a worktree of that checkout that is removed after, on the Java that
-// platform.json names for OrthLib. Prints the commit, JAR name and hash to record in platform.json.
+// Builds the OrthLib JAR for the pins folder at the commit platform.json pins (-PorthlibCommit to move the pin), from
+// the sibling checkout (or -PorthlibCheckout), in a worktree of that checkout that is removed after, on the JDK that
+// runs this build (platform.json's). Prints the commit, JAR name and hash to record in platform.json. The pinned
+// commit is not built again while the pins folder holds its bytes or the pin cache has them.
 tasks.register('refreshOrthLib') {
     def pin = platform.orthlib
-    def bridge = platform.orthlibJava
     def named = providers.gradleProperty('orthlibCheckout').map { file(it) }
     def root = rootDir
     def wanted = providers.gradleProperty('orthlibCommit').getOrElse(pin.commit)
     def scratch = layout.buildDirectory.dir('orthlib-pin').get().asFile
-    def launcher = javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(bridge.major as int)
-        vendor = JvmVendorSpec.ADOPTIUM
-    }
-    def pins = file('pins')
+    def javaHome = System.getProperty('java.home')
+    def pins = pinsDir
     doLast {
-        def javaHome = launcher.get().metadata.installationPath.asFile
-        def runtime = launcher.get().metadata.javaRuntimeVersion
-        if (runtime != bridge.runtimeVersion) {
-            throw new GradleException("The Java ${bridge.major} toolchain found is ${runtime}; platform.json names " +
-                "${bridge.runtimeVersion}.")
+        if (wanted == pin.commit && placePin(pin, orthlibPin)) {
+            return
         }
         def common = new ProcessBuilder('git', '-C', root.path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
             .start()
@@ -148,27 +177,30 @@ tasks.register('refreshOrthLib') {
         def (added, addText) = git('worktree', 'add', '--detach', work.path, commit)
         if (added != 0) { throw new GradleException("git worktree add failed: ${addText}") }
         try {
-            def gradlew = new File(work, System.getProperty('os.name').startsWith('Windows') ? 'gradlew.bat' : 'gradlew')
-            def builder = new ProcessBuilder([gradlew.path, 'assemble', '--no-daemon', '--no-watch-fs', '--console=plain',
-                    "-Porg.gradle.java.installations.paths=${javaHome}"]*.toString())
+            def builder = new ProcessBuilder((wrapperCommand(work) + ['assemble', '--no-daemon', '--no-watch-fs',
+                    '--console=plain'])*.toString())
                 .directory(work).redirectErrorStream(true)
             builder.redirectOutput(ProcessBuilder.Redirect.appendTo(log))
-            builder.environment().put('JAVA_HOME', javaHome.path)
-            builder.environment().put('ORTHLIB_JAVA_HOME', javaHome.path)
+            builder.environment().put('JAVA_HOME', javaHome)
+            builder.environment().put('ORTHLIB_JAVA_HOME', javaHome)
             def code = builder.start().waitFor()
-            if (code != 0) { throw new GradleException("OrthLib's build failed in ${work} (exit ${code}); see ${log}") }
+            if (code != 0) {
+                logger.error(logTail(log))
+                throw new GradleException("OrthLib's build failed in ${work} (exit ${code}); see ${log}")
+            }
             def built = new File(work, 'build/libs').listFiles().findAll { it.name ==~ /orthlib-[^-]+(-dev)?\.jar/ }
             if (built.size() != 1) { throw new GradleException("Expected one OrthLib JAR in the build, found ${built}") }
             def version = (built[0].name =~ /^orthlib-(.+)\.jar$/)[0][1]
             def name = "orthlib-${version}-${commit.take(8)}.jar"
             def jar = new File(pins, name)
-            pins.mkdirs()
-            java.nio.file.Files.copy(built[0].toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            replaceWith(built[0], jar)
             def hash = sha256Of(jar)
             logger.lifecycle("Built ${jar}\n  commit ${commit}\n  jar ${name}\n  sha256 ${hash}")
-            logger.lifecycle(commit == pin.commit && hash == pin.sha256 && name == pin.jar ? 'This is what platform.json pins.'
+            def pinned = commit == pin.commit && hash == pin.sha256 && name == pin.jar
+            logger.lifecycle(pinned ? 'This is what platform.json pins.'
                 : "platform.json pins ${pin.jar} at commit ${pin.commit}, sha256 ${pin.sha256}: record the values above " +
                     'there to build against this JAR.')
+            if (pinned) { cachePin(pin, jar) }
         } finally {
             if (work.exists()) { git('worktree', 'remove', '--force', work.path) }
             git('worktree', 'prune')
@@ -198,10 +230,12 @@ tasks.register('verifyCubature') {
 }
 tasks.named('compileJava') { dependsOn 'verifyCubature' }
 
-// Builds the Cubature JAR for pins/ at the commit platform.json pins (-PcubatureCommit to move the pin),
-// from the sibling checkout (or -PcubatureCheckout), in a worktree of that checkout that is removed after:
+// Builds the Cubature JAR for the pins folder at the commit platform.json pins (-PcubatureCommit to move the
+// pin), from the sibling checkout (or -PcubatureCheckout), in a worktree of that checkout that is removed after:
 // what the checkout has out or changed plays no part. The commit's own compile-only inputs are fetched
-// into the worktree and named to its build. Prints the commit, JAR name and hash to record in platform.json.
+// into the worktree (by -Ppython, default python, or python3 off Windows) and named to its build. Prints the
+// commit, JAR name and hash to record in platform.json. The pinned commit is not built again while the pins
+// folder holds its bytes or the pin cache has them.
 tasks.register('refreshCubature') {
     def pin = platform.cubature
     def named = providers.gradleProperty('cubatureCheckout').map { file(it) }
@@ -209,8 +243,13 @@ tasks.register('refreshCubature') {
     def wanted = providers.gradleProperty('cubatureCommit').getOrElse(pin.commit)
     def scratch = layout.buildDirectory.dir('cubature-pin').get().asFile
     def javaHome = System.getProperty('java.home')
-    def pins = file('pins')
+    def python = providers.gradleProperty('python')
+        .getOrElse(System.getProperty('os.name').startsWith('Windows') ? 'python' : 'python3')
+    def pins = pinsDir
     doLast {
+        if (wanted == pin.commit && placePin(pin, cubaturePin)) {
+            return
+        }
         // The sibling of the main checkout, wherever this worktree of Quadrature sits.
         def common = new ProcessBuilder('git', '-C', root.path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
             .start()
@@ -225,6 +264,7 @@ tasks.register('refreshCubature') {
             builder.environment().remove('RIVEN_WORKSPACE')
             def code = builder.start().waitFor()
             if (code != 0) {
+                logger.error(logTail(log))
                 throw new GradleException("${command.join(' ')} failed in ${directory} (exit ${code}); see ${log}")
             }
         }
@@ -255,11 +295,10 @@ tasks.register('refreshCubature') {
         def (added, addText) = git('worktree', 'add', '--detach', work.path, commit)
         if (added != 0) { throw new GradleException("git worktree add failed: ${addText}") }
         try {
-            def gradlew = new File(work, "cleanroom/${System.getProperty('os.name').startsWith('Windows') ? 'gradlew.bat' : 'gradlew'}")
             def inputs = new File(work, 'cleanroom/build-inputs')
-            run(['python', '-B', 'tools/fetch_build_inputs.py', '--target', inputs.path], work, log, [:])
-            run([gradlew.path, 'assemble', '--no-daemon', '--no-watch-fs', '--console=plain',
-                 "-Porg.gradle.java.installations.paths=${javaHome}", "-PcubicBuildInputs=${inputs.path}"],
+            run([python, '-B', 'tools/fetch_build_inputs.py', '--target', inputs.path], work, log, [:])
+            run(wrapperCommand(new File(work, 'cleanroom')) + ['assemble', '--no-daemon', '--no-watch-fs', '--console=plain',
+                 "-PcubicBuildInputs=${inputs.path}"],
                 new File(work, 'cleanroom'), log, [JAVA_HOME: javaHome])
             def built = new File(work, 'cleanroom/build/cleanroom/libs').listFiles()
                 .findAll { it.name ==~ /Cubature-.+-cleanroom\.jar/ }
@@ -268,13 +307,14 @@ tasks.register('refreshCubature') {
             def version = (built[0].name =~ /^Cubature-(.+)-cleanroom\.jar$/)[0][1]
             def name = "Cubature-${version}-${commit.take(8)}-cleanroom.jar"
             def jar = new File(pins, name)
-            pins.mkdirs()
-            java.nio.file.Files.copy(built[0].toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            replaceWith(built[0], jar)
             def hash = sha256Of(jar)
             logger.lifecycle("Built ${jar}\n  commit ${commit}\n  jar ${name}\n  sha256 ${hash}")
-            logger.lifecycle(commit == pin.commit && hash == pin.sha256 && name == pin.jar ? 'This is what platform.json pins.'
+            def pinned = commit == pin.commit && hash == pin.sha256 && name == pin.jar
+            logger.lifecycle(pinned ? 'This is what platform.json pins.'
                 : "platform.json pins ${pin.jar} at commit ${pin.commit}, sha256 ${pin.sha256}: record the values above " +
                     'there to build against this JAR.')
+            if (pinned) { cachePin(pin, jar) }
         } finally {
             drop()
         }
@@ -338,6 +378,55 @@ sourcesJar {
 }
 
 tasks.named('check') { dependsOn ':core:check' }
+
+// Shader validation without a game or a GPU, for every change to a program before it runs on one: dumpShaders writes
+// each GLSL stage the mod's classes hold (tools/shaders/DumpShaders.java) into build/shaders, or the folder -PshaderDir
+// names, and validateShaders compiles every one with glslang (glslangValidator on the path, or -PglslangValidator),
+// with the NVIDIA module's Vulkan stages as SPIR-V.
+sourceSets {
+    shaderDump { java.srcDirs = ['tools/shaders'] }
+}
+def shaderDir = providers.gradleProperty('shaderDir').map { file(it) }.orElse(layout.buildDirectory.dir('shaders').map { it.asFile })
+tasks.register('dumpShaders', JavaExec) {
+    description = 'Writes every GLSL stage the mod holds to build/shaders (or -PshaderDir).'
+    classpath = sourceSets.shaderDump.output + sourceSets.main.runtimeClasspath
+    mainClass = 'DumpShaders'
+    def out = shaderDir
+    def classes = sourceSets.main.output.classesDirs
+    argumentProviders.add({ [out.get().path] + classes.files*.path } as CommandLineArgumentProvider)
+    // Stages an earlier dump wrote go first; nothing else in the folder is touched.
+    doFirst { out.get().listFiles()?.findAll { it.name ==~ /.+\.(vert|frag|comp)/ }?.each { it.delete() } }
+}
+tasks.register('validateShaders') {
+    description = 'Compiles every GLSL stage the mod holds with glslang.'
+    dependsOn 'dumpShaders'
+    def out = shaderDir
+    def validator = providers.gradleProperty('glslangValidator').getOrElse('glslangValidator')
+    def vulkan = fileTree('quadrature-nvidia/src/main/glsl') { include '*.vert', '*.frag', '*.comp' }
+    doLast {
+        def compile = { List command ->
+            def process = new ProcessBuilder(command*.toString()).redirectErrorStream(true).start()
+            def text = process.inputStream.text.trim()
+            [process.waitFor(), text]
+        }
+        def failed = []
+        def stages = (out.get().listFiles() ?: []).findAll { it.name ==~ /.+\.(vert|frag|comp)/ }.sort { it.name }
+        stages.each { stage ->
+            def (code, text) = compile([validator, stage.path])
+            if (code != 0) { failed << "${stage.name}:\n${text}" }
+        }
+        def spirv = new File(temporaryDir, 'stage.spv')
+        vulkan.files.sort { it.name }.each { stage ->
+            def (code, text) = compile([validator, '-V', '-o', spirv.path, stage.path])
+            if (code != 0) { failed << "${stage.name} (Vulkan):\n${text}" }
+        }
+        def count = stages.size() + vulkan.files.size()
+        if (failed) {
+            throw new GradleException("glslang refused ${failed.size()} of ${count} stages:\n${failed.join('\n')}")
+        }
+        logger.lifecycle("glslang compiled all ${count} stages (${stages.size()} from the mod's classes in ${out.get()}).")
+    }
+}
 
 cleanroom {
     runs {

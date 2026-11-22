@@ -21,7 +21,7 @@ level-of-detail mods.
 | | |
 |---|---|
 | World | Cubic worlds (Cubature) |
-| Loader | Cleanroom, Java 25 |
+| Loader | Cleanroom, Java 26 |
 | Graphics API | OpenGL 4.6, compatibility profile |
 | GPU | NVIDIA, Turing generation (RTX 20 series) or later, with at least 8 GB of memory |
 | Driver | NVIDIA R580 branch or later; a warning below the current production branch |
@@ -33,11 +33,17 @@ so support can widen later without rewriting what sits above it; see
 
 ## Building
 
-Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 25):
+Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 26.0.2.1+1):
 
 ```sh
 ./gradlew build
 ```
+
+Workbench runs the checks from a clean clone, `wb run ci.run project=quadrature`: the build
+with every module's tests, the offline Mixin check, shader validation and the tool tests
+([actions.toml](actions.toml); [VERIFICATION.md](docs/VERIFICATION.md#checks) says what each
+checks). `./gradlew validateShaders` compiles every GLSL stage the mod holds with glslang
+(`glslangValidator` on the path) without a game.
 
 `./gradlew runClient` starts a development client. Adding `-PdevWorld=<seconds>` enters a
 flat development world unattended, logs each stage's CPU and GPU time every five seconds,
@@ -51,17 +57,21 @@ development stage of Quadrature's own inside the world pass.
 Own terrain needs a cubic world, so it runs in an instance with Cubature, not in the development
 client; without Cubature the game stops at loading with a message, unless started with
 `-Dquadrature.terrain=game`. The build takes Cubature's API from one
-JAR, pinned in `platform.json` by commit and hash and kept in `pins/`, which is not in the
-repository; the build stops if the file is missing or is not the one pinned. `./gradlew
-refreshCubature` builds that JAR at the pinned commit (`-PcubatureCommit=<commit>` to move the
-pin) in a worktree of the sibling checkout (`../Cubature`), with the commit's own compile-only
-inputs, so what the checkout has out plays no part; it prints the commit and hash to record.
-Instances are prepared with the same file. Adding `-PtestMemoryFloorMiB=<n>`
+JAR, pinned in `platform.json` by commit and hash and kept in `pins/` (or the folder `-PpinsDir`
+names), which is not in the repository; the build stops if the file is missing or is not the
+one pinned. `./gradlew refreshCubature` builds that JAR at the pinned commit
+(`-PcubatureCommit=<commit>` to move the pin) in a worktree of the sibling checkout
+(`../Cubature`, or `-PcubatureCheckout`), with the commit's own compile-only inputs, so what
+the checkout has out plays no part; it prints the commit and hash to record. `./gradlew
+refreshOrthLib` does the same for OrthLib's JAR, which the bridge to OrthLib's render interface
+compiles against. Neither builds the pinned commit again while the pins folder holds its bytes,
+or while Workbench's pin cache (`WB_PIN_CACHE`) has them. Instances are prepared with the same
+file. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 
 `platform.json` is the one place platform versions are pinned: Java, Cleanroom,
-CleanroomGradle, Cubature and the graphics floor. The root module is the Minecraft host; `core` has
+CleanroomGradle, OrthLib, Cubature and the graphics floor. The root module is the Minecraft host; `core` has
 no Minecraft dependency.
 
 ## Documents

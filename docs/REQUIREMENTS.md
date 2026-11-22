@@ -65,7 +65,7 @@ measurement) and its date.
 - Read the platform profile once into a capability set.
 - Run with a debug context in development, with driver messages treated as test failures.
 - Define which thread owns the context and how other threads hand work to it.
-- Define how native memory is allocated, bounded and freed under Java 25.
+- Define how native memory is allocated, bounded and freed under Java 26.
 
 **Research**
 - Cleanroom's context creation (SDL 3, its LWJGL layers): what Quadrature can rely on and
@@ -74,7 +74,7 @@ measurement) and its date.
   Windows and Linux, and how total GPU memory is read reliably at startup.
 - NVIDIA driver behavior that affects design: threaded optimization, shader compile
   stutter, buffer orphaning, debug output cost.
-- Java 25 options for native memory and GL calls (LWJGL 3 bindings, the foreign function
+- Java 26 options for native memory and GL calls (LWJGL 3 bindings, the foreign function
   and memory API) and their per-call cost.
 
 ## 2. Pass graph and frame
@@ -311,7 +311,7 @@ measurement) and its date.
 **Must**
 - Separate modules: a core with no Minecraft dependency, the Minecraft host, shaders, and
   test tooling.
-- Build on Java 25 with CleanroomGradle; pin every platform version in one manifest.
+- Build on Java 26 with CleanroomGradle; pin every platform version in one manifest.
 - Depend on Cubature and OrthLib through their published interfaces only.
 
 **Research**

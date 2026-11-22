@@ -126,8 +126,8 @@ with no switches and textures held still, all 17 forest views pass against the g
 baseline flight holds the game's frame times ([VERIFICATION.md](VERIFICATION.md), own terrain by default; the
 river in view 07). Both preview renderers that pick by depth, GregTech's and ModularUI's, pick the same blocks
 in reversed depth (VERIFICATION, mods that read depth back). Quadrature takes over the game's chunk system in
-cubic worlds (D24, item 12g), and Cubature's integration with that system is deleted (Cubature a970a130, which
-Quadrature and Riven pin): every client that draws a cubic world needs Quadrature, and one started without it under
+cubic worlds (D24, item 12g), and Cubature's integration with that system is deleted (Cubature a970a130 and
+later, which Quadrature and Riven pin): every client that draws a cubic world needs Quadrature, and one started without it under
 `-Dcubature.clientWithoutRenderer=true` draws heights 0 to 255 as the game would in a world that is not cubic.
 
 | Step | Status |

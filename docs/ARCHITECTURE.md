@@ -23,7 +23,7 @@ status:
 | NVIDIA-supported, vendor-neutral by design (D8) | Every stage has a core OpenGL 4.6 technique; a vendor technique is an optional one beside it, and no tier needs one. GPU memory and the driver's version are read through interfaces with a source per vendor. |
 | The game's and mods' renderers are hosted, not rewritten | The frame must contain stages Quadrature does not author, and survive the GL state they leave. |
 | Cubic worlds only (D3) | Terrain is addressed by cube, in three dimensions, with no column assumptions. |
-| Java 25 on Cleanroom | One thread owns the context. Native memory and GL calls go through LWJGL 3.4's foreign-function backend. |
+| Java 26 on Cleanroom | One thread owns the context. Native memory and GL calls go through LWJGL 3.4's foreign-function backend. |
 | Measured baseline (D14) | Client render work in flight is about 6 ms per frame on the vanilla renderer and 2.5 ms on Celeritas, with the GPU a quarter used. The room is on the CPU side of the frame. |
 
 That last row sets the direction: move per-section decisions off the client thread and onto
@@ -1637,4 +1637,4 @@ descriptions only.
   https://onlinelibrary.wiley.com/doi/10.1111/cgf.15262
 - Khronos, `glQueryCounter` reference: https://registry.khronos.org/OpenGL-Refpages/gl4/html/glQueryCounter.xhtml
 - Lighthouse3D, OpenGL timer query: https://www.lighthouse3d.com/tutorials/opengl-timer-query/
-- OpenJDK, JDK 25: https://openjdk.org/projects/jdk/25
+- OpenJDK, JDK 26: https://openjdk.org/projects/jdk/26
