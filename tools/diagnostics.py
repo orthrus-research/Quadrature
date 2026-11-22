@@ -2,7 +2,7 @@
 allocation, compilation and waits to the mod whose code it was in.
 
     python tools/diagnostics.py check PLAN               # preflight, no game: exit 1 on any problem
-    python tools/diagnostics.py run PLAN [--dry-run]     # only as the command of a queued GPU turn
+    python tools/diagnostics.py run PLAN [--dry-run]     # only under the GPU lease, as a Workbench lab.script
     python tools/diagnostics.py attribute RUN_DIR [--cores N]
     python tools/diagnostics.py report RUN_DIR [RUN_DIR ...] [--markdown OUT.md] [--json OUT.json]
 
@@ -59,7 +59,7 @@ Plan:
         "cornerRadius": 24, "turnRate": 120, "laps": 1, "settleSeconds": 60, "stationarySeconds": 5,
         "holdSeconds": 10}, "options": "-D..."}]}
 
-Exit 0, 1 on a failed check, run or analysis, 2 on a usage error or a run outside a queued turn.
+Exit 0, 1 on a failed check, run or analysis, 2 on a usage error or a run outside a GPU turn.
 """
 
 from __future__ import annotations
@@ -1243,7 +1243,8 @@ def run(plan_path: Path, dry: bool = False) -> int:
             print(f"{entry['label']}: {' '.join(command)}\n  JAVA_TOOL_OPTIONS={options}")
         return 0
     if not os.environ.get("CUBIC_LAB_TURN_LEASE"):
-        print("not inside a queued turn (no CUBIC_LAB_TURN_LEASE); start it through gpu_queue.py turn")
+        print("not inside a GPU turn (no CUBIC_LAB_TURN_LEASE); run it as a Workbench lab.script, "
+              "which holds the GPU lease")
         return 2
     problems = check(plan)
     if problems:

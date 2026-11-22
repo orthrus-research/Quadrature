@@ -11,15 +11,17 @@ patch, the events they subscribe to and the threads they start.
 
 ```powershell
 python tools/diagnostics.py check PLAN
-python ../Riven/tools/gpu_queue.py turn --lane near-terrain --note "..." --session <id> -- python tools/diagnostics.py run PLAN
+wb run lab.script script=<checkout>\tools\diagnostics.py 'args=["run", "PLAN"]'
 python tools/diagnostics.py attribute RUN_DIR
 python tools/diagnostics.py report RUN_DIR [RUN_DIR ...] --markdown report.md
 python tools/mod_index.py MODS_DIR [MODS_DIR ...] --json mods.json
 ```
 
-`run` refuses to start outside a queued GPU turn. `check`, `run` and `attribute` need `JAVA_HOME`
-set to a JDK whose `bin` holds `jfr` (the turn's command inherits it); `--cores` is the logical
-processor count of the machine that ran it (default: this one's).
+`run` plays on the GPU host and refuses to start outside a GPU turn: Workbench runs it as a lab
+script, under the machine's one GPU lease, from a folder the machine's lab configuration allows
+(`modules.lab.scripts`), and keeps its output. `check`, `run` and `attribute` need `JAVA_HOME`
+set to a JDK whose `bin` holds `jfr` (Workbench's host routines set it to Temurin 26.0.2.1+1);
+`--cores` is the logical processor count of the machine that ran it (default: this one's).
 
 ## Plans
 

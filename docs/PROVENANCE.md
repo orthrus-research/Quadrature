@@ -100,7 +100,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Added: 2026-11-18
 
 ### Frame comparison
-- Code: `tools/frames.py`
+- Code: Workbench's `frames.compare`, `frames.measure` and `frames.check`, ported from this
+  project
 - Source: original.
 - Taken: nothing. Changed-pixel fraction and mean absolute difference are elementary
   measures, chosen from Quadrature's own repeatability measurements.
@@ -1003,7 +1004,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
 - Added: 2026-11-18
 
 ### Picture quality measures
-- Code: `tools/frames.py` (`ssim`, `psnr`, `edge_detail`, `quality`, `shift`)
+- Code: Workbench's `frames.quality`, with its frames module's `ssim`, `psnr`, `edge_detail` and
+  `shift`, ported from this project
 - Source: Wang, Bovik, Sheikh and Simoncelli, "Image quality assessment: from error visibility to
   structural similarity", IEEE Transactions on Image Processing 13(4), 2004 (the index, its
   Gaussian window of deviation 1.5 and its constants for 8-bit values); Guizar-Sicairos, Thurman

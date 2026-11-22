@@ -1,2 +1,1 @@
-numpy>=2
-pillow>=11
+# Quadrature's tools need only Python's standard library; Workbench's CI makes their environment from this file.

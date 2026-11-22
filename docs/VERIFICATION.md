@@ -2,7 +2,7 @@
 
 How rendered frames are captured and compared, and what is checked before a build reaches a GPU.
 This describes what exists; requirement 13 in [REQUIREMENTS.md](REQUIREMENTS.md) states what
-verification must eventually cover.
+verification must eventually cover. The commands are Workbench's (`wb run <command> key=value ...`).
 
 ## Checks
 
@@ -28,39 +28,48 @@ the game: game runs are plans on the GPU host.
 
 ## Capturing
 
-Frames come from Riven's launcher (`../Riven`, `tools/runtime.py`), which Quadrature reuses
-instead of duplicating:
+Frames come from game runs on the host's GPU, which Workbench runs as plans of lab routines
+under the machine's one GPU lease (`wb run plan.check plan=<plan>`, then `wb run plan.run
+plan=<plan>`). The lab's launcher is Riven's (`../Riven`, `tools/runtime.py`), which Quadrature
+reuses instead of duplicating:
 
-1. `prepare --name <fresh-name> --seed <seed> --scale <scale>` builds an instance and
-   records its inputs; `play` refuses the instance if they change. Adding
-   `--no-distant-horizons` leaves Distant Horizons out, so frames hold near terrain only.
-2. `play --name <name> --tour tools/tours/<tour>.json` starts a server and a client,
-   teleports through the tour's views, saves one screenshot per view, and closes both.
-   A tour fixes the time of day and the weather with its first view's commands.
+1. `lab.prepare` (`name`, `seed`, `scale`, and the launcher's arguments in `args`) builds an
+   instance and records its inputs; a play refuses the instance if they change. `lab.ensure`
+   builds the same instance from a template of its recipe and reuses one only for the same
+   recipe. Adding `--no-distant-horizons` to `args` leaves Distant Horizons out, so frames hold
+   near terrain only.
+2. `lab.play` (`name`, `tour` = `tools/tours/<tour>.json`, `window`, the client's JVM options
+   in `options`, a `label`) starts a server and a client, teleports through the tour's views,
+   saves one screenshot per view, and closes both. A tour fixes the time of day and the
+   weather with its first view's commands.
 
-Each run's frames land in a timestamped directory named by view.
+A play's frames, named by view, are its `<label>-captures` output, kept with the client's log.
+`lab.snapshot` keeps an instance's generated world and `lab.reset` puts it back, so that every
+run can start from one settled world.
 
 An instance that runs Quadrature is prepared with `--client-mod` naming Quadrature's built
-JAR and, for own terrain, `--cubic-artifact` naming the Cubature JAR in Quadrature's `pins/`:
-the one `platform.json` pins by commit and hash and the build compiles against. The game
-then runs the JAR the build read, and the instance records its hash.
+JAR and, for own terrain, `--cubic-artifact` naming the Cubature JAR `platform.json` pins by
+commit and hash, the one the build compiles against. A plan names every JAR it uses with its
+SHA-256 among its inputs, so `plan.check` refuses any other bytes. The game then runs the JAR
+the build read, and the instance records its hash.
 
 ## Comparing
 
-`tools/frames.py` needs the packages in `tools/requirements.txt`.
-
-```sh
-python tools/frames.py compare REFERENCE CANDIDATE --profile tools/comparison/repeat.json --out OUT
-python tools/frames.py measure RUN_A RUN_B [RUN_C ...]
-python tools/frames.py check RUN OTHER_RUN_OF_THE_INSTANCE
+```powershell
+wb run frames.compare reference=REFERENCE candidate=CANDIDATE profile=near --out OUT
+wb run frames.measure 'runs=["RUN_A", "RUN_B", "RUN_C"]'
+wb run frames.check run=RUN other=OTHER_RUN_OF_THE_INSTANCE
+wb run frames.quality reference=REFERENCE candidate=CANDIDATE
 ```
 
-`compare` matches frames by file name and exits 0 only if every frame passes. A pixel
-counts as changed when any channel differs by more than the profile's `channelThreshold`;
-a frame passes when its changed fraction and its mean absolute difference are within the
-profile's limits. A missing, extra or resized frame fails, and so does an empty comparison.
-With `--out` it writes `report.json` and, for each failed frame, the reference in gray with
-changed pixels in red.
+`compare` matches frames by file name and passes only if every frame passes; otherwise it
+settles as a finding that names the frames that failed. A pixel counts as changed when any
+channel differs by more than the profile's `channelThreshold`; a frame passes when its
+changed fraction and its mean absolute difference are within the profile's limits. A
+missing, extra or resized frame fails, and so does an empty comparison. It writes
+`report.json` and, for each failed frame, the reference in gray with changed pixels in red.
+The commands are deterministic, so Workbench keeps their results: the same frames under the
+same profile are scored once.
 
 `measure` reports the differences between repeated captures without judging them. It is
 how a profile's limits are set: a limit below the noise of two identical runs cannot pass.
@@ -78,9 +87,16 @@ same view.
 
 | Profile | Use |
 |---|---|
-| `tools/comparison/exact.json` | Frames must be identical |
-| `tools/comparison/near.json` | Near terrain only, no Distant Horizons: 0.1% changed, mean 0.05 |
-| `tools/comparison/repeat.json` | With Distant Horizons, settled: 2% changed, mean 1.0 |
+| `exact` | Frames must be identical |
+| `near` | Near terrain only, no Distant Horizons: 0.1% changed, mean 0.05 |
+| `repeat` | With Distant Horizons, settled: 2% changed, mean 1.0 |
+
+`profile` also takes the path of a profile of one's own: a JSON file with `channelThreshold`,
+`maxChangedFraction` and `maxMeanAbsolute`.
+
+`quality` scores frames meant to differ from a reference, such as a scaled picture against the
+native one: PSNR, structural similarity, and edge detail, the frame's mean luma gradient over the
+reference's.
 
 ## Stage times by view
 
@@ -104,65 +120,67 @@ mixes settled views with the loading between them.
 
 ## Recorded results
 
-Formal results are kept in one SQLite database, beside the run evidence and like it outside version
-control, through `tools/results.py` (`--db` or `QUADRATURE_RESULTS` names another file). A run records what ran (client jar, Cubature, Riven, options, tour, window,
-radius) and where (operating system, host, card and driver, the last two read from the client
-log's platform line), and its measurements one value a row: the tier benchmark's probes, each
-captured view's stage times and the per-frame scores of a `frames.py compare` report. A finding
-states a result in a sentence or two, is established, a hypothesis, refuted or superseded, and
-names the runs it rests on.
+Formal results are kept in Workbench's ledger, one database for the runs, findings and costs of
+every project. A run records what ran (client jar, Cubature, Riven, options, tour, window, radius)
+and where (operating system, host, card and driver), and its measurements one value a row: the
+tier benchmark's probes, each captured view's stage times (`tools/stage_views.py summary --json`)
+and the per-frame scores of a `frames.compare` report. A finding states a result in a sentence or
+two, is established, a hypothesis, refuted or superseded, and names the runs it rests on and the
+Workbench jobs whose evidence it keeps. The ledger holds every run and finding Quadrature recorded
+before it.
 
-```sh
-python tools/results.py add-run LABEL --client-log LOG --tour TOUR --tiers JSONL [--tiers-skip N] [run fields]
-python tools/results.py add-run LABEL --frames REPORT --against REFERENCE_LABEL
-python tools/results.py add-finding ID --title T --statement S --status established --runs A,B [--supersedes ID]
-python tools/results.py runs | findings | show LABEL_OR_ID
-python tools/results.py query "SELECT ..."
+```powershell
+wb run ledger.add-run label=LABEL 'fields={"card": "...", "tour": "..."}' 'measurements=[{"source": "stage", "view": "...", "metric": "...", "value": 0.0}]'
+wb run ledger.add-finding id=ID title=T statement=S status=established 'runs=["A", "B"]'
+wb run ledger.runs like=PATTERN
+wb run ledger.findings status=established
+wb run ledger.show ref=LABEL_OR_ID
+wb run ledger.query 'sql=SELECT ...'
 ```
 
-A tier benchmark record holds every tour an instance played; `--tiers-skip` leaves out the lines
-earlier tours wrote. `query` opens the database read-only and adds `median(x)`: a place's repeated
-probes carry the odd clock dip, which a mean takes in.
+A tier benchmark record holds every tour an instance played. `ledger.query` opens the ledger
+read-only and adds `median(x)`: a place's repeated probes carry the odd clock dip, which a mean
+takes in.
 
-The database also keeps what machines cost. A machine is ours or a rented host by the provider's
-machine id, with its specs (card, effective cores, CPU, memory, PCIe and memory bandwidth,
-network). An offer is a host's listing seen on the market at a moment, with its price; a rental
-holds each phase's time (to running, to SSH, upload, bootstrap, the plan's work, fetch), the bytes
-moved, its price when rented and once created, and its outcome; charges are what the provider
-billed, by instance, day and kind (GPU, disk, bandwidth). A run names its machine or rental.
+The ledger also keeps what machines cost, as Workbench's `vast` commands record it. A machine is
+ours or a rented host by the provider's machine id, with its specs (card, effective cores, CPU,
+memory, PCIe and memory bandwidth, network). An offer is a host's listing seen on the market at a
+moment, with its price; a rental holds each phase's time (to running, to SSH, upload, bootstrap,
+the plan's work, fetch), the bytes moved, its price when rented and once created, and its outcome;
+charges are what the provider billed, by instance, day and kind (GPU, disk, bandwidth). A run
+names its machine or rental.
 
-```sh
-python tools/results.py add-machine local NAME --gpu G --cpu-cores-effective N [spec fields]
-python tools/results.py add-offers SNAPSHOT | add-rental RECORD | add-charges CHARGES
-python tools/results.py link-run LABEL --machine PROVIDER:KEY | --rental PROVIDER:INSTANCE
-python tools/results.py costs
+```powershell
+wb run vast.market            # a market snapshot: each reference card's offers, asked three times
+wb run vast.charges days=7    # the charges billed in the last seven days
+wb run ledger.costs
+wb run ledger.calls since=2026-11-20
 ```
 
-The view `rental_cost` sets each rental's specs, time and price beside its estimated cost (time by
-price) and its billed cost; `run_cost` shares a rental's cost among its runs and counts the places
-each benchmarked, so the cost of a measurement can be compared across hosts. Offers are recorded with
-the provider's own field names.
+The view `ledger_rental_cost` sets each rental's specs, time and price beside its estimated cost
+(time by price) and its billed cost; `ledger_run_cost` shares a rental's cost among its runs and
+counts the places each benchmarked, so that the cost of a measurement can be compared across
+hosts. Offers are recorded with the provider's own field names.
 
-Every request made to the provider is kept in `api_call`: the time it was sent (UTC, to the
-millisecond), the endpoint, the request body (never a credential), the status, how long it took,
-and the response, compressed (`inflate(response)` gives its JSON). Each offer a listing returned is
-an observation at that time, with the price split as listed: the host's price for the card
-(`dph_base`), the default disk's hourly cost, the floor for an interruptible rental (`min_bid`)
-and discounts. `offer_price` adds the hour and weekday of each observation and the machine's specs
-and host; `price_change` lists each listing's changes of price or bid floor between consecutive
-observations. A model of the average price is a grouping of `offer_price`, for example by card,
-effective cores and hour:
+Every request made to the provider is kept in `ledger_api_call`: the time it was sent (UTC, to
+the millisecond), the endpoint, the request body (never a credential), the status, how long it
+took, and the response, compressed (`inflate(response)` gives its JSON). Each offer a listing
+returned is an observation at that time, with the price split as listed: the host's price for
+the card (`dph_base`), the default disk's hourly cost, the floor for an interruptible rental
+(`min_bid`) and discounts. `ledger_offer_price` adds the hour and weekday of each observation and
+the machine's specs and host; `ledger_price_change` lists each listing's changes of price or bid
+floor between consecutive observations. A model of the average price is a grouping of
+`ledger_offer_price`, for example by card, effective cores and hour:
 
 ```sql
 SELECT gpu, cpu_cores_effective >= 8 AS cores_8, hour, count(*) AS n, median(dph) AS dph, median(min_bid) AS bid
-FROM offer_price WHERE observed >= '2026-11-20' GROUP BY 1, 2, 3;
+FROM ledger_offer_price WHERE observed >= '2026-11-20' GROUP BY 1, 2, 3;
 ```
 
 The search samples: one request returns part of the matching offers and the next another part,
 so a snapshot asks each card several times. A listing changes price between observations minutes
 apart (a host's price and the interruptible floor both move), so a price series needs snapshots
-taken regularly. `prune-responses --before TIME` drops old response bodies and keeps the
-observations taken from them.
+taken regularly.
 
 ## Measured repeatability
 
@@ -462,7 +480,7 @@ Free blocks were then split and joined, pages made ahead of need, and placing ca
   1.79 ms; the cap stopped meshing in one frame of each run. A cap between meshes cannot
   bound one placement.
 - **The first game-drawn reference was retaken**: its view `04-cold_rainforest-near` was
-  captured facing elsewhere, which `frames.py check` names.
+  captured facing elsewhere, which `frames.check` names.
 
 Where that one placement's time goes was looked for on a fifth instance, with every write
 through the driver timed and those over 0.5 ms logged, and beside it a second way of
@@ -1079,7 +1097,7 @@ judge its picture.
 Measured 2026-11-19 on the RTX 3060 12 GB, driver 610.88, with the DLSS SDK 310.9.16's
 `nvngx_dlss.dll` and preset K, on one fresh instance at 2560x1440 with own terrain, over the
 scaler's short tour (three places far and near and the glowing golem, seven views), scored by
-`tools/frames.py quality` against own terrain at the output's size with both switches off, run in
+`frames.quality` against own terrain at the output's size with both switches off, run in
 the same instance and checked against its settling run. DLSS took the scaler's picture in every
 composite of its runs (17,950 at 0.67, 17,915 at 0.5), with the offset taken as the scaler makes
 it, x +1 and y +1.
@@ -1956,7 +1974,7 @@ kernel read. A kernel steered along edges by the structure tensor was measured b
 the same jar and declined (D23); its figures are kept as the comparison, marked *steered*. The
 short tour has seven views: six of the forest tour, three places far and near, and one of a
 glowing iron golem on a red team. Quality is scored against own terrain at the output's size
-with both switches off, by `tools/frames.py quality`: PSNR, structural similarity, and edge
+with both switches off, by `frames.quality`: PSNR, structural similarity, and edge
 detail, the frame's mean luma gradient over the native frame's.
 
 - **A first design failed**, on an instance before this one. It shrank every viewport of the
@@ -1972,7 +1990,8 @@ detail, the frame's mean luma gradient over the native frame's.
   at the still views, 29 or 30 a run, had a mean of at most 0.00005 px and a greatest of
   0.0001 px.
 - **Where the picture lands.** The global shift of each scaled view against the native one
-  (`tools/frames.py shift`) is 0.00 px in six of the seven views at 0.67 and at 0.77, the
+  (the `shift` measure of Workbench's frames module) is 0.00 px in six of the seven views at 0.67 and at
+  0.77, the
   golem's view among them, and in the last, a near view, 0.20 px down at 0.67 and 0.25 px down
   at 0.77, 0.05 px left at both; the steered kernel gave the same. The measure finds a real
   frame moved by a known fraction of a pixel to the twentieth of a pixel it resolves.
