@@ -587,7 +587,9 @@ The documentation leaves the background's brightness undefined; GTCEu: Reloaded'
 follows. Its default style (Unreal) also multiplies the summed levels by the strength before the blend
 multiplies by it again, and weighs its five levels 0.2 to 1.0 from the finest, so its glow is wider and
 about strength times brighter than the rule alone gives; one calibration gain set against its pictures
-(P3-V1) takes the brightness, and the width differs by design.
+(P3-V1) takes the brightness, and the width differs by design. P3-V1 found five levels short of its far
+halo and set six, the gain keeping the chain's response to a source of one color at its own (its level
+weights summed times the strength, 4.5: 9/7 at six levels).
 
 **7c.5 Cost. [M]** With RGBA16F levels the chain moves 4 + 9.33(1 - 4^(1-N)) bytes an output pixel,
 13.3 at five levels, and the source 14 a drawn pixel: T = (14 s^2 + 13.3) W H / B + (2N - 1) t_d.

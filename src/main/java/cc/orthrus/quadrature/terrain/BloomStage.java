@@ -42,8 +42,8 @@ import org.lwjgl.opengl.GL45;
  *
  * <p>{@code -Dquadrature.bloom=off} draws the emissive stage without glow; {@code =alternate} glows on the frames a mix
  * of the frame's number chooses, so the summary compares the two kinds of frame paired over one run.
- * {@code -Dquadrature.bloom.levels} (2 to 6, 5), {@code .gain} (1.5, {@link #CALIBRATED_GAIN}) and
- * {@code .brightnessWeighted} (false, for high dynamic range) set the chain.
+ * {@code -Dquadrature.bloom.levels} (2 to 6, 6), {@code .gain} (the calibrated gain for those levels, 9/7 at six:
+ * {@link #CALIBRATED_GAIN}) and {@code .brightnessWeighted} (false, for high dynamic range) set the chain.
  *
  * <p>Client thread. Objects are made on first use and remade when a size or the picture's framebuffer changes. Nothing
  * is read back from the driver while drawing: the stage binds the picture's framebuffer back by its name, and the
@@ -67,9 +67,10 @@ final class BloomStage {
     /**
      * The calibration gain (D27), set in P3-V1 against GTCEu: Reloaded's own glow. Its default style multiplies its
      * levels' weighted sum by the strength before its blend multiplies by the strength again; with the chain's levels
-     * weighed as its are ({@link BloomChain#levelWeight}), the gain that brings the two level is that strength, 1.5.
+     * weighed as its are ({@link BloomChain#levelWeight}), the gain keeps the chain's response to a source of one color
+     * at that product ({@link BloomChain#calibratedGain}): 9/7 at the six levels the chain makes by default.
      */
-    static final float CALIBRATED_GAIN = 1.5f;
+    static final float CALIBRATED_GAIN = (float) BloomChain.calibratedGain(LEVELS);
 
     private static float gain(String value) {
         try {

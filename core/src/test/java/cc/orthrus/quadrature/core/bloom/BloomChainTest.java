@@ -103,6 +103,14 @@ class BloomChainTest {
             assertEquals(weights[level], BloomChain.levelWeight(level, 5), 1e-12);
         }
         assertEquals(3.0, BloomChain.levelWeights(5), 1e-12);
+        // The calibration keeps the chain's response to one color at GTCEu: Reloaded's, 4.5, whatever the levels.
+        assertEquals(1.5, BloomChain.calibratedGain(5), 1e-12);
+        assertEquals(9.0 / 7.0, BloomChain.calibratedGain(6), 1e-12);
+        for (int levels = BloomChain.LEAST_LEVELS; levels <= BloomChain.MOST_LEVELS; levels++) {
+            assertEquals(BloomChain.REFERENCE_RESPONSE,
+                BloomChain.calibratedGain(levels) * BloomChain.levelWeights(levels), 1e-12);
+        }
+        assertEquals(6, BloomChain.DEFAULT_LEVELS);
         assertEquals(2, BloomChain.levels(1));
         assertEquals(6, BloomChain.levels(9));
         assertEquals(0.5f, BloomChain.radius(0.1f));

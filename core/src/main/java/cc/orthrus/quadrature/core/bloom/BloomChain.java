@@ -18,7 +18,13 @@ public final class BloomChain {
 
     /** The greatest weight a kind carries; the weight target holds weights as fractions of it. */
     public static final float GREATEST_WEIGHT = 4f;
-    public static final int DEFAULT_LEVELS = 5;
+    /** Six: the sixth and coarsest level carries the far halo GTCEu: Reloaded's wide blurs give, which five left short (P3-V1). */
+    public static final int DEFAULT_LEVELS = 6;
+    /**
+     * What GTCEu: Reloaded's default style multiplies a source of one color by before its blend: its five levels'
+     * weights summed (0.2 to 1.0, 3) times the strength it applies there a second time (its kinds' default, 1.5).
+     */
+    public static final double REFERENCE_RESPONSE = 4.5;
     public static final int LEAST_LEVELS = 2;
     public static final int MOST_LEVELS = 6;
     /** A doubling's tent spans this many texels of the level it reads, at least and at most: wider leaves holes. */
@@ -91,6 +97,16 @@ public final class BloomChain {
     /** The levels' weights summed: what a source of one color comes out of the chain multiplied by. */
     public static double levelWeights(int levels) {
         return (levels + 1) / 2.0;
+    }
+
+    /**
+     * The calibration gain for a chain of so many levels (D27): what brings its response to a source of one color, its
+     * levels' weights summed, to GTCEu: Reloaded's ({@link #REFERENCE_RESPONSE}), so that the glow's light matches its
+     * own whatever the levels: 1.5 at five, 9/7 at six. P3-V1 measured the gains that match at 1.64 for five levels and
+     * 1.28 for six: five fall short where the far halo is missing.
+     */
+    public static double calibratedGain(int levels) {
+        return REFERENCE_RESPONSE / levelWeights(levels);
     }
 
     /** A side of a level: the output's side halved {@code level + 1} times, each time rounded up. */

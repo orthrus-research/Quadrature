@@ -1072,11 +1072,13 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   configuration documentation (the composite rule and its three groups' values), and its own bloom programs at
   8ca6b98c9 read as behavior (the background's brightness as HSL lightness, its levels weighed 0.2 to 1.0 from the
   finest, the strength applied twice). Research R4, 7c.
-- Taken: the chain, its filters and the groups' weights; GTCEu: Reloaded's level weights and brightness measure, as
-  behavior, no code. The two weights a kind becomes and the algebra that gives the
-  composite rule from them, the weight target drawn beside the color, the first halving formed exactly from a tile of
-  products in shared memory, the weight resolved in the temporal history's alpha, the levels sized from the output,
-  and every constant are Quadrature's.
+- Taken: the chain, its filters and the groups' weights; GTCEu: Reloaded's rule for the level weights (equal steps up
+  to 1 at the coarsest), its brightness measure and its response to a source of one color (its level weights summed
+  times the strength applied a second time, the calibration's reference), as behavior, no code. The two weights a kind
+  becomes and the algebra that gives the composite rule from them, the weight target drawn beside the color, the
+  products formed a texel at a time so that the first halving's bilinear reads filter them exactly, the weight
+  resolved in the temporal history's alpha, the levels sized from the output, their number, and every constant are
+  Quadrature's.
 - Not taken: dual filtering, Kawase's passes, separable Gaussians per level, convolution by transform, a brightness
   threshold. Kept apart from the patents research R4, 7c.6 read: no previous frame's blur reused (US 12,086,957),
   every level made by its own dispatch (US 11,915,337), no level chosen against a kernel size (US 8,687,011), and no

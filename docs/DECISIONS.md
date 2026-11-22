@@ -254,17 +254,20 @@ bridge is pinned beside Java 25 in `platform.json`.
 
 **D27. Bloom is a chain of halvings and doublings over a weighted source.**
 Quadrature's bloom (D25) is Mittring's recurrence with Jimenez's filters (research R4, 7c): a
-thirteen-read halving into five levels sized from the output, a three-by-three tent while doubling at
-the kind's radius in texels of the level read, the levels weighted 0.2 to 1.0 from the finest, as
-GTCEu: Reloaded's default style weighs its own, so that in the 8-bit picture the glow's light lies in
-its halo rather than in a core that clamps (P3-V1: weighted equally, a gain bright enough for the halo
-blew the cores out). Its source is the picture
+thirteen-read halving into six levels sized from the output, a three-by-three tent while doubling at
+the kind's radius in texels of the level read, the levels weighted in equal steps up to 1 at the
+coarsest, as GTCEu: Reloaded's default style weighs its five, so that in the 8-bit picture the glow's
+light lies in its halo rather than in a core that clamps (P3-V1: weighted equally, a gain bright enough
+for the halo blew the cores out; with five levels the far halo fell short of GTCEu: Reloaded's). Its
+source is the picture
 weighted per pixel by the bloom kinds of what declared emissive layers and contributions cover, with no
 brightness threshold: a kind's strength, base and limits become two weights in one chain, which
 reproduces GTCEu: Reloaded's composite rule exactly where one kind lights a pixel. Under the temporal
 pass the chain reads its output, the weight resolved in its history, and the glow is added after the
 scale pass; without it, after translucent terrain, where GTCEu: Reloaded's own path added it. A
-calibration gain, set against GTCEu: Reloaded's own glow in P3-V1, brings the chain's light to its
-brightness: 1.5, the strength its default style applies a second time. Kinds of different radii share the chain at the first
+calibration gain, set against GTCEu: Reloaded's own glow in P3-V1, keeps the chain's response to a source
+of one color at its own: its five levels' weights summed times the strength its default style applies a
+second time, 4.5, over the chain's levels' weights summed, 9/7 at six levels, which P3-V1 measured as
+the gain that matches its light. Kinds of different radii share the chain at the first
 one's radius until a mod sets them apart, and the weighting against single bright samples waits for
 high dynamic range (Phase 5).
