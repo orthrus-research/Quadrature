@@ -1,6 +1,18 @@
-# Quadrature
+<p align="center"><img src=".github/assets/banner.svg" alt="Quadrature by Orthrus Research" width="100%"></p>
 
-**Status:** Phase 1 is closed and Phase 2 is in progress, with work on distant terrain and
+<p align="center">
+<a href="#status"><img alt="Status: in development" src="https://img.shields.io/badge/status-in%20development-000000?style=flat-square&labelColor=000000"></a>
+<a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-000000?style=flat-square&labelColor=000000"></a>
+<a href="https://discord.gg/qCVqhXtSzR"><img alt="Discord" src="https://img.shields.io/badge/discord-join-000000?style=flat-square&labelColor=000000"></a>
+</p>
+
+Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on
+[Cleanroom](https://github.com/CleanroomMC/Cleanroom) with
+[Cubature](https://github.com/orthrus-research/Cubature). It draws the whole frame.
+
+## Status
+
+In development: Phase 1 is closed and Phase 2 is in progress, with work on distant terrain and
 shading begun. By default the mod checks the platform, stops with a message where it is not
 supported, draws near terrain meshed from Cubature's cube source in the whole frame's reversed
 depth, and times each stage of the frame on the CPU and the GPU; `-Dquadrature.terrain=game`
@@ -8,15 +20,17 @@ leaves terrain to the game. Behind switches, off by default, it draws distant te
 from the client terrain preview (`-Dquadrature.distant=own`) and a shading stage handed over in
 a folder (`-Dquadrature.stage=true`). [PLAN.md](docs/PLAN.md) gives each phase's status.
 
-Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on Cleanroom with
-Cubature. It draws the whole frame: near terrain meshed directly from cubes, distant terrain
-as levels of detail, entities and block entities hosted from the game's own renderers, and
-lighting and post-processing through its own shaders.
+## What Quadrature draws
+
+- **Near terrain:** meshed directly from cubes.
+- **Distant terrain:** as levels of detail.
+- **Entities and block entities:** hosted from the game's own renderers.
+- **Lighting and post-processing:** through its own shaders.
 
 It is a new implementation. It contains no code from other renderers, shader loaders or
 level-of-detail mods.
 
-## Requirements to run
+## For players and pack makers
 
 | | |
 |---|---|
@@ -31,7 +45,7 @@ These requirements are narrow on purpose. The design keeps each of them behind a
 so support can widen later without rewriting what sits above it; see
 [the design frame](docs/REQUIREMENTS.md#design-frame).
 
-## Building
+## Building from source
 
 Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 26.0.2.1+1):
 
@@ -74,7 +88,7 @@ property can only raise the floor.
 CleanroomGradle, OrthLib, Cubature and the graphics floor. The root module is the Minecraft host; `core` has
 no Minecraft dependency.
 
-## Documents
+## Documentation
 
 - [docs/DECISIONS.md](docs/DECISIONS.md): standing decisions and their reasons
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the pipeline is put together, and which
@@ -94,6 +108,12 @@ no Minecraft dependency.
 - [docs/PROVENANCE.md](docs/PROVENANCE.md): where each technique came from, and the rules
   for what may be used
 
+## Community
+
+Questions and discussion: [Discord](https://discord.gg/qCVqhXtSzR). Bugs and requests: this repository's issues. Security
+and private matters: admin@orthrus.cc. Pull requests are welcome; see
+[CONTRIBUTING.md](https://github.com/orthrus-research/.github/blob/main/CONTRIBUTING.md).
+
 ## License
 
 Original Quadrature material is licensed under the [Apache License 2.0](LICENSE). Material
@@ -102,6 +122,15 @@ that grant. [NOTICE.md](NOTICE.md) lists what is covered separately.
 
 ## Related projects
 
-- `../Cubature`: cubic world storage, delivery and lighting; supplies cubes to Quadrature
-- `../Riven`: terrain generation; supplies distant terrain without building cubes
-- `../OrthLib`: shared library; carries the interface other mods use to reach Quadrature
+- [Cubature](https://github.com/orthrus-research/Cubature): cubic world storage, delivery and
+  lighting; supplies cubes to Quadrature
+- [Riven](https://github.com/orthrus-research/Riven): terrain generation; supplies distant terrain
+  without building cubes
+- [OrthLib](https://orthrus.cc/projects/orthlib): shared library; carries the interface other mods
+  use to reach Quadrature
+
+---
+
+<sub>Quadrature is an [Orthrus Research](https://orthrus.cc) project ·
+[All projects](https://orthrus.cc/projects) · [Texts](https://orthrus.cc/texts) ·
+[Discord](https://discord.gg/qCVqhXtSzR)</sub>
