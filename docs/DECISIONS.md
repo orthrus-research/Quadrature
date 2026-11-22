@@ -285,3 +285,14 @@ glows. Frame resources and work at named points stay out of it until a mod needs
 4). It changes by research R5's rules (10.2): within version 1 only additions, nothing removed or changed
 in meaning. What using it in Phase 3 left wanting (a view volume a source can cull by, a test host for
 consumers, a bloom kind changed in place among them) is what its next minor version weighs.
+
+## 2026-11-22
+
+**D29. Distant Horizons is another renderer, and loading stops where it is installed.**
+The 2026-11-22 launch showed Distant Horizons loading beside Quadrature unchallenged: its own OpenGL
+renderer drew the distance while Quadrature drew near terrain. Owning the seam between the two would be
+work that Phase 4 throws away, and Quadrature's own distant terrain (`-Dquadrature.distant=own`) is the
+intended state (D4). So loading stops naming Distant Horizons, as for the renderers of D6. The part of D10
+that keeps Cubature's Distant Horizons integration supported now holds for the game's renderer only.
+`-Dquadrature.test.allowDistantHorizons=true` lets it load beside Quadrature, with a warning, for
+verification runs that compare against it (the baseline flight, the `repeat` profile) until Phase 4 closes.

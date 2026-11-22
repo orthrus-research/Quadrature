@@ -31,6 +31,9 @@ public final class Quadrature {
     public static final String MOD_ID = "quadrature";
     public static final Logger LOGGER = LogManager.getLogger("Quadrature");
 
+    /** The OrthLib commit Quadrature's bridge to its render interface is built against (platform.json). */
+    public static final String ORTHLIB_COMMIT = QuadratureBuild.ORTHLIB_COMMIT;
+
     /**
      * Raises the GPU memory floor for a test run, so the stop screen can be exercised on a supported
      * card. A value below the built-in floor is ignored: the property can only make the gate stricter.
@@ -49,6 +52,12 @@ public final class Quadrature {
      */
     private static final String TEST_DRIVER_FLOOR = "quadrature.test.driverFloorBranch";
     private static final String TEST_DRIVER_WARNING = "quadrature.test.driverWarnBelowBranch";
+
+    /**
+     * Lets Distant Horizons load beside Quadrature, for verification runs that compare against it (the baseline flight
+     * and the {@code repeat} profile, VERIFICATION) until levels of detail replace it (D4, D10). Unsupported otherwise.
+     */
+    private static final String TEST_ALLOW_DISTANT_HORIZONS = "quadrature.test.allowDistantHorizons";
 
     /** The supported platform, from platform.json through the generated build constants. */
     static final PlatformRequirements REQUIREMENTS = new PlatformRequirements(
@@ -78,6 +87,11 @@ public final class Quadrature {
         if (kirino != null) {
             foreign = new java.util.ArrayList<>(foreign);
             foreign.add(kirino);
+        }
+        GateFailure distantHorizons = distantHorizons();
+        if (distantHorizons != null) {
+            foreign = new java.util.ArrayList<>(foreign);
+            foreign.add(distantHorizons);
         }
         if (cc.orthrus.quadrature.terrain.TerrainHook.requested() && !Loader.isModLoaded("cubicchunks")) {
             // Own terrain draws cubic worlds from Cubature's cube source; without it there is nothing to draw from.
@@ -116,6 +130,27 @@ public final class Quadrature {
         if (cc.orthrus.quadrature.dev.PickingCheck.ON) {
             MinecraftForge.EVENT_BUS.register(new cc.orthrus.quadrature.dev.PickingCheck());
         }
+    }
+
+    /**
+     * Distant Horizons draws the distance with an OpenGL renderer of its own, which is another renderer in the frame:
+     * refused, as the others are, until Quadrature's levels of detail replace it (D4). A test run may let it load.
+     */
+    private static GateFailure distantHorizons() {
+        if (!Loader.isModLoaded("distanthorizons")) {
+            return null;
+        }
+        if (Boolean.getBoolean(TEST_ALLOW_DISTANT_HORIZONS)) {
+            LOGGER.warn("Distant Horizons is installed and allowed by -D{}=true: it draws the distance with its own "
+                + "renderer, beside Quadrature. This is for verification runs only and is not supported.",
+                TEST_ALLOW_DISTANT_HORIZONS);
+            return null;
+        }
+        return new GateFailure("Distant Horizons is installed.",
+            "Quadrature replaces the game's renderer, distant terrain included, and does not run beside another one.",
+            "Remove Distant Horizons (Riven's launcher: --no-distant-horizons) and start the game with "
+                + "-Dquadrature.distant=own for Quadrature's own distant terrain, or remove Quadrature to use "
+                + "Distant Horizons.");
     }
 
     /**

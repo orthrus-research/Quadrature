@@ -217,8 +217,10 @@ tasks.register('verifyCubature') {
     inputs.property('pinned', pin.sha256)
     doLast {
         if (!jar.exists()) {
-            throw new GradleException("Cubature's pinned JAR is missing at ${jar}. Run ./gradlew refreshCubature " +
-                "to build it at commit ${pin.commit}.")
+            throw new GradleException("Cubature's pinned JAR is missing at ${jar}. Run ./gradlew refreshCubature: " +
+                "it takes the pinned bytes from Workbench's pin cache (WB_PIN_CACHE) where they are there, and " +
+                "builds commit ${pin.commit} only where they are not. A JAR with sha256 ${pin.sha256} from " +
+                "elsewhere may also be copied in.")
         }
         def found = sha256Of(jar)
         if (found != pin.sha256) {
@@ -324,7 +326,7 @@ tasks.register('refreshCubature') {
 def constantsDirectory = layout.buildDirectory.dir('generated/sources/quadrature')
 tasks.register('generateModConstants') {
     inputs.properties(modVersion: project.version, cleanroomVersion: cleanroom_version,
-        graphics: platform.graphics.toString())
+        graphics: platform.graphics.toString(), orthlib: platform.orthlib.commit)
     outputs.dir(constantsDirectory)
     doLast {
         def destination = constantsDirectory.get().file('cc/orthrus/quadrature/QuadratureBuild.java').asFile
@@ -339,6 +341,7 @@ final class QuadratureBuild {
     static final long MINIMUM_GPU_MEMORY_MIB = ${platform.graphics.minimumMemoryMiB}L;
     static final int DRIVER_FLOOR_BRANCH = ${platform.graphics.driver.floorBranch};
     static final int DRIVER_WARN_BELOW_BRANCH = ${platform.graphics.driver.warnBelowBranch};
+    static final String ORTHLIB_COMMIT = \"${platform.orthlib.commit}\";
     static final String[] DRIVER_KNOWN_BAD = {${platform.graphics.driver.knownBad.collect { '"' + it + '"' }.join(', ')}};
     private QuadratureBuild() {}
 }

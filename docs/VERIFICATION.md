@@ -37,7 +37,8 @@ reuses instead of duplicating:
    instance and records its inputs; a play refuses the instance if they change. `lab.ensure`
    builds the same instance from a template of its recipe and reuses one only for the same
    recipe. Adding `--no-distant-horizons` to `args` leaves Distant Horizons out, so frames hold
-   near terrain only.
+   near terrain only. Since D29 a run that keeps Distant Horizons beside Quadrature needs
+   `-Dquadrature.test.allowDistantHorizons=true` in the play's `options`, or loading stops.
 2. `lab.play` (`name`, `tour` = `tools/tours/<tour>.json`, `window`, the client's JVM options
    in `options`, a `label`) starts a server and a client, teleports through the tour's views,
    saves one screenshot per view, and closes both. A tour fixes the time of day and the
