@@ -2095,6 +2095,70 @@ the handoff turned itself off at its first frame with one warning and opened no 
 and the scaler ran, 5 of 5 views each. Since then DLSS takes the scaler's picture instead (DLSS
 taking the scaler's picture).
 
+### Bloom and emissive geometry through the render interface
+
+Since 2026-11-21 GTCEu: Reloaded draws no bloom of its own: it declares its emissive layer and submits
+its fusion reactor ring and cable heat glow through OrthLib's render interface, and Quadrature, the
+interface's provider, draws them with its own glow (D25, D27, D28; ARCHITECTURE 10). Measured on the
+RTX 3060 at 1280 by 720, every run in a queued turn with textures held still, on a tour of GTCEu:
+Reloaded's emissive blocks: the entity tour's rows at heights 200, 300 and -40, each with lit lamps of
+every color and active coils, and after the row at 200 three views of working machines on a platform
+of their own, built by the tour's own commands: a formed electric blast furnace whose coils run
+active, a fusion reactor Mk1 running with its ring, and a tin wire held at a glow by pulses. Every
+command succeeds, the machines stand and run in the instance's next run, and the views the tour
+shares with the entity tour are unchanged. One instance holds GTCEu: Reloaded before the interface,
+with its own bloom pass; a second, given the first's world, holds GTCEu: Reloaded on the interface,
+OrthLib and Quadrature as provider. GTCEu: Reloaded's own pass lays its glow with full-screen quads at
+depth 0 and the depth test on, which reversed depth rejects over all geometry, so the runs set beside
+it use conventional depth.
+
+- **Without glow.** Quadrature with the glow off against GTCEu: Reloaded's own path with its bloom
+  setting off: 7 of 11 views pass `near.json`, the running fusion reactor and its ring identical byte
+  for byte. The blast furnace and the hot wire differ only by GTCEu: Reloaded's smoke particles, which
+  fall anywhere; the room at -40 differs on up to 54% of its pixels by at most 92 levels, where two
+  runs of GTCEu: Reloaded's own path differ on 71% of them (the room's flickering block light).
+- **The glow.** In the images both glow around every lamp, the active coils, the casings' emissive
+  borders, the ring and the hot wire. Set against GTCEu: Reloaded's, each less its run without glow,
+  over seven views, with the six levels and the gain the chain now has (set by switches on the jar
+  measured here): Quadrature adds 1.05 of the light, 0.98 to 1.00 of it at the two rows in the air and
+  the blast furnace, 1.35 at the fusion reactor and 1.14 at the hot wire, and 0.71 to 0.85 in the dark
+  room at -40, over whose dark background GTCEu: Reloaded's wider glow reaches farther. Quadrature's is
+  tighter, by design: within 32 pixels of the glowing faces lies 23% of the light it adds against 17%
+  of GTCEu: Reloaded's, beyond 65 pixels 55% against 64%. With five levels it added 0.91 of the light at
+  its gain of 1.5 and reached less far still: the ratio of the two glows by distance from the faces
+  spanned 2.2 times its least, against 1.6 with six. With the levels weighed equally, a gain bright
+  enough for the halo blew the cores out.
+- **Cost.** The glow's GPU time, translucent terrain's median at each view with glow less without:
+  GTCEu: Reloaded's own pass adds 0.31 to 1.78 ms (median 0.94), each group of its tickets blurred
+  whether or not in view; Quadrature's glow 0 to 0.83 ms (median 0.43), and nothing at the four views
+  where nothing glowing is in view. At band-200, where GTCEu: Reloaded's pass is at its least (the
+  lamps alone), Quadrature's costs more: 0.43 against 0.31 ms, in two runs of each. Windows of
+  identical work differ between runs by as much as one view's 0.35 and 0.64 ms, the card's clocks
+  following its load; power states were not sampled. Within one run, glowing on frames a mix of the
+  frame number picks, the glowing frames' draws take 0.057 ms against 0.015 on plain ones and the
+  glow's passes 0.513 ms, of which the products and the first halving, at full size, take 0.247; the
+  sixth level adds 0.013 ms.
+- **State.** The state audit, taken in a window of 120 frames every 600 through the tour with no
+  consumer but GTCEu: Reloaded, read 55 windows: in 51 its own callbacks ran (the ring's and the hot
+  wire's), in 32 the glow. In every one the mods' callbacks and the glow leave nothing changed, each
+  change the emissive stage makes is undone within it the same number of frames, and the passes after
+  it, the game's last and the hand, find what they found before. A first run, its window at the
+  tour's start, audited the interface's self-test squares the same way.
+- **The temporal pass.** With the temporal pass making the picture, the glow is laid after the scale
+  pass on every frame that glows, from the weight the pass resolves in its history: around the lamps,
+  the coils and the ring as without the pass. It costs 0.327 ms there, its small passes a quarter
+  quicker than the same passes in the lighter frames measured above.
+- **Without Quadrature.** A third instance, given the first's world, holds GTCEu: Reloaded on the
+  interface and OrthLib but neither Quadrature nor any other provider, with Cubature's reference build
+  drawing the world: emissive textures are drawn at full brightness in their fallback layer and
+  nothing glows, and OrthLib draws the fusion reactor's ring and the wire's heat plainly at the end of
+  the world pass, where the tour's capture finds them. Against Quadrature with the glow off, the views
+  away from the machines differ by 0.19% of their pixels at most, the blast furnace and the wire by
+  their smoke, as two runs of this instance do, and the reactor's view by 1.2%: the controller's
+  animated screen, which only Quadrature holds still, shows another frame, and block edges in the
+  distance differ between the game's drawing and Quadrature's.
+- No out-of-memory notice, failed check, OpenGL error, retired contribution or exception in any run.
+
 ### Diagnostics
 
 Own terrain carries switches for finding where a frame differs and what a choice costs.

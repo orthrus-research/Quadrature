@@ -271,3 +271,16 @@ second time, 4.5, over the chain's levels' weights summed, 9/7 at six levels, wh
 the gain that matches its light. Kinds of different radii share the chain at the first
 one's radius until a mod sets them apart, and the weighting against single bright samples waits for
 high dynamic range (Phase 5).
+
+**D28. Mods reach Quadrature's drawing through version 1.0 of OrthLib's render interface.**
+The interface's first version is the one Phase 3 verified, at OrthLib commit 0c2995e: declared layers,
+each with the block states that draw in it and the game layer it falls back to, meshed apart inside the
+provider's scopes; bloom kinds of a strength, a base, two brightness limits and a radius; emissive
+contributions, geometry a mod writes into a buffer the provider begins, in a stated layout, primitive and
+blend; a lease for every registration; capabilities stated as literals, and one provider, a second
+refused by name (D6). Without a provider, and in every world pass the provider does not mark as one whose
+contributions it draws, OrthLib's absence answers draw everything plainly: everything appears, nothing
+glows. Frame resources and work at named points stay out of it until a mod needs them (requirement rule
+4). It changes by research R5's rules (10.2): within version 1 only additions, nothing removed or changed
+in meaning. What using it in Phase 3 left wanting (a view volume a source can cull by, a test host for
+consumers, a bloom kind changed in place among them) is what its next minor version weighs.

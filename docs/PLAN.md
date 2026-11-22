@@ -205,17 +205,26 @@ Order: P3-R1 and P3-R2, then P3-A1, P3-B1, then P3-B2 and P3-B3 side by side, P3
 - *P3-A1, done:* OrthLib's design and acceptance profile, registered before implementation and amended to P3-R2's
   findings, the registered text kept in OrthLib's history. Frame resources and work at named points are left out of
   version 1 until a mod needs them (requirement rule 4).
-- *P3-B1, done:* OrthLib main e64ad72, pushed, its tests passing; pinned in `platform.json`. Riven's lock is still to
-  move.
-- *P3-B2, built, not yet run on the GPU:* the provider (D26), declared layers meshed apart inside providing scopes, the
-  emissive stage before translucent terrain, and D27's bloom, its arithmetic unit tested against GTCEu: Reloaded's rule
-  and its programs compiled offline.
-- *P3-B3, under way:* public GTCEu: Reloaded may name OrthLib, which is to go public (the user's decision of
-  2026-11-21). The calls its addons make to its old bloom API keep resolving and draw nothing, as under an external
-  terrain pipeline today.
-- *P3-B4, built:* each contribution's draw sets the state it depends on, and the state audit names the emissive stage,
-  the mods' callbacks and the glow as stretches of their own; the audit runs with P3-V1.
-- *P3-V1:* to run.
+- *P3-B1, done:* OrthLib main 0c2995e, pushed, its tests passing. Before any release and within version 1.0 it gained
+  the plain drawing of contributions wherever no provider draws them (the user's decision of 2026-11-21 to keep the
+  fusion reactor's ring without Quadrature), drawn before the other handlers of the world pass's last event. Pinned in
+  `platform.json` and in Riven's lock on a branch that waits for GTCEu: Reloaded's master. Its license is Apache-2.0
+  (the user's decision of 2026-11-21).
+- *P3-B2, done:* the provider (D26), declared layers meshed apart inside providing scopes, the emissive stage before
+  translucent terrain marking each world pass whose contributions it draws, contributions outside the view left
+  undrawn, and D27's bloom with six levels and its calibrated gain.
+- *P3-B3, done:* GTCEu: Reloaded's branch `feat/render-interface` (3216b3f6d, pushed, not yet merged into its master)
+  declares its emissive layer and submits its ring and heat glow through OrthLib, its bloom pass, depth texture and
+  renderer Mixins deleted, and its Vintagium, Nothirium, CTM and LittleTiles Mixins removed (the user's decision of
+  2026-11-21: features worth having are built in their own project). Public GTCEu: Reloaded may name OrthLib, which is
+  to go public. The calls its addons make to its old bloom API keep resolving and draw nothing.
+- *P3-B4, done:* the state audit reports nothing a callback leaves changed, for the interface's self-test and for GTCEu:
+  Reloaded's own callbacks through a whole tour (VERIFICATION, bloom and emissive geometry through the render
+  interface).
+- *P3-V1, done:* VERIFICATION, bloom and emissive geometry through the render interface. Without glow the geometry
+  matches GTCEu: Reloaded's own path; the glow, reviewed, is tighter by design and matched in brightness by the
+  calibration; the glow costs less than GTCEu: Reloaded's own pass at 10 of 11 views, more at the one where its pass is
+  at its least; D25's fallback is seen without Quadrature. The interface's first version is D28.
 
 ## Capability and tier work
 
