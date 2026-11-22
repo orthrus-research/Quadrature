@@ -341,9 +341,9 @@ HIGH `taa=true` alone (12.1). With both off nothing is drawn, read or changed (D
   rewritten. The world's projections keep the output's shape (`MixinEntityRendererScale`), so
   rounding the drawn size to whole pixels stretches nothing once scaled back. Rewriting the
   viewports of display size inside the pass was built first and failed on the lab's own pack:
-  GTCEu Reloaded's bloom copies the game's picture into framebuffers of its own and draws it
-  back every frame, and each of those display-sized draws was shrunk again (VERIFICATION, own
-  temporal anti-aliasing and scaler). Each is put back only where it still holds the stand-in: a
+  GTCEu: Reloaded's bloom, before it moved onto the render interface (section 10), copied the
+  game's picture into framebuffers of its own and drew it back every frame, and each of those
+  display-sized draws was shrunk again (VERIFICATION, own temporal anti-aliasing and scaler). Each is put back only where it still holds the stand-in: a
   resize during the pass sets the display's new size, which stands, the game's own framebuffer
   takes it, and that frame makes no picture. Framebuffers of the game's kind made while the
   scaler is on are counted in the timing line, and the first thirty named with the class that
@@ -1085,8 +1085,9 @@ before the cube source attaches: own terrain asked for and the world cubic.
   translucent one is asked of each block, meshed through the game's dispatcher with the
   layer set, as the game's rebuild would mesh it, into a buffer of the cube's own, and drawn
   for the seen cubes nearest first, unsorted, wherever the game's renderer is asked to draw
-  that layer, into whatever framebuffer is bound (`AddedLayerCube`). GTCEu: Reloaded's bloom
-  layer is drawn so, inside its own wrap of the game's translucent draw. At most three.
+  that layer, into whatever framebuffer is bound (`AddedLayerCube`). At most three. A layer a
+  mod declares through OrthLib's render interface instead, as GTCEu: Reloaded's emissive layer
+  is, is meshed and drawn as section 10 describes.
 - **Mods that hook the rebuild.** An event or a wrap of a call inside the game's rebuild no
   longer runs (PLAN item 12, mods that add to the game's chunk meshes).
 - **A game-drawn run.** The game's system draws a cubic world only through Cubature's
