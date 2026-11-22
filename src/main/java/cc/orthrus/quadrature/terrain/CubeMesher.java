@@ -65,6 +65,53 @@ final class CubeMesher {
     private final boolean[] addedStarted = new boolean[ADDED.length];
     private final boolean[] addedDrawing = new boolean[ADDED.length];
     private final int[] addedCounts = new int[ADDED.length];
+    /**
+     * Layers mods declare through the render interface (D25, PLAN item P3-B2), meshed where Quadrature draws them: by the
+     * game's dispatcher, block by block, each with the declared layer current for the mod's own code (the interface's
+     * meshing scope) and Forge's current layer none. The snapshot is the one this build began with; which states
+     * draw in each layer is asked once a state and kept until the snapshot's layer generation moves.
+     */
+    static final int MAX_DECLARED = 31;
+    private cc.orthrus.quadrature.modinterface.ModInterface.Declarations declarations =
+        cc.orthrus.quadrature.modinterface.ModInterface.Declarations.EMPTY;
+    private final BufferBuilder[] declared = new BufferBuilder[MAX_DECLARED];
+    private final boolean[] declaredStarted = new boolean[MAX_DECLARED];
+    private final boolean[] declaredDrawing = new boolean[MAX_DECLARED];
+    private final int[] declaredCounts = new int[MAX_DECLARED];
+    private final it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap<IBlockState> declaredMasks =
+        new it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap<>();
+    private long declaredMasksGeneration = Long.MIN_VALUE;
+    private static boolean declaredOverflowReported;
+
+    /** Which declared layers a state draws in, a bit each, asked of the mods' predicates once a state. */
+    private int declaredMask(IBlockState state) {
+        int count = Math.min(declarations.layers().size(), MAX_DECLARED);
+        if (count == 0) {
+            return 0;
+        }
+        if (declaredMasksGeneration != declarations.layerGeneration()) {
+            declaredMasksGeneration = declarations.layerGeneration();
+            declaredMasks.clear();
+        }
+        int kept = declaredMasks.getOrDefault(state, -1);
+        if (kept >= 0) {
+            return kept;
+        }
+        int mask = 0;
+        for (int d = 0; d < count; d++) {
+            try {
+                if (declarations.layers().get(d).membership().test(state)) {
+                    mask |= 1 << d;
+                }
+            } catch (RuntimeException e) {
+                if (failures++ < 5) {
+                    Quadrature.LOGGER.error("A declared layer's membership failed for {}", state, e);
+                }
+            }
+        }
+        declaredMasks.put(state, mask);
+        return mask;
+    }
 
     private static net.minecraft.util.BlockRenderLayer[] addedLayers() {
         net.minecraft.util.BlockRenderLayer[] all = net.minecraft.util.BlockRenderLayer.values();
@@ -92,6 +139,8 @@ final class CubeMesher {
      */
     private final Reference2ByteOpenHashMap<IBlockState> layerMasks = new Reference2ByteOpenHashMap<>();
     private int layerGeneration = -1;
+    /** The declared layers' generation the kept layers were asked under. */
+    private long layersDeclaredWith = Long.MIN_VALUE;
     private boolean keepLayers = LAYER_CACHE != LAYERS_ASKED;
     private long buildsBegun;
     static final int LAYERS_KEPT = 0, LAYERS_ASKED = 1, LAYERS_ALTERNATE = 2;
@@ -275,9 +324,32 @@ final class CubeMesher {
             layerGeneration = layerGenerationNow;
             layerMasks.clear();
         }
+        // Declared layers are meshed apart only where own terrain draws them, inside the interface's providing scope for
+        // the whole build; elsewhere no scope is open, and the mods' own code puts their geometry in the fallback layers,
+        // which are meshed as the game's.
+        boolean providing = TerrainHook.drawsDeclaredLayers();
+        declarations = providing ? cc.orthrus.quadrature.modinterface.ModInterfaces.current().declarations()
+            : cc.orthrus.quadrature.modinterface.ModInterface.Declarations.EMPTY;
+        if (declarations.layers().size() > MAX_DECLARED && !declaredOverflowReported) {
+            declaredOverflowReported = true;
+            Quadrature.LOGGER.error("Mods declare {} layers; own terrain draws the first {}.", declarations.layers().size(), MAX_DECLARED);
+        }
+        if (layersDeclaredWith != declarations.layerGeneration()) {
+            // A block's answer to which game layers it draws in may follow the layers declared beside it.
+            layersDeclaredWith = declarations.layerGeneration();
+            layerMasks.clear();
+        }
+        AutoCloseable scope = providing ? cc.orthrus.quadrature.modinterface.ModInterfaces.current().providing() : null;
         try {
             return timedBuild(snapshot, cubeX, cubeY, cubeZ, sequence, task);
         } finally {
+            if (scope != null) {
+                try {
+                    scope.close();
+                } catch (Exception e) {
+                    Quadrature.LOGGER.error("The render interface's providing scope failed to close.", e);
+                }
+            }
             long cpu = THREADS.getCurrentThreadCpuTime() - cpuBegan;
             CPU_NANOS.add(cpu);
             CPU_BUILDS.increment();
@@ -365,6 +437,14 @@ final class CubeMesher {
                 byte[] bytes = new byte[addedCounts[a] * CubeMesh.STRIDE];
                 added[a].getByteBuffer().duplicate().get(bytes);
                 built.added(a, ADDED.length, bytes, addedCounts[a]);
+            }
+        }
+        built.declaredGeneration(declarations.layerGeneration());
+        for (int d = 0; d < MAX_DECLARED; d++) {
+            if (declaredCounts[d] > 0) {
+                byte[] bytes = new byte[declaredCounts[d] * CubeMesh.STRIDE];
+                declared[d].getByteBuffer().duplicate().get(bytes);
+                built.declared(d, Math.min(declarations.layers().size(), MAX_DECLARED), bytes, declaredCounts[d]);
             }
         }
         return built;
@@ -500,6 +580,30 @@ final class CubeMesher {
                                 }
                             }
                         }
+                        int declaredLayers = declaredMask(state);
+                        for (int d = 0; declaredLayers != 0; d++, declaredLayers >>>= 1) {
+                            if ((declaredLayers & 1) == 0) {
+                                continue;
+                            }
+                            if (declared[d] == null) {
+                                declared[d] = new BufferBuilder(1 << 14);
+                            }
+                            if (!declaredStarted[d]) {
+                                declaredStarted[d] = true;
+                                declaredDrawing[d] = true;
+                                declared[d].begin(QUADS, DefaultVertexFormats.BLOCK);
+                                declared[d].setTranslation(-minX, -minY, -minZ);
+                            }
+                            ForgeHooksClient.setRenderLayer(null);
+                            try (AutoCloseable scope = cc.orthrus.quadrature.modinterface.ModInterfaces.current()
+                                .meshing(declarations.layers().get(d))) {
+                                dispatcher.renderBlock(state, pos, world, declared[d]);
+                            } catch (Exception e) {
+                                if (failures++ < 5) {
+                                    Quadrature.LOGGER.error("A block model failed for {} at {} in a declared layer", state, pos, e);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -535,6 +639,14 @@ final class CubeMesher {
                 added[a].finishDrawing();
                 addedDrawing[a] = false;
                 addedCounts[a] = added[a].getVertexCount();
+            }
+        }
+        for (int d = 0; d < MAX_DECLARED; d++) {
+            declaredCounts[d] = 0;
+            if (declaredStarted[d]) {
+                declared[d].finishDrawing();
+                declaredDrawing[d] = false;
+                declaredCounts[d] = declared[d].getVertexCount();
             }
         }
         if (FACES) {
@@ -780,6 +892,18 @@ final class CubeMesher {
                 added[a].reset();
             }
             addedCounts[a] = 0;
+        }
+        for (int d = 0; d < MAX_DECLARED; d++) {
+            if (declaredStarted[d]) {
+                if (declaredDrawing[d]) {
+                    declared[d].finishDrawing();
+                    declaredDrawing[d] = false;
+                }
+                declaredStarted[d] = false;
+                declared[d].setTranslation(0, 0, 0);
+                declared[d].reset();
+            }
+            declaredCounts[d] = 0;
         }
         if (walk != null) {
             walk.begin();

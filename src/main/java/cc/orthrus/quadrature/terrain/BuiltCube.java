@@ -112,6 +112,37 @@ final class BuiltCube {
         return added == null ? 0 : addedCounts[layer];
     }
 
+    /** Each declared layer's vertices and how many ({@link CubeMesher#MAX_DECLARED}); null where the cube draws none. */
+    private byte[][] declared;
+    private int[] declaredCounts;
+    /** The generation of the declarations this cube was meshed with; -1 for a cube meshed with none. */
+    private long declaredGeneration = -1;
+
+    void declared(int layer, int layers, byte[] vertices, int vertexCount) {
+        if (declared == null) {
+            declared = new byte[layers][];
+            declaredCounts = new int[layers];
+        }
+        declared[layer] = vertices;
+        declaredCounts[layer] = vertexCount;
+    }
+
+    byte[] declaredVertices(int layer) {
+        return declared == null || layer >= declared.length ? null : declared[layer];
+    }
+
+    int declaredCount(int layer) {
+        return declared == null || layer >= declaredCounts.length ? 0 : declaredCounts[layer];
+    }
+
+    void declaredGeneration(long generation) {
+        declaredGeneration = generation;
+    }
+
+    long declaredGeneration() {
+        return declaredGeneration;
+    }
+
     /** The sides whose blocks a build read, from {@link #reads}. */
     static int blockSides(long reads) {
         return (int) (reads & 0x7FF_FFFFL);
@@ -152,6 +183,12 @@ final class BuiltCube {
                 for (int layer = 0; layer < added.length; layer++) {
                     hash = hash * 31 + addedCounts[layer];
                     hash = hash * 1_000_003 + java.util.Arrays.hashCode(added[layer]);
+                }
+            }
+            if (declared != null) {
+                for (int layer = 0; layer < declared.length; layer++) {
+                    hash = hash * 31 + declaredCounts[layer];
+                    hash = hash * 1_000_003 + java.util.Arrays.hashCode(declared[layer]);
                 }
             }
             content = hash;

@@ -260,6 +260,14 @@ public final class TemporalScaler {
         return active && !composited;
     }
 
+    /**
+     * Whether the scaler makes this frame's picture, its composite still to come: what is laid over the picture after
+     * the world's own drawing, the glow of emissive geometry, waits for it (D27).
+     */
+    public static boolean makesPicture() {
+        return active && !composited;
+    }
+
     /** The world pass ends; a composite that found no place in it runs here. */
     static void endPass() {
         if (active && !composited) {
@@ -488,8 +496,17 @@ public final class TemporalScaler {
                 bind(ScalerShaders.UNIT_C, motion, nearest);
                 bind(ScalerShaders.UNIT_D, depthNow, nearest);
                 bind(ScalerShaders.UNIT_E, depthTerrain, nearest);
+                // The bloom weights drawn this frame, resolved into the history's alpha as the color is (D27).
+                int bloomWeights = cc.orthrus.quadrature.terrain.TerrainHook.emissiveWeights();
+                GL41.glProgramUniform1i(temporalProgram, 10, bloomWeights != 0 ? 1 : 0);
+                if (bloomWeights != 0) {
+                    bind(ScalerShaders.UNIT_WEIGHTS, bloomWeights, nearest);
+                }
                 GL42.glBindImageTexture(0, history[next], 0, false, 0, GL15.GL_WRITE_ONLY, GL30.GL_RGBA16F);
                 GL43.glDispatchCompute(groupsX, groupsY, 1);
+                if (bloomWeights != 0) {
+                    bind(ScalerShaders.UNIT_WEIGHTS, 0, 0);
+                }
                 clock.end(3);
                 GL42.glMemoryBarrier(GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
                 historyIndex = next;
@@ -524,6 +541,14 @@ public final class TemporalScaler {
                 GL43.glDispatchCompute((outputWidth + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP,
                     (outputHeight + ScalerShaders.GROUP - 1) / ScalerShaders.GROUP, 1);
                 clock.end(4);
+            }
+            if (cc.orthrus.quadrature.terrain.TerrainHook.emissiveWeights() != 0) {
+                // The glow of emissive geometry, over the output's picture once it is made: from the temporal pass's
+                // output where it ran, its alpha the resolved weight, else from the drawn picture (D27).
+                boolean resolved = TAA && !madeByHandoff;
+                GL42.glMemoryBarrier(GL42.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL42.GL_TEXTURE_FETCH_BARRIER_BIT);
+                cc.orthrus.quadrature.terrain.TerrainHook.glowAfterScale(resolved ? source : drawn.framebufferTexture,
+                    resolved, game);
             }
             // What follows draws into the picture (framebuffer), reads it as a texture (texture fetch) or copies it out
             // (texture update); nothing reads it through an image or a buffer.

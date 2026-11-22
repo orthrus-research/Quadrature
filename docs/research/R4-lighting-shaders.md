@@ -522,6 +522,101 @@ transforms and the camera, so the determining and adjusting steps have nothing t
 reprojection patents US 6,111,582 and US 6,057,847 (2000) use an object's bounding box to bound its image
 motion for scheduling resampling, not to give pixels motion. No claim found reads on the proposal.
 
+## 7c. Bloom
+
+Requirement 10, PLAN work order P3-R1; sources read on 2026-11-21. D25 fixes what blooms: the
+emissive layer GTCEu: Reloaded declares and the contributions it submits, each of a bloom kind.
+
+**7c.1 Published techniques. [V where read, K where marked]**
+- Mittring, "The Technology Behind the Unreal Engine 4 Elemental Demo" (SIGGRAPH 2012, Advances in
+  Real-Time Rendering), slides 61 to 63: five successive halvings, blurred as they are made against
+  aliasing, recombined from the coarsest, each level blurred and added to the sum from below;
+  blurring while upsampling barely changes the radius. Credited there to Kawase (GDC 2004) [K].
+- Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare" (SIGGRAPH 2014,
+  Advances): a filter pyramid chosen for temporal stability. His replies on his site, 2014-12-15 to
+  2016-08-02: no threshold, the bloom mixed in at about 0.04; a weighted average on each 2 by 2
+  block, renormalized; the tent's radius by default equal in texture space at every level; the
+  recurrence is Mittring's. The deck itself was not read; [K] for its filters as Christensen
+  (LearnOpenGL, 2022) reports them: 13 bilinear reads over 36 texels in five 2 by 2 boxes, the
+  inner box weighted 1/2 and each corner box 1/8; a 3 by 3 tent of weights 1, 2, 1 while upsampling;
+  the luma weight on the first halving only.
+- Karis, "Tone mapping" (blog, 2013-12-15): samples weighted by 1/(1 + luma), divided by the
+  weights' sum, average as if tone mapped and inverted; one bright sample cannot dominate.
+- Bjørge, "Bandwidth-Efficient Rendering" (SIGGRAPH 2015, Moving Mobile Graphics): dual filtering
+  halves with five reads (center 1/2, four diagonal corners 1/8) and doubles with eight (four on
+  the axes 1/12, four diagonals 1/6). A 97 by 97 equivalent on a Mali-T760 MP8 takes 2.8 ms at
+  1080p against Kawase's 4.5 and a separable Gaussian's 41.9, with 7% of the Gaussian's bandwidth
+  against Kawase's 16%; both hold steady under sub-pixel motion, where plain mipmaps alias.
+- Kawase (GDC 2003) [K], per Strugar (Intel, 2014): same-size passes of four bilinear corner reads
+  at growing distance, 0, 1, 2, 2, 3 approximating a 35 by 35 Gaussian. On an R9 290X at 2560 by
+  1600 a 127 by 127 Gaussian takes about 3 ms at full size, 0.5 ms at half, 0.17 ms at quarter.
+- Epic, "Bloom in Unreal Engine" (5.9): five Gaussian blurs from half to 1/32 size, each sized in
+  percent of screen width and tinted; threshold -1 admits every color; FFT convolution is for
+  cinematics and high-end hardware. Unity HDRP 17.0: 13 prefilter samples in place of 4 reduce
+  flicker from small bright objects. James and O'Rorke, "Real-Time Glow" (GPU Gems, 2004): sources
+  marked by a mask in the texture's alpha, blurred at a third or a quarter size and added; small
+  sources alias and flicker as they move.
+
+**7c.2 Source. [P]** In the 8-bit frame a threshold cannot tell a lamp from sunlit snow or sky,
+all near 1.0, and pixels crossing it pop under the sub-pixel offset. A per-pixel weight written by
+the emissive layer and contributions blooms what GTCEu: Reloaded blooms today, the scene where its
+layer drew (PLAN, Phase 3), in any light. In high dynamic range a constant weight on every pixel
+adds Jimenez's thresholdless scatter to the same chain.
+
+**7c.3 Place in the frame. [V for Unreal and Quadrature's code; P for the rest]** Epic's
+screen-percentage page runs post-processing after the temporal upsampler at its output size, the
+plain upscale in the tonemapper. Emissive geometry draws under the offset: a 4.5-pixel square
+emitter covers 16 to 25 pixel centers by phase, so a halo taken from the drawn frame pulses with the
+8-phase cycle, and a smooth halo added before the temporal pass changes more than its narrow
+neighborhood box and passes the clamp. Under the temporal pass the chain therefore reads its output,
+with the first weight resolved in the history's alpha (written as 1 and read by nothing before),
+and is added after the scale pass, neither entering the history nor sharpened. Levels are sized
+from the output, so the glow keeps its screen size across tiers. Without the temporal pass nothing
+moves under an offset, and the chain reads the picture where GTCEu: Reloaded's own path did, after
+translucent terrain.
+
+**7c.4 Kinds. [V for the documentation; P for the rest]** GTCEu: Reloaded's generated
+configuration gives OUT = BG + BLOOM s (b + LT + (1 - Y_BG)(HT - LT)) and three groups: emissive
+textures s 1.5, b 0.1, HT 0.5, LT 0.2, 5 mips, step 1; fusion reactor 1.5, 0, 1.3, 0.3; heat effect
+1.1, 0, 1.4, 0.6, the last two without mips or step. The factor is g0 - Y_BG (g0 - g1), with
+g0 = s(b + HT) and g1 = s(b + LT), linear in BLOOM, so one chain carries the g0-weighted color and
+the luma of the (g0 - g1)-weighted color of every kind, exact where one kind lights a pixel. A
+radius changes the filter: each distinct radius in a frame is a chain; the three groups share one.
+The documentation leaves the background's brightness undefined; GTCEu: Reloaded's blend program
+(`bloom_combine.frag`, read at 8ca6b98c9) takes its HSL lightness, (max + min) / 2, which the composite
+follows. Its default style (Unreal) also multiplies the summed levels by the strength before the blend
+multiplies by it again, and weighs its five levels 0.2 to 1.0 from the finest, so its glow is wider and
+about strength times brighter than the rule alone gives; one calibration gain set against its pictures
+(P3-V1) takes the brightness, and the width differs by design. P3-V1 found five levels short of its far
+halo and set six, the gain keeping the chain's response to a source of one color at its own (its level
+weights summed times the strength, 4.5: 9/7 at six levels).
+
+**7c.5 Cost. [M]** With RGBA16F levels the chain moves 4 + 9.33(1 - 4^(1-N)) bytes an output pixel,
+13.3 at five levels, and the source 14 a drawn pixel: T = (14 s^2 + 13.3) W H / B + (2N - 1) t_d.
+With B of 250 to 360 GB/s and t_d of 5 to 10 µs (assumed): 0.20 to 0.32 ms at 1920 by 1080 and
+0.32 to 0.49 ms at 2560 by 1440 at 100%; 0.16 to 0.25 and 0.25 to 0.38 ms at 67%. Thirteen
+bilinear reads a texel make 24 million in the first halving at 2560 by 1440; a work group loads its
+footprint into shared memory once, as the scaler does. No published timing of this chain was found.
+
+**7c.6 Patents. [V for the records, through page summaries; not a legal reading]** None found on
+the 13-read chain, dual filtering, Kawase's passes, sums of Gaussians or the luma weight. Active and
+near: US 11,100,701 (IMVU, to 2039-12-17), glow of marked parts through four frame buffers with
+stencil data for the opaque ones; US 12,086,957 (Huawei, to 2041-08-23), a previous frame's blur
+reused for a matching bright region; US 8,687,011 (Microsoft, to 2032-10-17), direct sampling or a
+mipmap chosen against a kernel-size threshold; US 11,915,337 (AMD, to 2041-04-05), all levels in one
+dispatch, the last work group finishing. The chain takes none of these steps: no stencil data and
+one scene framebuffer, a blur computed every frame and kept nowhere, every level made with fixed
+filters, one dispatch a level. Expired: US 7,414,625 (Microsoft glow), US 6,900,799 (Square Enix),
+US 7,479,961 (Bandai Namco glare), US 6,925,210 (Herf).
+
+*Implication:* the bloom is Mittring's recurrence with Jimenez's filters: a 13-read halving into N
+levels (default 5, GTCEu: Reloaded's mips), a 3 by 3 tent while doubling at r texels of the level
+read (r the kind's radius, GTCEu: Reloaded's step, held to 0.5 to 1.5; not a fixed texture-space
+radius, which leaves holes at large radii), levels weighted equally, the luma weight on the first
+halving from Phase 5, the 8-bit source being bounded and resolved. The source is the resolved
+scene times each kind's weight, added by GTCEu: Reloaded's formula. P3-V1 measures the cost and
+sets one calibration constant against GTCEu: Reloaded's glow.
+
 ## Follow-ups
 
 1. A second, deeper pass on 7.1 to 7.3 with primary sources, once R1's hosted-rendering
@@ -531,6 +626,8 @@ motion for scheduling resampling, not to give pixels motion. No claim found read
 4. Find measured costs for shadows at long range, or measure them (7.2).
 5. Draft the shader format against two concrete shaders: the baseline and one with
    shadows and atmosphere (8.1).
+6. Resolve the bloom weight where the handoff makes the picture (D21): its own temporal pass
+   does not run there (7c.3).
 
 ## Sources
 
@@ -608,3 +705,29 @@ motion for scheduling resampling, not to give pixels motion. No claim found read
   Acoustics, Speech and Signal Processing 29(6), 1981, pp. 1153-1160.
 - Wang, Bovik, Sheikh and Simoncelli, "Image quality assessment: from error visibility to
   structural similarity", IEEE Transactions on Image Processing 13(4), 2004, pp. 600-612.
+- Mittring, "The Technology Behind the Unreal Engine 4 Elemental Demo", SIGGRAPH 2012 Advances in
+  Real-Time Rendering, slides 35 and 61 to 63 (read 2026-11-21):
+  https://de45xmedrsdbp.cloudfront.net/Resources/files/The_Technology_Behind_the_Elemental_Demo_16x9-1248544805.pdf
+- Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare", SIGGRAPH 2014
+  Advances in Real-Time Rendering (course page): https://advances.realtimerendering.com/s2014/index.html;
+  the author's post and replies, 2014-12-15 to 2016-08-02: https://iryoku.com/?p=1707
+- Christensen, "Phys. Based Bloom", LearnOpenGL guest article, 2022 (a secondary account of
+  Jimenez's filters): https://learnopengl.com/Guest-Articles/2022/Phys.-Based-Bloom
+- Karis, "Tone mapping", Graphic Rants, 2013-12-15: https://graphicrants.blogspot.com/2013/12/tone-mapping.html
+- Bjørge, "Bandwidth-Efficient Rendering", SIGGRAPH 2015 course Moving Mobile Graphics, notes pp.
+  20 to 31 and slides: https://community.arm.com/cfs-file/__key/communityserver-blogs-components-weblogfiles/00-00-00-20-66/siggraph2015_2D00_mmg_2D00_marius_2D00_notes.pdf
+- Kawase, "Frame Buffer Postprocessing Effects in DOUBLE-S.T.E.A.L (Wreckless)", GDC 2003 (entry
+  only): https://www.gdcvault.com/play/1022664/Frame-Buffer-Postprocessing-Effects-in
+- Strugar, "An Investigation of Fast Real-Time GPU-Based Image Blur Algorithms", Intel, 2014:
+  https://www.intel.com/content/www/us/en/developer/articles/technical/an-investigation-of-fast-real-time-gpu-based-image-blur-algorithms.html
+- Epic Games, "Bloom in Unreal Engine" and "Screen Percentage with Temporal Upscale" (Unreal Engine
+  5.9 documentation): https://dev.epicgames.com/documentation/en-us/unreal-engine/bloom-in-unreal-engine
+- Unity, HDRP 17.0 manual, "Bloom":
+  https://docs.unity3d.com/Packages/com.unity.render-pipelines.high-definition@17.0/manual/Post-Processing-Bloom.html
+- James and O'Rorke, "Real-Time Glow", GPU Gems, chapter 21, 2004:
+  https://developer.nvidia.com/gpugems/gpugems/part-iv-image-processing/chapter-21-real-time-glow
+- Patents read through their records (2026-11-21): US 11,100,701, US 12,086,957, US 8,687,011,
+  US 11,915,337, US 9,558,536, US 8,970,614, US 7,414,625, US 6,900,799, US 7,479,961, US 6,925,210:
+  https://patents.google.com/
+- GTCEu: Reloaded's generated configuration documentation (`gregtech.cfg`: shader options, fusion
+  reactor, heat effect), read 2026-11-21

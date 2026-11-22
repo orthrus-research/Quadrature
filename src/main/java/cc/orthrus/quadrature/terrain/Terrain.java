@@ -123,6 +123,18 @@ public final class Terrain
             addedLayers[a] = new Long2ObjectOpenHashMap<>();
         }
     }
+
+    /**
+     * The layers mods declare through the render interface (D25), as last followed: the declarations and, for each
+     * layer in their order, the cubes that draw in it. Replaced whole when the declarations' generation moves, and every
+     * cube is then built again.
+     */
+    private cc.orthrus.quadrature.modinterface.ModInterface.Declarations declarations =
+        cc.orthrus.quadrature.modinterface.ModInterface.Declarations.EMPTY;
+    @SuppressWarnings("unchecked")
+    private Long2ObjectOpenHashMap<AddedLayerCube>[] declaredLayers = new Long2ObjectOpenHashMap[0];
+    /** The glow of emissive declared layers and contributions (D25); null until something emissive is declared. */
+    private BloomStage bloom;
     private final LongLinkedOpenHashSet dirty = new LongLinkedOpenHashSet();
     /**
      * Off unless {@code -Dquadrature.scene=true}: the cells of every cube that is meshed are kept for
@@ -318,7 +330,7 @@ public final class Terrain
     /** Counts changes to {@link #links}; a search holds while it and the view stand still. */
     private long tableVersion;
     private long searchedVersion = -1;
-    private boolean attached;
+    private volatile boolean attached;
     /** The world whose opaque layers are drawn from own meshes, for the game's chunk-mesh threads (12a). */
     private volatile Object attachedWorld;
 
@@ -545,25 +557,292 @@ public final class Terrain
      */
     private void drawAdded(int added, View view) {
         Long2ObjectOpenHashMap<AddedLayerCube> cubes = addedLayers[added];
-        if (cubes.isEmpty()) {
-            return;
+        if (!cubes.isEmpty()) {
+            drawLayerCubes(cubes, view, CubeMesher.ADDED[added].toString());
         }
+    }
+
+    /**
+     * Draws one layer's cubes for what the view sees, nearest first, under the state set for it and into whatever
+     * framebuffer is bound.
+     */
+    private void drawLayerCubes(Long2ObjectOpenHashMap<AddedLayerCube> cubes, View view, String name) {
+        drawLayerCubes(cubes, view, name, -1, -1);
+    }
+
+    /**
+     * The same, and where the weights are not negative a bloom kind's weights into the bound framebuffer's second
+     * target as well, through the terrain program's emissive variant.
+     */
+    /** Whether any of these cubes is among those the view saw this frame. */
+    private boolean anySeen(Long2ObjectOpenHashMap<AddedLayerCube> cubes) {
+        for (int i = 0, seen = visible.count(); i < seen; i++) {
+            if (cubes.containsKey(visible.key(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void drawLayerCubes(Long2ObjectOpenHashMap<AddedLayerCube> cubes, View view, String name, float overBlack,
+        float overWhite) {
         double cameraX = view.originX();
         double cameraY = view.originY();
         double cameraZ = view.originZ();
+        boolean weighed = overBlack >= 0;
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.enableLightmap();
-        DriverMessages.enter("terrain " + CubeMesher.ADDED[added]);
+        DriverMessages.enter("terrain " + name);
         program.begin(view);
         for (int i = 0, seen = visible.count(); i < seen; i++) {
             AddedLayerCube cube = cubes.get(visible.key(i));
-            if (cube != null) {
-                program.draw(cube.mesh, 0, (float) ((cube.x << 4) - cameraX), (float) ((cube.y << 4) - cameraY),
-                    (float) ((cube.z << 4) - cameraZ));
+            if (cube == null) {
+                continue;
+            }
+            float x = (float) ((cube.x << 4) - cameraX);
+            float y = (float) ((cube.y << 4) - cameraY);
+            float z = (float) ((cube.z << 4) - cameraZ);
+            if (weighed) {
+                program.drawEmissive(cube.mesh, 0, x, y, z, overBlack, overWhite);
+            } else {
+                program.draw(cube.mesh, 0, x, y, z);
             }
         }
         program.end();
         DriverMessages.leave();
         net.minecraft.client.Minecraft.getMinecraft().entityRenderer.disableLightmap();
+    }
+
+    /**
+     * The emissive stage (D25), before translucent terrain and after entities and particles, where GTCEu: Reloaded's own
+     * path drew its emissive layer and tickets: the layers mods declare, writing depth as that path did, then the
+     * contributions mods submit, untextured or from the blocks atlas and blended as each states; each into the picture
+     * and, for what glows on a frame that glows, again into its bloom kind's source.
+     *
+     * <p>State. The stage changes only state the game's cache knows, through the cache, and puts back what the game
+     * sets for translucent terrain just before this point: blending on with source alpha over the rest (alpha kept
+     * from the source), depth writes off, face culling on, the alpha test's function, smooth shading, texturing on with
+     * the blocks atlas bound. Nothing is read back from the driver. A contribution's vertices carry their own color, so
+     * the current color is left as the last draw leaves it, reset in the cache.
+     *
+     * <p>Containment (PLAN item P3-B4). A mod's callbacks here, a contribution's test and its writing of vertices, make
+     * no GL call by the interface's contract. Each contribution's draw sets, through the cache, every piece of state it
+     * depends on, so a callback that changed the cache's state anyway does not reach the draw, and the stage's way out
+     * puts back what the game set. Under the state audit, the stage, the callbacks and the glow are stretches of their
+     * own, so one that leaves state changed is named.
+     */
+    @Override
+    public void drawEmissive(View view, float partialTicks, Entity viewer) {
+        if (TerrainHook.drawsDeclaredLayers()) {
+            // The contributions are this stage's to draw in every pass it runs for, so OrthLib leaves them out of the
+            // plain drawing it gives each pass no provider marks (D25). The mark comes before the way out below: a
+            // contribution not yet in this frame's snapshot then waits a frame rather than appearing once plainly.
+            cc.orthrus.quadrature.modinterface.ModInterfaces.current().drawingContributions();
+        }
+        cc.orthrus.quadrature.modinterface.ModInterface.Declarations now = declarations;
+        if (declaredLayers.length == 0 && now.contributions().isEmpty()) {
+            return;
+        }
+        if (bloom == null) {
+            bloom = new BloomStage();
+        }
+        cc.orthrus.quadrature.frame.FrameHost.auditBoundary(EMISSIVE_STRETCH);
+        net.minecraft.client.Minecraft minecraft = net.minecraft.client.Minecraft.getMinecraft();
+        boolean glows = bloom.begin(minecraft.getFramebuffer(), now.kinds().size(), TerrainHook.frame());
+        try {
+            net.minecraft.client.renderer.GlStateManager.depthMask(true);
+            for (int d = 0; d < declaredLayers.length; d++) {
+                Long2ObjectOpenHashMap<AddedLayerCube> cubes = declaredLayers[d];
+                // A layer nothing of which is in view draws nothing and weighs nothing: the glow then runs only on
+                // frames where something that glows was drawn.
+                if (cubes.isEmpty() || !anySeen(cubes)) {
+                    continue;
+                }
+                cc.orthrus.quadrature.modinterface.ModInterface.DeclaredLayer layer = now.layers().get(d);
+                cc.orthrus.quadrature.modinterface.ModInterface.BloomKind kind = glows && layer.emissive() && layer.kind() >= 0
+                    ? now.kinds().get(layer.kind()) : null;
+                if (kind != null && bloom.layerTargets(kind)) {
+                    // Its color into the picture and its kind's weights beside it, in one draw.
+                    try {
+                        drawLayerCubes(cubes, view, layer.key(), BloomStage.overBlack(kind), BloomStage.overWhite(kind));
+                    } finally {
+                        bloom.endTargets();
+                    }
+                } else {
+                    drawLayerCubes(cubes, view, layer.key(), -1, -1);
+                }
+            }
+            // A frame for the mods' sources needs a viewer and a world; the interface refuses one without.
+            if (!now.contributions().isEmpty() && viewer != null && minecraft.world != null) {
+                drawContributions(now, new cc.orthrus.quadrature.modinterface.ModInterface.Frame(partialTicks,
+                    view.originX(), view.originY(), view.originZ(), viewer, minecraft.world), glows, view);
+            }
+        } finally {
+            translucentState(minecraft);
+            bloom.endDraws();
+            cc.orthrus.quadrature.frame.FrameHost.auditResume();
+        }
+    }
+
+    /** What the state audit calls the emissive stage, the mods' callbacks it runs, and the glow. */
+    private static final String EMISSIVE_STRETCH = "emissive stage";
+    private static final String CALLBACKS_STRETCH = "emissive stage: mods' callbacks";
+    private static final String GLOW_STRETCH = "emissive stage: glow";
+
+    /** What the game sets for translucent terrain just before it draws it, put back through the cache. */
+    private static void translucentState(net.minecraft.client.Minecraft minecraft) {
+        net.minecraft.client.renderer.GlStateManager.enableTexture2D();
+        minecraft.getTextureManager().bindTexture(net.minecraft.client.renderer.texture.TextureMap.LOCATION_BLOCKS_TEXTURE);
+        net.minecraft.client.renderer.GlStateManager.enableBlend();
+        net.minecraft.client.renderer.GlStateManager.tryBlendFuncSeparate(org.lwjgl.opengl.GL11.GL_SRC_ALPHA,
+            org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA, org.lwjgl.opengl.GL11.GL_ONE, org.lwjgl.opengl.GL11.GL_ZERO);
+        net.minecraft.client.renderer.GlStateManager.depthMask(false);
+        net.minecraft.client.renderer.GlStateManager.enableCull();
+        net.minecraft.client.renderer.GlStateManager.alphaFunc(org.lwjgl.opengl.GL11.GL_GREATER, 0.1F);
+        net.minecraft.client.renderer.GlStateManager.shadeModel(org.lwjgl.opengl.GL11.GL_SMOOTH);
+    }
+
+    /**
+     * Draws each contribution into the picture, and where the frame glows its bloom kind's weights a second time. One
+     * whose vertices lie wholly outside the view's volume is drawn into neither, as GTCEu: Reloaded's own path left its
+     * effects outside the view undrawn: the interface gives a source no view volume to test (version 1.0), so the test
+     * is made here, on what it wrote, and the glow then runs only on frames where something that glows is in view.
+     */
+    private void drawContributions(cc.orthrus.quadrature.modinterface.ModInterface.Declarations now,
+        cc.orthrus.quadrature.modinterface.ModInterface.Frame frame, boolean glows, View view) {
+        cc.orthrus.quadrature.modinterface.ModInterface mod = cc.orthrus.quadrature.modinterface.ModInterfaces.current();
+        net.minecraft.client.Minecraft minecraft = net.minecraft.client.Minecraft.getMinecraft();
+        for (cc.orthrus.quadrature.modinterface.ModInterface.Contribution contribution : now.contributions()) {
+            // Everything the draw depends on, set each time: a callback before it may have changed the cache's state.
+            net.minecraft.client.renderer.GlStateManager.enableDepth();
+            net.minecraft.client.renderer.GlStateManager.enableCull();
+            net.minecraft.client.renderer.GlStateManager.disableLighting();
+            if (contribution.textured()) {
+                net.minecraft.client.renderer.GlStateManager.enableTexture2D();
+                minecraft.getTextureManager().bindTexture(net.minecraft.client.renderer.texture.TextureMap.LOCATION_BLOCKS_TEXTURE);
+            } else {
+                net.minecraft.client.renderer.GlStateManager.disableTexture2D();
+            }
+            switch (contribution.blend()) {
+                case OPAQUE -> {
+                    net.minecraft.client.renderer.GlStateManager.disableBlend();
+                    net.minecraft.client.renderer.GlStateManager.depthMask(true);
+                }
+                case ALPHA -> {
+                    net.minecraft.client.renderer.GlStateManager.enableBlend();
+                    net.minecraft.client.renderer.GlStateManager.tryBlendFuncSeparate(org.lwjgl.opengl.GL11.GL_SRC_ALPHA,
+                        org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA, org.lwjgl.opengl.GL11.GL_ONE, org.lwjgl.opengl.GL11.GL_ZERO);
+                    net.minecraft.client.renderer.GlStateManager.depthMask(false);
+                }
+                case ADDITIVE -> {
+                    net.minecraft.client.renderer.GlStateManager.enableBlend();
+                    net.minecraft.client.renderer.GlStateManager.tryBlendFuncSeparate(org.lwjgl.opengl.GL11.GL_SRC_ALPHA,
+                        org.lwjgl.opengl.GL11.GL_ONE, org.lwjgl.opengl.GL11.GL_ONE, org.lwjgl.opengl.GL11.GL_ZERO);
+                    net.minecraft.client.renderer.GlStateManager.depthMask(false);
+                }
+            }
+            if (!drawContribution(mod, contribution, frame, view)) {
+                continue;
+            }
+            if (glows && contribution.kind() >= 0
+                && bloom.contributionTarget(now.kinds().get(contribution.kind()), contribution.textured())) {
+                try {
+                    drawContribution(mod, contribution, frame, null);
+                } finally {
+                    bloom.endTargets();
+                }
+            }
+        }
+    }
+
+    /**
+     * Has a contribution write its vertices and draws them; false where it wrote nothing it could draw, or, given a
+     * view, nothing inside that view's volume.
+     */
+    private static boolean drawContribution(cc.orthrus.quadrature.modinterface.ModInterface mod,
+        cc.orthrus.quadrature.modinterface.ModInterface.Contribution contribution,
+        cc.orthrus.quadrature.modinterface.ModInterface.Frame frame, @javax.annotation.Nullable View cull) {
+        net.minecraft.client.renderer.Tessellator tessellator = net.minecraft.client.renderer.Tessellator.getInstance();
+        net.minecraft.client.renderer.BufferBuilder buffer = tessellator.getBuffer();
+        buffer.begin(contribution.triangles() ? org.lwjgl.opengl.GL11.GL_TRIANGLES : org.lwjgl.opengl.GL11.GL_QUADS,
+            contribution.textured() ? net.minecraft.client.renderer.vertex.DefaultVertexFormats.POSITION_TEX_COLOR
+                : net.minecraft.client.renderer.vertex.DefaultVertexFormats.POSITION_COLOR);
+        cc.orthrus.quadrature.frame.FrameHost.auditBoundary(CALLBACKS_STRETCH);
+        boolean written;
+        try {
+            written = mod.write(contribution, buffer, frame);
+        } finally {
+            cc.orthrus.quadrature.frame.FrameHost.auditBoundary(EMISSIVE_STRETCH);
+        }
+        if (!written || cull != null && !writtenInView(buffer, cull)) {
+            buffer.finishDrawing();
+            buffer.reset();
+            return false;
+        }
+        tessellator.draw();
+        return true;
+    }
+
+    /**
+     * Whether any of the vertices written into a begun buffer may lie in the view's volume: the box around their
+     * positions, which are relative to the view's origin and come first in every layout a contribution states.
+     */
+    private static boolean writtenInView(net.minecraft.client.renderer.BufferBuilder buffer, View view) {
+        int count = buffer.getVertexCount();
+        if (count == 0) {
+            return false;
+        }
+        java.nio.ByteBuffer bytes = buffer.getByteBuffer();
+        int stride = buffer.getVertexFormat().getSize();
+        float minX = Float.POSITIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY;
+        float minZ = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
+        float maxY = Float.NEGATIVE_INFINITY;
+        float maxZ = Float.NEGATIVE_INFINITY;
+        for (int v = 0, at = 0; v < count; v++, at += stride) {
+            float x = bytes.getFloat(at);
+            float y = bytes.getFloat(at + 4);
+            float z = bytes.getFloat(at + 8);
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            maxZ = Math.max(maxZ, z);
+        }
+        return view.boxVisible(minX + view.originX(), minY + view.originY(), minZ + view.originZ(),
+            maxX + view.originX(), maxY + view.originY(), maxZ + view.originZ());
+    }
+
+    /**
+     * After translucent terrain: the glow of what was weighed this frame, laid over the picture, where GTCEu: Reloaded's
+     * own path laid its glow; where the temporal scaler makes this frame's picture, after its passes instead
+     * ({@link #glowAfterScale}).
+     */
+    @Override
+    public void afterTranslucent() {
+        if (bloom != null && bloom.weightsDrawn(TerrainHook.frame()) != 0
+            && !cc.orthrus.quadrature.frame.TemporalScaler.makesPicture()) {
+            cc.orthrus.quadrature.frame.FrameHost.auditBoundary(GLOW_STRETCH);
+            try {
+                net.minecraft.client.shader.Framebuffer picture = net.minecraft.client.Minecraft.getMinecraft().getFramebuffer();
+                bloom.glow(picture.framebufferTexture, false, picture, TerrainHook.frame(), false);
+            } finally {
+                cc.orthrus.quadrature.frame.FrameHost.auditResume();
+            }
+        }
+    }
+
+    @Override
+    public int emissiveWeights() {
+        return bloom == null ? 0 : bloom.weightsDrawn(TerrainHook.frame());
+    }
+
+    @Override
+    public void glowAfterScale(int color, boolean resolved, net.minecraft.client.shader.Framebuffer output) {
+        if (bloom != null) {
+            bloom.glow(color, resolved, output, TerrainHook.frame(), true);
+        }
     }
 
     // Events from the cube source.
@@ -572,6 +851,8 @@ public final class Terrain
     public void worldAttached(long worldIdentity) {
         clear();
         attached = true;
+        // Blocks may answer their layers by whether a renderer draws declared layers in this world (D25).
+        CubeMesher.layerGenerationNow++;
         // The source attaches at the end of a client tick to the world the game holds then.
         attachedWorld = net.minecraft.client.Minecraft.getMinecraft().world;
         source.forEachLoaded((x, y, z) -> {
@@ -640,6 +921,7 @@ public final class Terrain
         release(meshes.remove(key));
         releaseTranslucent(key);
         releaseAdded(key);
+        releaseDeclared(key);
         links.remove(key);
         slots.release(key);
         releaseFaceSlot(key);
@@ -651,8 +933,57 @@ public final class Terrain
         }
     }
 
-    private void releaseAdded(long key) {
-        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : addedLayers) {
+    private void releaseDeclared(long key) {
+        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : declaredLayers) {
+            AddedLayerCube cube = cubes.remove(key);
+            if (cube != null) {
+                cube.delete();
+            }
+        }
+    }
+
+    /**
+     * Follows the declarations mods make through the render interface: bloom kinds and contributions as they are each
+     * frame, and where the declared layers have changed, the meshes of the old ones go and every loaded cube is built
+     * again with the new. The same rule as the meshers' decides which declarations count: none unless the provider
+     * answers that it draws them ({@link TerrainHook#drawsDeclaredLayers}).
+     */
+    private void followDeclarations() {
+        cc.orthrus.quadrature.modinterface.ModInterface.Declarations next = TerrainHook.drawsDeclaredLayers()
+            ? cc.orthrus.quadrature.modinterface.ModInterfaces.current().declarations()
+            : cc.orthrus.quadrature.modinterface.ModInterface.Declarations.EMPTY;
+        if (next.layerGeneration() == declarations.layerGeneration()) {
+            if (next.generation() != declarations.generation() && DECLARATIONS_LOG) {
+                Quadrature.LOGGER.info("Render interface: {} bloom kinds and {} contributions (generation {}).",
+                    next.kinds().size(), next.contributions().size(), next.generation());
+            }
+            declarations = next;
+            return;
+        }
+        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : declaredLayers) {
+            for (AddedLayerCube cube : cubes.values()) {
+                cube.delete();
+            }
+        }
+        declarations = next;
+        int count = Math.min(next.layers().size(), CubeMesher.MAX_DECLARED);
+        @SuppressWarnings("unchecked")
+        Long2ObjectOpenHashMap<AddedLayerCube>[] maps = new Long2ObjectOpenHashMap[count];
+        for (int d = 0; d < count; d++) {
+            maps[d] = new Long2ObjectOpenHashMap<>();
+        }
+        declaredLayers = maps;
+        if (attached) {
+            source.forEachLoaded((x, y, z) -> dirty.add(CubeKey.of(x, y, z)));
+        }
+        Quadrature.LOGGER.info("Own terrain follows {} declared layers, {} bloom kinds and {} contributions (layer generation "
+            + "{}).", next.layers().size(), next.kinds().size(), next.contributions().size(), next.layerGeneration());
+    }
+
+    /** {@code -Dquadrature.declarations.log=true}: logs each change of the bloom kinds and contributions as well. */
+    private static final boolean DECLARATIONS_LOG = Boolean.getBoolean("quadrature.declarations.log");
+
+    private void releaseAdded(long key) {        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : addedLayers) {
             AddedLayerCube cube = cubes.remove(key);
             if (cube != null) {
                 cube.delete();
@@ -713,6 +1044,12 @@ public final class Terrain
         }
         translucents.clear();
         for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : addedLayers) {
+            for (AddedLayerCube cube : cubes.values()) {
+                cube.delete();
+            }
+            cubes.clear();
+        }
+        for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : declaredLayers) {
             for (AddedLayerCube cube : cubes.values()) {
                 cube.delete();
             }
@@ -1003,6 +1340,7 @@ public final class Terrain
         release(meshes.remove(key));
         releaseTranslucent(key);
         releaseAdded(key);
+        releaseDeclared(key);
         emptied++;
         EntityPass.forgotten(x, y, z);
         setLinks(key, CubeConnectivity.ALL);
@@ -1075,6 +1413,17 @@ public final class Terrain
             if (built.addedCount(a) > 0) {
                 addedLayers[a].put(key, new AddedLayerCube(x, y, z, built.addedVertices(a), built.addedCount(a)));
             }
+        }
+        releaseDeclared(key);
+        if (built.declaredGeneration() == declarations.layerGeneration()) {
+            for (int d = 0; d < declaredLayers.length; d++) {
+                if (built.declaredCount(d) > 0) {
+                    declaredLayers[d].put(key, new AddedLayerCube(x, y, z, built.declaredVertices(d), built.declaredCount(d)));
+                }
+            }
+        } else if (built.declaredGeneration() >= 0) {
+            // Meshed with declarations since replaced: built again with the current ones.
+            dirty.add(key);
         }
         CubeMesh old = meshes.remove(key);
         if (CAUSES) {
@@ -2148,6 +2497,7 @@ public final class Terrain
         double cameraY = view.originY();
         double cameraZ = view.originZ();
         if (layer == BlockRenderLayer.SOLID) {
+            followDeclarations();
             drawsThisFrame = 0;
             if (DIRECT) {
                 drawnVerticesThisFrame = 0;
@@ -2631,6 +2981,19 @@ public final class Terrain
                     + "%d sorts again, %.3f ms a frame sorting on average", translucents.size(), held / 1000,
                 translucentDrawnLastFrame, translucentFirstSorts, translucentSorts,
                 frames == 0 ? 0.0 : translucentSortNanos / 1e6 / frames);
+        }
+        if (declaredLayers.length > 0 || !declarations.contributions().isEmpty() || bloom != null) {
+            long declaredHeld = 0;
+            for (Long2ObjectOpenHashMap<AddedLayerCube> cubes : declaredLayers) {
+                declaredHeld += cubes.size();
+            }
+            line += String.format("; declared: %d layers in %d cubes, %d bloom kinds, %d contributions (layer generation %d)",
+                declaredLayers.length, declaredHeld, declarations.kinds().size(), declarations.contributions().size(),
+                declarations.layerGeneration());
+            String emissive = bloom == null ? null : bloom.summary();
+            if (emissive != null) {
+                line += "; " + emissive;
+            }
         }
         if (CubeMesher.LAYER_CACHE == CubeMesher.LAYERS_ALTERNATE) {
             long kept = CubeMesher.ALTERNATE_BUILDS[0].sum();

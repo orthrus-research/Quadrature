@@ -47,6 +47,27 @@ public final class TerrainHook {
             return false;
         }
 
+        /**
+         * Before translucent terrain, after entities and particles: the layers mods declare through the render interface
+         * and the emissive contributions they submit, into the picture and, for what glows, into its bloom kind's
+         * source (D25).
+         */
+        default void drawEmissive(View view, float partialTicks, Entity viewer) {
+        }
+
+        /** After translucent terrain: the glow of emissive geometry, added to the picture (D25). */
+        default void afterTranslucent() {
+        }
+
+        /** The bloom weights drawn this frame, a texture for the temporal pass to resolve, or 0 where none were (D27). */
+        default int emissiveWeights() {
+            return 0;
+        }
+
+        /** Where the temporal scaler made the picture: the glow from its color, laid over the output's picture (D27). */
+        default void glowAfterScale(int color, boolean resolved, net.minecraft.client.shader.Framebuffer output) {
+        }
+
         /** Draws one layer for a view: an opaque one, or the translucent one where own terrain draws it. */
         void draw(BlockRenderLayer layer, View view);
 
@@ -194,6 +215,37 @@ public final class TerrainHook {
         return installed != null && installed.drawsAdded(layer);
     }
 
+    /**
+     * Whether own terrain meshes and draws the layers mods declare in the current world: it draws the world, takes over
+     * the game's chunk system there (D24, D25) and draws the translucent layer, before which declared layers are
+     * drawn. Read from any thread, by the render interface and the meshers.
+     */
+    public static boolean drawsDeclaredLayers() {
+        Drawer installed = drawer;
+        return installed != null && installed.active() && GameChunks.takesOverCubicWorlds() && drawsTranslucent();
+    }
+
+    /**
+     * The bloom weights the emissive stage drew this frame, a texture of the drawn picture's size the temporal pass
+     * resolves into its history's alpha; 0 where none were drawn (D27).
+     */
+    public static int emissiveWeights() {
+        Drawer installed = drawer;
+        return installed == null ? 0 : installed.emissiveWeights();
+    }
+
+    /**
+     * Where the temporal scaler made this frame's picture, after its passes: the glow from a color of the drawn
+     * picture's size (the temporal pass's output, its alpha the resolved weight, where {@code resolved}; else the drawn
+     * picture), laid over the output's picture (D27). Client thread.
+     */
+    public static void glowAfterScale(int color, boolean resolved, net.minecraft.client.shader.Framebuffer output) {
+        Drawer installed = drawer;
+        if (installed != null) {
+            installed.glowAfterScale(color, resolved, output);
+        }
+    }
+
     /** Whether own terrain draws the translucent layer as well as the opaque ones (PLAN item 12e). */
     public static boolean drawsTranslucent() {
         return TranslucentCube.OWN;
@@ -212,9 +264,17 @@ public final class TerrainHook {
             fadeOrigin = null;
             mainView = drawer.mainView(partialTicks, viewer);
         }
+        if (layer == BlockRenderLayer.TRANSLUCENT) {
+            // Where GTCEu: Reloaded's own path drew its emissive layer and tickets: after entities and particles, so
+            // that they hide what glows behind them, under the state the game sets for translucent terrain.
+            drawer.drawEmissive(mainView, (float) partialTicks, viewer);
+        }
         drawer.draw(layer, mainView);
-        if (afterOpaque != null && layer == BlockRenderLayer.CUTOUT) {
+        if (layer == BlockRenderLayer.CUTOUT && afterOpaque != null) {
             afterOpaque.run();
+        }
+        if (layer == BlockRenderLayer.TRANSLUCENT) {
+            drawer.afterTranslucent();
         }
     }
 

@@ -236,7 +236,51 @@ program or depth texture, and no GL call for them. It declares its emissive laye
 contributions, geometry with its format, blend and bloom kind stated, through OrthLib's interface, which
 Quadrature implements; Quadrature draws them. Where no renderer provides the interface, OrthLib's
 absence answers route the declared layer's geometry into the fallback layer the mod names, which the game
-draws at full brightness, and drop contributions: emissive textures without glow (the user's decision of
-2026-11-21). Quadrature's bloom is one technique of its own (D2), chosen by research; GTCEu: Reloaded's
+draws at full brightness, and OrthLib draws the contributions plainly through the game's own drawing:
+everything appears, nothing glows, and the fusion reactor's ring stays visible (the user's decisions of
+2026-11-21). The rule is per world pass: one whose contributions Quadrature does not draw, in a world its
+own terrain does not draw for instance, gets OrthLib's plain drawing. Quadrature's bloom is one technique of its own (D2), chosen by research; GTCEu: Reloaded's
 bloom styles are retired, and its strength, base, limits and radius carry over as each bloom kind's
 parameters (the user's decision of 2026-11-21).
+
+**D26. The bridge to OrthLib is compiled by Java 26's compiler, for Java 25.**
+OrthLib's classes are Java 26's; Quadrature's stay Java 25's (D7). The few classes that implement
+OrthLib's render interface are a source set of their own, compiled by Java 26's compiler for Java 25,
+which reads OrthLib's classes without the warning on each that Java 25's compiler gives and writes
+class files of the same version as the rest. Nothing else names an OrthLib type: the bridge is reached
+by name only where OrthLib is installed, so a game without OrthLib loads none of it, and a game with
+OrthLib runs on the Java 26 OrthLib needs. The JDK that builds OrthLib's pinned JAR and compiles the
+bridge is pinned beside Java 25 in `platform.json`.
+
+**D27. Bloom is a chain of halvings and doublings over a weighted source.**
+Quadrature's bloom (D25) is Mittring's recurrence with Jimenez's filters (research R4, 7c): a
+thirteen-read halving into six levels sized from the output, a three-by-three tent while doubling at
+the kind's radius in texels of the level read, the levels weighted in equal steps up to 1 at the
+coarsest, as GTCEu: Reloaded's default style weighs its five, so that in the 8-bit picture the glow's
+light lies in its halo rather than in a core that clamps (P3-V1: weighted equally, a gain bright enough
+for the halo blew the cores out; with five levels the far halo fell short of GTCEu: Reloaded's). Its
+source is the picture
+weighted per pixel by the bloom kinds of what declared emissive layers and contributions cover, with no
+brightness threshold: a kind's strength, base and limits become two weights in one chain, which
+reproduces GTCEu: Reloaded's composite rule exactly where one kind lights a pixel. Under the temporal
+pass the chain reads its output, the weight resolved in its history, and the glow is added after the
+scale pass; without it, after translucent terrain, where GTCEu: Reloaded's own path added it. A
+calibration gain, set against GTCEu: Reloaded's own glow in P3-V1, keeps the chain's response to a source
+of one color at its own: its five levels' weights summed times the strength its default style applies a
+second time, 4.5, over the chain's levels' weights summed, 9/7 at six levels, which P3-V1 measured as
+the gain that matches its light. Kinds of different radii share the chain at the first
+one's radius until a mod sets them apart, and the weighting against single bright samples waits for
+high dynamic range (Phase 5).
+
+**D28. Mods reach Quadrature's drawing through version 1.0 of OrthLib's render interface.**
+The interface's first version is the one Phase 3 verified, at OrthLib commit 0c2995e: declared layers,
+each with the block states that draw in it and the game layer it falls back to, meshed apart inside the
+provider's scopes; bloom kinds of a strength, a base, two brightness limits and a radius; emissive
+contributions, geometry a mod writes into a buffer the provider begins, in a stated layout, primitive and
+blend; a lease for every registration; capabilities stated as literals, and one provider, a second
+refused by name (D6). Without a provider, and in every world pass the provider does not mark as one whose
+contributions it draws, OrthLib's absence answers draw everything plainly: everything appears, nothing
+glows. Frame resources and work at named points stay out of it until a mod needs them (requirement rule
+4). It changes by research R5's rules (10.2): within version 1 only additions, nothing removed or changed
+in meaning. What using it in Phase 3 left wanting (a view volume a source can cull by, a test host for
+consumers, a bloom kind changed in place among them) is what its next minor version weighs.

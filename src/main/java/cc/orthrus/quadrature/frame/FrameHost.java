@@ -103,6 +103,24 @@ public final class FrameHost {
 
     private static int currentStage = -1;
 
+    /**
+     * Under the state audit, begins a stretch of its own inside a hosted stage, so the audit names what leaves state
+     * changed there: Quadrature's emissive stage, the mods' callbacks it runs, its glow. The stretch lasts until the
+     * next boundary; nothing happens unless the audit is on.
+     */
+    public static void auditBoundary(String stretch) {
+        if (audit != null && timeline != null) {
+            audit.boundary(stretch);
+        }
+    }
+
+    /** Under the state audit, ends a stretch begun by {@link #auditBoundary}: the hosted stage it interrupted goes on. */
+    public static void auditResume() {
+        if (audit != null && timeline != null && currentStage >= 0) {
+            audit.boundary(timeline.graph().stages().get(currentStage).name());
+        }
+    }
+
     /** The stage in which what writes into the targets for shading besides near terrain is called. */
     static final String TARGET_WRITERS = "target writers";
 

@@ -21,6 +21,8 @@ final class ScalerShaders {
     static final int UNIT_C = 6;
     static final int UNIT_D = 7;
     static final int UNIT_E = 8;
+    /** The bloom weights the temporal pass resolves (D27); unit 9 holds the camera's motion under the measure. */
+    static final int UNIT_WEIGHTS = 10;
 
     /** The side of a work group, in pixels. */
     static final int GROUP = 8;
@@ -95,6 +97,10 @@ final class ScalerShaders {
      * the two are blended with this frame's weight at least {@code least}, more under motion and where
      * something was drawn after opaque terrain. Both are weighted by the inverse of their luma, so a
      * bright sample that comes and goes does not flicker. History holds the result, not YCoCg.
+     *
+     * <p>Its alpha holds the bloom weight over black (D27): where the emissive stage drew weights this frame, they are
+     * filtered and blended as the color is, the history's held to the neighborhood's least and greatest, so the glow
+     * taken from the result does not pulse with the offset; else 0.
      */
     static final String TEMPORAL_COMPUTE = String.join("\n",
         "#version 460 core",
@@ -115,6 +121,8 @@ final class ScalerShaders {
         "layout(location = 8) uniform float moving;",
         "layout(location = 9) uniform int measure;",
         "layout(binding = 9) uniform sampler2D cameraMotion;",
+        "layout(binding = 10) uniform sampler2D weightNow;",
+        "layout(location = 10) uniform int weighted;",
         "layout(std430, binding = 4) buffer MotionError { uint entityError; uint cameraError; uint measured; };",
         "vec3 toYCoCg(vec3 c) {",
         "    return vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0.0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));",
@@ -124,7 +132,7 @@ final class ScalerShaders {
         "}",
         "// The history at a place, by a Catmull-Rom spline through the 4 by 4 texels around it: along each",
         "// axis the two middle weights are one bilinear read between their texels, so nine reads in all.",
-        "vec3 historyAt(vec2 uv) {",
+        "vec4 historyAt(vec2 uv) {",
         "    vec2 texel = uv * size - 0.5;",
         "    vec2 base = floor(texel);",
         "    vec2 f = texel - base;",
@@ -136,16 +144,16 @@ final class ScalerShaders {
         "    vec2 t0 = (base - 0.5) / size;",
         "    vec2 t12 = (base + 0.5 + w2 / w12) / size;",
         "    vec2 t3 = (base + 2.5) / size;",
-        "    vec3 sum = texture(history, vec2(t0.x, t0.y)).rgb * (w0.x * w0.y)",
-        "        + texture(history, vec2(t12.x, t0.y)).rgb * (w12.x * w0.y)",
-        "        + texture(history, vec2(t3.x, t0.y)).rgb * (w3.x * w0.y)",
-        "        + texture(history, vec2(t0.x, t12.y)).rgb * (w0.x * w12.y)",
-        "        + texture(history, vec2(t12.x, t12.y)).rgb * (w12.x * w12.y)",
-        "        + texture(history, vec2(t3.x, t12.y)).rgb * (w3.x * w12.y)",
-        "        + texture(history, vec2(t0.x, t3.y)).rgb * (w0.x * w3.y)",
-        "        + texture(history, vec2(t12.x, t3.y)).rgb * (w12.x * w3.y)",
-        "        + texture(history, vec2(t3.x, t3.y)).rgb * (w3.x * w3.y);",
-        "    return max(sum, vec3(0.0));",
+        "    vec4 sum = texture(history, vec2(t0.x, t0.y)) * (w0.x * w0.y)",
+        "        + texture(history, vec2(t12.x, t0.y)) * (w12.x * w0.y)",
+        "        + texture(history, vec2(t3.x, t0.y)) * (w3.x * w0.y)",
+        "        + texture(history, vec2(t0.x, t12.y)) * (w0.x * w12.y)",
+        "        + texture(history, vec2(t12.x, t12.y)) * (w12.x * w12.y)",
+        "        + texture(history, vec2(t3.x, t12.y)) * (w3.x * w12.y)",
+        "        + texture(history, vec2(t0.x, t3.y)) * (w0.x * w3.y)",
+        "        + texture(history, vec2(t12.x, t3.y)) * (w12.x * w3.y)",
+        "        + texture(history, vec2(t3.x, t3.y)) * (w3.x * w3.y);",
+        "    return max(sum, vec4(0.0));",
         "}",
         "// Moves a color along the line to the box's center until it lies in the box.",
         "vec3 intoBox(vec3 color, vec3 low, vec3 high) {",
@@ -166,6 +174,9 @@ final class ScalerShaders {
         "    vec3 high = vec3(-1e9);",
         "    vec3 filtered = vec3(0.0);",
         "    float weights = 0.0;",
+        "    float lowWeight = 1.0;",
+        "    float highWeight = 0.0;",
+        "    float filteredWeight = 0.0;",
         "    float nearest = nearerIsGreater != 0 ? -1.0 : 2.0;",
         "    ivec2 nearestAt = p;",
         "    for (int y = -1; y <= 1; y++) {",
@@ -179,6 +190,10 @@ final class ScalerShaders {
         "            float w = exp(-2.0 * dot(d, d));",
         "            filtered += c * w;",
         "            weights += w;",
+        "            float bloomWeight = weighted != 0 ? texelFetch(weightNow, q, 0).r : 0.0;",
+        "            lowWeight = min(lowWeight, bloomWeight);",
+        "            highWeight = max(highWeight, bloomWeight);",
+        "            filteredWeight += bloomWeight * w;",
         "            float z = texelFetch(depthNow, q, 0).r;",
         "            if (nearerIsGreater != 0 ? z > nearest : z < nearest) {",
         "                nearest = z;",
@@ -188,6 +203,8 @@ final class ScalerShaders {
         "    }",
         "    vec3 now = filtered / weights;",
         "    vec3 result = now;",
+        "    float nowWeight = filteredWeight / weights;",
+        "    float resultWeight = nowWeight;",
         "    vec2 m = texelFetch(motion, nearestAt, 0).rg;",
         "    vec2 uv = (vec2(p) + 0.5 + m) / size;",
         "    bool inside = uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0;",
@@ -200,12 +217,14 @@ final class ScalerShaders {
         "            vec2 uvCamera = (vec2(p) + 0.5 + c) / size;",
         "            if (length(m - c) > 0.01 && all(greaterThanEqual(uvCamera, vec2(0.0))) && all(lessThanEqual(uvCamera, vec2(1.0)))) {",
         "                float y = now.x;",
-        "                atomicAdd(entityError, uint(abs(toYCoCg(historyAt(uv)).x - y) * 255.0 + 0.5));",
-        "                atomicAdd(cameraError, uint(abs(toYCoCg(historyAt(uvCamera)).x - y) * 255.0 + 0.5));",
+        "                atomicAdd(entityError, uint(abs(toYCoCg(historyAt(uv).rgb).x - y) * 255.0 + 0.5));",
+        "                atomicAdd(cameraError, uint(abs(toYCoCg(historyAt(uvCamera).rgb).x - y) * 255.0 + 0.5));",
         "                atomicAdd(measured, 1u);",
         "            }",
         "        }",
-        "        vec3 before = intoBox(toYCoCg(historyAt(uv)), low, high);",
+        "        vec4 read = historyAt(uv);",
+        "        vec3 before = intoBox(toYCoCg(read.rgb), low, high);",
+        "        float beforeWeight = clamp(read.a, lowWeight, highWeight);",
         "        // Resampled every frame under motion the history softens: this frame weighs more as it moves.",
         "        float alpha = mix(least, max(least, 1.0 / 3.0), clamp(length(m) * moving, 0.0, 1.0));",
         "        if (masked != 0 && texelFetch(depthNow, p, 0).r != texelFetch(depthTerrain, p, 0).r) {",
@@ -214,8 +233,9 @@ final class ScalerShaders {
         "        float wNow = alpha / (1.0 + now.x);",
         "        float wBefore = (1.0 - alpha) / (1.0 + before.x);",
         "        result = (now * wNow + before * wBefore) / (wNow + wBefore);",
+        "        resultWeight = (nowWeight * wNow + beforeWeight * wBefore) / (wNow + wBefore);",
         "    }",
-        "    imageStore(historyOut, p, vec4(max(fromYCoCg(result), vec3(0.0)), 1.0));",
+        "    imageStore(historyOut, p, vec4(max(fromYCoCg(result), vec3(0.0)), resultWeight));",
         "}");
 
     /**

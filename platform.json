@@ -13,6 +13,17 @@
   "cleanroomGradle": {
     "version": "0.23.0"
   },
+  "orthlibJava": {
+    "major": 26,
+    "runtimeVersion": "26.0.2.1+1",
+    "vendor": "Eclipse Adoptium"
+  },
+  "orthlib": {
+    "version": "0.5.0-dev",
+    "commit": "0c2995e6c1d838be8c2b4975eec68b923eb0f1c4",
+    "jar": "orthlib-0.5.0-dev-0c2995e6.jar",
+    "sha256": "8d4c5445ac263ceb0cba7faefe97d010678c14339e169eede1a965205d849f83"
+  },
   "cubature": {
     "version": "1.12.2-0.1.4.0",
     "commit": "a970a130582015ce3fc0dcf5a4f68a03455505d9",

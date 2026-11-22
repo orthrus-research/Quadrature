@@ -111,7 +111,7 @@ culling keeps it.
 | Pipeline stage | Quadrature | Terrain culling, terrain draw, depth pyramid |
 | Hosted stage | The game or another mod | Entities, block entities, particles, sky, weather, hand |
 | Shading stage | The selected shader | Shadows, lighting, composite, final |
-| Mod stage | A mod, through OrthLib | Bloom contribution, an overlay |
+| Mod geometry | A mod declares it through OrthLib; Quadrature draws it | An emissive layer, a machine's beam, a glowing particle (section 10) |
 
 ### 4.3 Baseline graph
 
@@ -130,9 +130,10 @@ phases and other mods' injections there keep working (research R1, section 2.5).
 **Default.** Kirino's graphics state replaces the game's world render and is refused by
 the platform gate as another renderer. **Decided**, by D6.
 
-Later phases replace the terrain stages (Phase 2), insert mod stages (Phase 3), add
-distant terrain stages before and after near terrain (Phase 4), and wrap the whole in the
-shader's stages (Phase 5). The graph's shape changes; the stages that remain do not.
+Later phases replace the terrain stages (Phase 2), add the emissive stage and its glow for
+geometry mods declare (Phase 3), add distant terrain stages before and after near terrain
+(Phase 4), and wrap the whole in the shader's stages (Phase 5). The graph's shape changes;
+the stages that remain do not.
 
 ### 4.4 Hosted stages and GL state
 
@@ -1224,10 +1225,80 @@ what the stage should write from them.
 
 ## 10. Mod interface
 
-In OrthLib. A mod declares an extra terrain layer, marks emissive geometry, adds a stage at
-a named point in the graph, reads a frame resource, or queries a capability. It holds
-handles, not objects, and the contract is versioned. GTCEu: Reloaded's bloom is the first
-client (research R5). The design is drafted in Phase 3 (PLAN, Phase 3 work orders).
+The interface is OrthLib's (D25): types free of the game's and GL's classes in its core,
+the client seam beside the game. A mod declares a layer with a role (emissive or plain),
+the game layer it falls back to and which block states draw in it; defines bloom kinds,
+each a strength, a base, two brightness limits and a radius; and submits emissive
+contributions, geometry it writes into a buffer the provider begins, in a stated layout,
+primitive and blend, bound to a world and a bloom kind. It holds OrthLib's handles, each its
+own lease, and its code is the same with a provider or without one. Without one, OrthLib's
+absence answers put a declared layer's geometry in its fallback layer, which the game draws
+at full brightness, and OrthLib draws the contributions plainly at the end of the world
+pass through the game's own drawing: everything appears, nothing glows. It does the same in
+every world pass the provider does not mark as one whose contributions it draws. The
+contract's format and its rules for change are research R5, 10.2.
+
+- **The provider.** Quadrature registers as the interface's one provider while it loads,
+  after OrthLib, through a bridge of a few classes reached by name only where OrthLib is
+  installed (D26; `ModInterfaces`, `OrthLibBridge`). It states its name, the interface
+  version it was built for and what it draws, declared layers, emissive contributions and
+  bloom, as literals. A second provider is another renderer, and loading stops naming both
+  (D6). The rest of Quadrature reads the declarations through `ModInterface`, as one
+  immutable snapshot whose layer generation moves only when the declared layers do.
+- **Where its answers hold.** Only inside scopes own terrain opens on a build thread: a
+  build that meshes declared layers apart runs in the interface's providing scope, in which
+  no declared layer is current in the game layer it falls back to, and meshes each declared
+  layer through the game's dispatcher inside that layer's own scope, with Forge's current
+  layer none. Every other draw of blocks, a mod's own previews among them, gets the absence
+  answers. Own terrain meshes declared layers apart where it draws the world, takes over the
+  game's chunk system (section 6.7) and draws translucent terrain.
+- **Meshes.** Each cube keeps a buffer for each declared layer it has geometry in, at most
+  31 layers, and draws them as the layers other mods add are drawn (section 6.7); which
+  states draw in a layer is asked once a state and kept while the layers stand. A new
+  layer generation drops every declared mesh and builds the loaded cubes again;
+  contributions coming and going build nothing.
+- **The emissive stage.** Before translucent terrain, after entities and particles, where
+  GTCEu: Reloaded's own path drew its emissive layer and its tickets: the declared layers,
+  writing depth as that path did, then each contribution, untextured or from the blocks
+  atlas and blended as it states, with positions relative to the camera. What glows also
+  writes its bloom kind's two weights (D27), the fragment's alpha their cover, into a weight
+  target the size of the drawn picture that shares its depth: a declared layer in the same
+  draw as its color, through the terrain program's emissive variant and a framebuffer with
+  both targets; a contribution in a second draw of its vertices by a program that places
+  them by the fixed-function transform, so the two agree in depth. The stage changes only
+  state the game's cache knows, through the cache, puts back what the game sets for
+  translucent terrain at that point, and reads nothing back from the driver. A
+  contribution's draw sets every piece of state it depends on, so a mod's callback before it
+  cannot reach it; under the state audit the stage, the callbacks and the glow are stretches
+  of their own. Where own terrain meshes declared layers apart, the stage first marks the
+  world pass as one whose contributions Quadrature draws, so OrthLib leaves them out of the
+  plain drawing it gives every other pass; a contribution not yet in the frame's snapshot
+  then appears a frame later, glowing, rather than once without glow.
+- **The glow.** One chain for every kind (D27; `BloomStage`, `core` `BloomChain`): the
+  picture's color times the weight over black, formed a texel at a time for the first
+  halving, which carries the darkening of the weight over white in a fourth channel; six
+  levels sized from the output; doublings by a tent at the first drawn kind's radius, the
+  levels weighed in equal steps up to 1 at the coarsest, as GTCEu: Reloaded's default style
+  weighs its five;
+  the composite, which gives GTCEu: Reloaded's rule with the background's lightness. Without the temporal scaler it runs after
+  translucent terrain on the picture, where that mod's own path laid its glow. Where the
+  scaler makes the picture, the temporal pass resolves the weight over black into its
+  history's alpha as it resolves the color, and the chain reads that output after the scale
+  pass and lays the glow over the output's picture, unsharpened and never in the history;
+  where the handoff makes the picture, from the drawn picture and the weights as drawn.
+  `-Dquadrature.bloom=off` draws the emissive stage without glow, and `=alternate` glows on
+  frames chosen by a mix of the frame's number, so the stage's cost is compared within one
+  run; `.levels` (six), `.gain` (calibrated against GTCEu: Reloaded's own glow: the chain's
+  response to a source of one color kept at its own, 9/7 at six levels) and
+  `.brightnessWeighted` (high dynamic range, Phase 5) set the chain. A declared layer none of
+  whose cubes the view saw is skipped, and so is a contribution whose written vertices lie
+  wholly outside the view's volume, as GTCEu: Reloaded's own path left its effects outside
+  the view undrawn (the interface gives a source no view volume of its own to test), so the
+  glow runs only on frames where something that glows was drawn in view.
+- **Not in version 1.** A mod's own stage at a named point in the graph, and read access to
+  frame resources (scene depth with its convention, color), wait for a mod that needs them
+  (requirement rule 4): the first consumer's depth texture and passes served only its own
+  bloom, which the provider now draws.
 
 ## 11. Measurement built in
 

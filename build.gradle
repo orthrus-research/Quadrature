@@ -45,8 +45,17 @@ java {
 evaluationDependsOn(':core')
 
 ext.cubaturePin = file("pins/${platform.cubature.jar}")
+ext.orthlibPin = file("pins/${platform.orthlib.jar}")
 ext.sha256Of = { File file ->
     java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
+}
+
+// The bridge to OrthLib's render interface (PLAN item P3-B2): OrthLib's classes are Java 26's, which Java 25's compiler
+// reads only with a warning a class, so the few classes that implement its interface are compiled by Java 26's compiler,
+// for Java 25 like the rest, and loaded only where OrthLib is installed (D26).
+sourceSets {
+    // Its sources lie where Gradle looks for a source set of this name: src/orthlib/java.
+    orthlib
 }
 
 dependencies {
@@ -56,6 +65,116 @@ dependencies {
     // The JAR is pinned in platform.json by commit and hash and kept in pins/, which is not in the
     // repository. Instances are prepared with the same file, so the build and the game read one JAR.
     compileOnly files(cubaturePin)
+    orthlibCompileOnly sourceSets.main.output
+    orthlibCompileOnly files(orthlibPin)
+}
+// The bridge sees everything the mod compiles against.
+configurations.orthlibCompileOnly.extendsFrom(configurations.compileClasspath)
+
+tasks.named('compileOrthlibJava') {
+    def orthlibJava = platform.orthlibJava
+    javaCompiler = javaToolchains.compilerFor {
+        languageVersion = JavaLanguageVersion.of(orthlibJava.major as int)
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
+    // Class files for the platform's Java, as every other class of the mod's.
+    options.release = platform.java.major as int
+    dependsOn 'verifyOrthLib'
+}
+
+// The pinned OrthLib JAR is checked when the bridge compiles against it, as Cubature's is.
+tasks.register('verifyOrthLib') {
+    def pin = platform.orthlib
+    def jar = orthlibPin
+    inputs.property('pinned', pin.sha256)
+    doLast {
+        if (!jar.exists()) {
+            throw new GradleException("OrthLib's pinned JAR is missing at ${jar}. Run ./gradlew refreshOrthLib " +
+                "to build it at commit ${pin.commit}.")
+        }
+        def found = sha256Of(jar)
+        if (found != pin.sha256) {
+            throw new GradleException("${jar} has sha256 ${found}; platform.json pins ${pin.sha256}. Run " +
+                "./gradlew refreshOrthLib to build the pinned commit, or record the new commit and hash in " +
+                "platform.json.")
+        }
+    }
+}
+
+// Builds the OrthLib JAR for pins/ at the commit platform.json pins (-PorthlibCommit to move the pin), from the
+// sibling checkout (or -PorthlibCheckout), in a worktree of that checkout that is removed after, on the Java that
+// platform.json names for OrthLib. Prints the commit, JAR name and hash to record in platform.json.
+tasks.register('refreshOrthLib') {
+    def pin = platform.orthlib
+    def bridge = platform.orthlibJava
+    def named = providers.gradleProperty('orthlibCheckout').map { file(it) }
+    def root = rootDir
+    def wanted = providers.gradleProperty('orthlibCommit').getOrElse(pin.commit)
+    def scratch = layout.buildDirectory.dir('orthlib-pin').get().asFile
+    def launcher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(bridge.major as int)
+        vendor = JvmVendorSpec.ADOPTIUM
+    }
+    def pins = file('pins')
+    doLast {
+        def javaHome = launcher.get().metadata.installationPath.asFile
+        def runtime = launcher.get().metadata.javaRuntimeVersion
+        if (runtime != bridge.runtimeVersion) {
+            throw new GradleException("The Java ${bridge.major} toolchain found is ${runtime}; platform.json names " +
+                "${bridge.runtimeVersion}.")
+        }
+        def common = new ProcessBuilder('git', '-C', root.path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            .start()
+        def commonDir = common.inputStream.text.trim()
+        def checkout = named.getOrElse(new File(common.waitFor() == 0 ? new File(commonDir).parentFile : root, '../OrthLib')
+            .canonicalFile)
+        def git = { Object... arguments ->
+            // Long paths on: a sibling's deepest files can pass Windows' 260-character limit in a worktree.
+            def command = (['git', '-c', 'core.longpaths=true', '-C', checkout.path] + arguments.toList())*.toString()
+            def process = new ProcessBuilder(command).redirectErrorStream(true).start()
+            def text = process.inputStream.text.trim()
+            [process.waitFor(), text]
+        }
+        def (found, commit) = git('rev-parse', '--verify', "${wanted}^{commit}")
+        if (found != 0) {
+            throw new GradleException("${checkout} has no commit ${wanted}: fetch it there first.")
+        }
+        scratch.listFiles()?.findAll { it.isDirectory() }?.each { it.deleteDir() }
+        git('worktree', 'prune')
+        def work = new File(scratch, "${commit.take(12)}-${ProcessHandle.current().pid()}")
+        scratch.mkdirs()
+        def log = new File(scratch, "${commit.take(12)}.log")
+        log.text = ''
+        def (added, addText) = git('worktree', 'add', '--detach', work.path, commit)
+        if (added != 0) { throw new GradleException("git worktree add failed: ${addText}") }
+        try {
+            def gradlew = new File(work, System.getProperty('os.name').startsWith('Windows') ? 'gradlew.bat' : 'gradlew')
+            def builder = new ProcessBuilder([gradlew.path, 'assemble', '--no-daemon', '--no-watch-fs', '--console=plain',
+                    "-Porg.gradle.java.installations.paths=${javaHome}"]*.toString())
+                .directory(work).redirectErrorStream(true)
+            builder.redirectOutput(ProcessBuilder.Redirect.appendTo(log))
+            builder.environment().put('JAVA_HOME', javaHome.path)
+            builder.environment().put('ORTHLIB_JAVA_HOME', javaHome.path)
+            def code = builder.start().waitFor()
+            if (code != 0) { throw new GradleException("OrthLib's build failed in ${work} (exit ${code}); see ${log}") }
+            def built = new File(work, 'build/libs').listFiles().findAll { it.name ==~ /orthlib-[^-]+(-dev)?\.jar/ }
+            if (built.size() != 1) { throw new GradleException("Expected one OrthLib JAR in the build, found ${built}") }
+            def version = (built[0].name =~ /^orthlib-(.+)\.jar$/)[0][1]
+            def name = "orthlib-${version}-${commit.take(8)}.jar"
+            def jar = new File(pins, name)
+            pins.mkdirs()
+            java.nio.file.Files.copy(built[0].toPath(), jar.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            def hash = sha256Of(jar)
+            logger.lifecycle("Built ${jar}\n  commit ${commit}\n  jar ${name}\n  sha256 ${hash}")
+            logger.lifecycle(commit == pin.commit && hash == pin.sha256 && name == pin.jar ? 'This is what platform.json pins.'
+                : "platform.json pins ${pin.jar} at commit ${pin.commit}, sha256 ${pin.sha256}: record the values above " +
+                    'there to build against this JAR.')
+        } finally {
+            if (work.exists()) { git('worktree', 'remove', '--force', work.path) }
+            git('worktree', 'prune')
+            if (work.exists() && !work.deleteDir()) { logger.lifecycle("Could not remove ${work} yet; a later run sweeps it.") }
+        }
+    }
 }
 
 // The pinned Cubature JAR is checked when something compiles against it, not when the build is
@@ -110,7 +229,8 @@ tasks.register('refreshCubature') {
             }
         }
         def git = { Object... arguments ->
-            def command = (['git', '-C', checkout.path] + arguments.toList())*.toString()
+            // Long paths on: a sibling's deepest files can pass Windows' 260-character limit in a worktree.
+            def command = (['git', '-c', 'core.longpaths=true', '-C', checkout.path] + arguments.toList())*.toString()
             def process = new ProcessBuilder(command).redirectErrorStream(true).start()
             def text = process.inputStream.text.trim()
             [process.waitFor(), text]
@@ -197,8 +317,10 @@ processResources {
 }
 
 jar {
-    // One runtime JAR: the Minecraft host plus the Minecraft-free core.
+    // One runtime JAR: the Minecraft host plus the Minecraft-free core, and the bridge to OrthLib, which loads
+    // only where OrthLib is installed.
     from(project(':core').sourceSets.main.output)
+    from(sourceSets.orthlib.output)
     manifest.attributes('ModType': 'CRL', 'Implementation-Title': 'Quadrature',
         'Implementation-Version': project.version, 'Quadrature-Platform': platform.id,
         // CleanMix registers Quadrature's Mixin configuration before the game's classes load.
@@ -211,6 +333,7 @@ jar {
 
 sourcesJar {
     from(project(':core').sourceSets.main.allSource)
+    from(sourceSets.orthlib.allSource)
     from(files('LICENSE', 'NOTICE.md')) { into 'META-INF' }
 }
 

@@ -25,7 +25,7 @@ import java.util.List;
 /** Mod entry point. Client only: a dedicated server never loads it. */
 @Mod(modid = Quadrature.MOD_ID, name = "Quadrature", version = QuadratureBuild.VERSION,
     acceptedMinecraftVersions = "[1.12.2]",
-    dependencies = "required-after:cleanroom@[" + QuadratureBuild.CLEANROOM + "]",
+    dependencies = "required-after:cleanroom@[" + QuadratureBuild.CLEANROOM + "];after:orthlib",
     clientSideOnly = true, acceptableRemoteVersions = "*")
 public final class Quadrature {
     public static final String MOD_ID = "quadrature";
@@ -38,14 +38,15 @@ public final class Quadrature {
     private static final String TEST_MEMORY_FLOOR = "quadrature.test.minimumGpuMemoryMiB";
 
     /**
-     * Raise the driver floor and the branch below which the gate warns, for a test run, so the stop screen and
-     * the warning can be exercised on a current driver. Like the memory floor, they can only make the gate stricter.
-     */
-    /**
      * A class only Cubature's integration with the game's chunk system ships, the region cache its render chunks read a
      * cubic world through; looked for as a resource, so nothing is loaded.
      */
     private static final String CUBATURE_GAME_CHUNKS = "io/github/opencubicchunks/cubicchunks/core/client/RenderCubeCache.class";
+
+    /**
+     * Raise the driver floor and the branch below which the gate warns, for a test run, so the stop screen and
+     * the warning can be exercised on a current driver. Like the memory floor, they can only make the gate stricter.
+     */
     private static final String TEST_DRIVER_FLOOR = "quadrature.test.driverFloorBranch";
     private static final String TEST_DRIVER_WARNING = "quadrature.test.driverWarnBelowBranch";
 
@@ -101,6 +102,11 @@ public final class Quadrature {
         }
         warnIfCoreProfileRequested();
         // The graphics context belongs to the loading screen until loading ends; it is read at the first screen.
+        // Quadrature provides OrthLib's render interface where OrthLib is installed (D25): registered here, after
+        // OrthLib's own loading, so that another provider, another renderer, stops loading while Forge can show why.
+        // Its answers hold only inside the scopes own terrain opens as it meshes; OrthLib's absence answers stand
+        // everywhere else.
+        cc.orthrus.quadrature.modinterface.ModInterfaces.start();
         MinecraftForge.EVENT_BUS.register(new PlatformGateHandler(REQUIREMENTS));
         LOGGER.info("No other renderer found; the graphics context is checked when the first screen opens.");
         DevSession session = DevSession.fromProperties();
