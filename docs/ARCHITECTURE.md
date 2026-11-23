@@ -63,7 +63,7 @@ derives capabilities from it; `PlatformGate` admits or refuses the platform.
   branch, R595 (D20). **Built:** `DriverFloor` and `DriverVersion` in `core`, the branch read
   as the leading number of the driver's version in the context's version string ("4.6.0
   NVIDIA 610.88", "4.6.0 NVIDIA 610.57.04"), the numbers and a list of known-bad builds (empty)
-  in `platform.json`. A driver below the floor or on the list is refused with the remedy named;
+  in `graphics.json`. A driver below the floor or on the list is refused with the remedy named;
   one below the warning branch, or whose version cannot be read, is logged and shown once as a
   toast, and the game goes on. `quadrature.test.driverFloorBranch` and
   `quadrature.test.driverWarnBelowBranch` raise either number for a test, never lower it.
@@ -442,7 +442,7 @@ Resolution itself; the bridge itself is not. Research R1, 1.9 has the rules it f
   Quadrature holds none, and without the module the switch logs that it is missing and the
   frame is unchanged. The host's hook runs after the frame's stages are timed. **Decided.**
 - **The module.** `quadrature-nvidia` compiles against `core` and Cleanroom's LWJGL core and
-  OpenGL binding, and embeds LWJGL's Vulkan binding at the LWJGL release `platform.json`
+  OpenGL binding, and embeds LWJGL's Vulkan binding at the LWJGL release the set's platform
   names (`cleanroom.lwjgl`), which it compares at startup with the release the game loaded.
   Its JAR lies beside Quadrature's among the mods; Foundation, the game's class loader,
   defines `org.lwjgl` classes itself, so the embedded binding links against Cleanroom's core.

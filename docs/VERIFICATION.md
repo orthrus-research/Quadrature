@@ -8,11 +8,11 @@ verification must eventually cover. The commands are Workbench's (`wb run <comma
 
 Workbench runs Quadrature's checks from a clean clone of a commit, on Temurin 26.0.2.1+1, and
 keeps the results; `ci.hook` installs a pre-push hook that refuses a commit whose tree has not
-passed them. The jobs are in [actions.toml](../actions.toml):
+passed them. The checks are in [project.toml](../project.toml):
 
 | Job | What it checks |
 |---|---|
-| `build` | The pinned OrthLib and Cubature JARs (built at their commits or taken from Workbench's pin cache, and refused unless they are the pinned bytes), the build, and the tests of every module |
+| `build` | The build against the OrthLib and Cubature files the set names (from the Store, re-hashed before any compile), and the tests of every module |
 | `mixins` | Quadrature's Mixins applied to the game's classes offline by OrthLib's `mixinkit`, strictly, so that an injector that hooks nothing fails: by development names, then from the shipped JAR through its refmap to the classes renamed to production names; no `@Shadow` (`tools/mixin_check.py --refmap`) |
 | `shaders` | Every GLSL stage the mod's classes hold, written out without a game (`./gradlew dumpShaders`) and compiled by glslang (`./gradlew validateShaders`) |
 | `tools` | The tests of the Python tools in `tools/` |

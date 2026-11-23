@@ -1,7 +1,7 @@
 """Applies Quadrature's Mixins to the game's classes with no game running, and fails if one does not apply.
 
 A compile cannot tell whether an injector still finds its target: the refmap only maps the names.
-OrthLib's offline Mixin check (`orthlib-mixinkit`, a sibling checkout's build) reads the target
+OrthLib's offline Mixin check (`orthlib-mixinkit`, the file the set names) reads the target
 classes as bytes, applies the configuration as the game would, and reports every hook. This runs
 it over the development-named classes the build compiles against and what the build just made, with
 `--strict`, so an injector that hooks nothing fails too.
@@ -40,6 +40,8 @@ allprojects {
                     println 'CLASSPATH_BEGIN'
                     sourceSets.main.compileClasspath.files.each { println it }
                     println 'CLASSPATH_END'
+                    def set = project.extensions.findByName('set')
+                    if (set != null) { println 'MIXINKIT ' + set.jar('orthlib', 'mixinkit').singleFile }
                 }
             }
         }
@@ -48,7 +50,8 @@ allprojects {
 """
 
 
-def compile_classpath() -> list[str]:
+def compile_classpath() -> tuple[list[str], str | None]:
+    """The main compile class path, and the orthlib-mixinkit file the set names (None when the build names none)."""
     # Off Windows the wrapper script runs under sh: a checkout need not mark it executable.
     wrapper = [str(ROOT / "gradlew.bat")] if os.name == "nt" else ["sh", str(ROOT / "gradlew")]
     with tempfile.TemporaryDirectory() as scratch:
@@ -63,8 +66,9 @@ def compile_classpath() -> list[str]:
     if result.returncode != 0:
         sys.exit("Gradle could not give the compile class path:\n" + result.stdout + result.stderr)
     lines = result.stdout.splitlines()
+    kit = next((line[len("MIXINKIT "):].strip() for line in lines if line.startswith("MIXINKIT ")), None)
     try:
-        return [line.strip() for line in lines[lines.index("CLASSPATH_BEGIN") + 1 : lines.index("CLASSPATH_END")]]
+        return [line.strip() for line in lines[lines.index("CLASSPATH_BEGIN") + 1 : lines.index("CLASSPATH_END")]], kit
     except ValueError:
         sys.exit("Gradle printed no class path:\n" + result.stdout)
 
@@ -75,23 +79,13 @@ def main() -> None:
     launcher = Path(home) / "bin" / ("java.exe" if os.name == "nt" else "java") if home else None
     parser.add_argument("--java", default=os.environ.get("QUADRATURE_MIXIN_JAVA") or (str(launcher) if launcher else None),
                         help="a Java launcher (default: QUADRATURE_MIXIN_JAVA, else JAVA_HOME's)")
-    parser.add_argument("--mixinkit", help="orthlib-mixinkit jar (default: the sibling OrthLib checkout's build)")
+    parser.add_argument("--mixinkit", help="orthlib-mixinkit jar (default: the one the set names)")
     parser.add_argument("--out", default=str(ROOT / "build" / "mixin-report.txt"))
     parser.add_argument("--refmap", action="store_true",
                         help="then apply the shipped jar's Mixins through its refmap to production-named classes")
     args = parser.parse_args()
     if not args.java:
         sys.exit("Name a Java launcher with --java or QUADRATURE_MIXIN_JAVA, or set JAVA_HOME.")
-    kit = Path(args.mixinkit) if args.mixinkit else None
-    if kit is None:
-        built = sorted(
-            jar
-            for jar in (ROOT.parent / "OrthLib" / "mixinkit" / "build" / "libs").glob("orthlib-mixinkit-*.jar")
-            if "sources" not in jar.name
-        )
-        if not built:
-            sys.exit("No orthlib-mixinkit jar beside this checkout; build OrthLib's mixinkit or pass --mixinkit.")
-        kit = built[-1]
     # The check reads development names, where a shadowed member always resolves. In the released
     # jar its name is not rewritten by this build, and the game stops when the Mixin is applied.
     shadows = [
@@ -110,7 +104,10 @@ def main() -> None:
     resources = ROOT / "build" / "resources" / "main"
     if not (resources / CONFIGURATION).is_file() or not classes.is_dir():
         sys.exit("Nothing built: run ./gradlew build first.")
-    classpath = compile_classpath()
+    classpath, named = compile_classpath()
+    kit = Path(args.mixinkit) if args.mixinkit else (Path(named) if named else None)
+    if kit is None:
+        sys.exit("The build names no orthlib-mixinkit file; pass --mixinkit.")
     tool = [str(kit)] + [entry for entry in classpath if TOOL_LIBRARIES.match(Path(entry).name)]
     kit_command = [args.java, "--enable-final-field-mutation=ALL-UNNAMED", "-cp", os.pathsep.join(tool),
                    "dev.orthlib.testkit.mixin.MixinCheck"]
