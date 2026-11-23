@@ -34,6 +34,8 @@ steps = [
   { name = "pins", run = ["bash", "gradlew", "refreshOrthLib", "refreshCubature", "--no-daemon", "--console=plain", "-PpinsDir={pins}", "-PorthlibCheckout={orthlib}", "-PcubatureCheckout={cubature}", "-Ppython={python}"] },
   { name = "build", run = ["bash", "gradlew", "build", "--no-daemon", "--console=plain", "-PpinsDir={pins}"] },
 ]
+# What it builds: kept by Workbench with its SHA-256 once the job passes, so the lab takes these bytes.
+artifacts = ["build/libs/*.jar"]
 
 [jobs.mixins]
 description = "Apply Quadrature's Mixins to the game's classes offline with OrthLib's mixinkit, strictly, by development names and through the shipped jar's refmap by production names, and refuse @Shadow (tools/mixin_check.py)"
