@@ -22,7 +22,7 @@ file = "build/libs/quadrature-*-dev.jar"
 description = "Build Quadrature and run every module's tests"
 locks = ["gradle"]
 memory = 6
-steps = [["{gradle}", "build", "--no-daemon", "--console=plain"]]
+steps = [["{gradle}", "build", "--console=plain"]]
 
 [checks.mixins]
 description = "Apply Quadrature's Mixins to the game's classes offline with OrthLib's mixinkit (the set's file), strictly, by development names and through the shipped jar's refmap by production names, and refuse @Shadow"
@@ -35,7 +35,7 @@ steps = [["{python}", "-B", "tools/mixin_check.py", "--refmap"]]
 description = "Write every GLSL stage the mod's classes hold and compile each with glslang"
 needs = ["build"]
 locks = ["gradle"]
-steps = [["{gradle}", "validateShaders", "--no-daemon", "--console=plain"]]
+steps = [["{gradle}", "validateShaders", "--console=plain"]]
 
 [checks.tools]
 description = "The Python tool tests, under {python}"
