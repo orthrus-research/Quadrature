@@ -6,11 +6,12 @@ verification must eventually cover. The commands are Workbench's (`wb run <comma
 
 ## Checks
 
-Workbench runs Quadrature's checks from a clean clone of a commit, on Temurin 26.0.2.1+1, and
-keeps the results; `ci.hook` installs a pre-push hook that refuses a commit whose tree has not
-passed them. The checks are in [project.toml](../project.toml):
+Workbench runs Quadrature's checks from a clean clone, on the JDK the set's platform names
+(Temurin 26.0.2.1+1), and keeps the passes; its pre-push hook (`wb setup` installs it) refuses a
+commit whose tree has not passed the gate list, as a landing does. The checks are in
+[project.toml](../project.toml):
 
-| Job | What it checks |
+| Check | What it checks |
 |---|---|
 | `build` | The build against the OrthLib and Cubature files the set names (from the Store, re-hashed before any compile), and the tests of every module |
 | `mixins` | Quadrature's Mixins applied to the game's classes offline by OrthLib's `mixinkit`, strictly, so that an injector that hooks nothing fails: by development names, then from the shipped JAR through its refmap to the classes renamed to production names; no `@Shadow` (`tools/mixin_check.py --refmap`) |
@@ -18,12 +19,12 @@ passed them. The checks are in [project.toml](../project.toml):
 | `tools` | The tests of the Python tools in `tools/` |
 
 ```powershell
-wb run ci.run project=quadrature                                            # HEAD
-wb run ci.run project=quadrature commit=worktree checkout=<linked worktree>  # a working tree as it would be committed
-wb run ci.status project=quadrature
+wb check                                  # the worktree you stand in, its changes included
+wb check --with orthlib=<ref or folder>   # against a stand-in for a sibling's line; no pass is recorded
+wb run ci.status project=quadrature       # whether HEAD's tree has passed the gate list
 ```
 
-A changed program is validated this way before it runs on a GPU. Nothing in these jobs starts
+A changed program is validated this way before it runs on a GPU. Nothing in these checks starts
 the game: game runs are Workbench sessions on the GPU host.
 
 ## Capturing

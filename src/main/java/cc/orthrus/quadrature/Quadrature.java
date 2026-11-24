@@ -56,7 +56,7 @@ public final class Quadrature {
      */
     private static final String TEST_ALLOW_DISTANT_HORIZONS = "quadrature.test.allowDistantHorizons";
 
-    /** The supported platform, from platform.json through the generated build constants. */
+    /** The supported platform, from graphics.json through the generated build constants. */
     static final PlatformRequirements REQUIREMENTS = new PlatformRequirements(
         EnumSet.allOf(Capability.class), List.of(QuadratureBuild.GRAPHICS_VENDOR),
         Math.max(QuadratureBuild.MINIMUM_GPU_MEMORY_MIB, Long.getLong(TEST_MEMORY_FLOOR, 0L)),

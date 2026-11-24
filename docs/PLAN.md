@@ -127,12 +127,12 @@ baseline flight holds the game's frame times ([VERIFICATION.md](VERIFICATION.md)
 river in view 07). Both preview renderers that pick by depth, GregTech's and ModularUI's, pick the same blocks
 in reversed depth (VERIFICATION, mods that read depth back). Quadrature takes over the game's chunk system in
 cubic worlds (D24, item 12g), and Cubature's integration with that system is deleted (Cubature a970a130 and
-later, which Quadrature and Riven pin): every client that draws a cubic world needs Quadrature, and one started without it under
+later, the set's line): every client that draws a cubic world needs Quadrature, and one started without it under
 `-Dcubature.clientWithoutRenderer=true` draws heights 0 to 255 as the game would in a world that is not cubic.
 
 | Step | Status |
 |---|---|
-| Cube source in Cubature | Built: events, versions, queries, snapshots, the build pool and the settled signal (Cubature's `docs/CUBE-SOURCE.md`), all in the pinned commit |
+| Cube source in Cubature | Built: events, versions, queries, snapshots, the build pool and the settled signal (Cubature's `docs/CUBE-SOURCE.md`), all in the set's Cubature |
 | Near terrain, first form | Built, and the default since 2026-11-21 with reversed depth and face records (`-Dquadrature.terrain=game` leaves terrain to the game): every loaded cube is meshed, once the six cubes around it are loaded, from a snapshot with the game's block models, on Cubature's build pool, nearest and in view first; every layer, the translucent one and those other mods add included, is drawn from those meshes in place of the game's draw, and in cubic worlds the game's chunk system no longer runs (item 12g) |
 | Frame against the game's terrain | All 17 forest tour views pass the near-terrain profile against a game-drawn run of the same instance; the worst differs in 0.0624% of pixels, most of them on a river the game draws, and 1,228 pixels differ over the tour outside that river, single pixels with no direction. The game's rule for when a cube is meshed and the matrix it gives each render chunk are reproduced; without the matrix 14 views passed. Scoring is within one instance because light around some terrain differs between instances ([VERIFICATION.md](VERIFICATION.md)) |
 | First numbers | 1.15 ms to mesh a cube, face links included; 584 MiB for 4,090 meshes in the game's 28-byte vertex format; 963 draws in a settled frame on average and 1,370 at most; opaque terrain 0.74 ms on the CPU and 2.27 ms on the GPU with the selection comparison running, against 0.65 and 2.36 ms for the game's own draw in the same instance; 0.25 ms for a search, reused on two frames in three |
@@ -229,7 +229,7 @@ Order: P3-R1 and P3-R2, then P3-A1, P3-B1, then P3-B2 and P3-B3 side by side, P3
 ## Capability and tier work
 
 Decisions D20 to D23 (2026-11-18). Every supported card has one capability set, so what is
-left is measurement, in this order; each runs through a queued GPU turn.
+left is measurement, in this order; each runs as Workbench sessions under the GPU lease.
 
 | # | Work | Unblocks | Status |
 |---|---|---|---|

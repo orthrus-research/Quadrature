@@ -164,8 +164,8 @@ floor is reviewed before R580's security support ends. This is the one exception
 that code asks for capabilities, never for a version. It is applied after the capability
 check, so a missing capability is reported first, and it reads the branch from the leading
 number of the driver version in the context's version string. Any later driver-specific
-handling goes through a list of known-bad builds, empty today. Both numbers belong in
-`platform.json` with the other platform pins. A player on an older packaged driver, Debian
+handling goes through a list of known-bad builds, empty today. Both numbers and the list are in
+`graphics.json`, Quadrature's own graphics floor. A player on an older packaged driver, Debian
 13's 550 among them, is refused with the remedy named.
 
 **D21. DLSS Super Resolution and Ray Reconstruction are planned as an option for the higher
@@ -248,10 +248,9 @@ parameters (the user's decision of 2026-11-21).
 
 **D26. The bridge to OrthLib is a source set of its own.**
 The few classes that implement OrthLib's render interface are a source set of their own, compiled
-against OrthLib's JAR, which `platform.json` pins by commit and hash beside Cubature's. Nothing else
+against OrthLib's JAR, the file the set names by SHA-256 beside Cubature's. Nothing else
 names an OrthLib type: the bridge is reached by name only where OrthLib is installed, so a game
-without OrthLib loads none of it. OrthLib's pinned JAR is built, and the bridge compiled, by the one
-JDK of D7.
+without OrthLib loads none of it. The bridge is compiled by the one JDK of D7.
 
 **D27. Bloom is a chain of halvings and doublings over a weighted source.**
 Quadrature's bloom (D25) is Mittring's recurrence with Jimenez's filters (research R4, 7c): a

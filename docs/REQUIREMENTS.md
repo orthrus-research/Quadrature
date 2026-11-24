@@ -311,7 +311,7 @@ measurement) and its date.
 **Must**
 - Separate modules: a core with no Minecraft dependency, the Minecraft host, shaders, and
   test tooling.
-- Build on Java 26 with CleanroomGradle; pin every platform version in one manifest.
+- Build on Java 26 with CleanroomGradle; take every platform version from one place, the set's platform.
 - Depend on Cubature and OrthLib through their published interfaces only.
 
 **Research**

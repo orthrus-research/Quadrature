@@ -669,7 +669,7 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   in (Foundation 0.22.2, read from its public classes: it defines `org.lwjgl` classes itself and
   lets a URL be added); Forge 1.12.2's `WorldEvent.Unload`; the game's `Framebuffer` fields.
   The module's Vulkan binding is LWJGL's own (`org.lwjgl:lwjgl-vulkan`, BSD 3-Clause), embedded
-  in the module's JAR at the release platform.json names.
+  in the module's JAR at the LWJGL release the set's platform names for Cleanroom.
 - Taken: nothing beyond the interfaces named.
 - Added: 2026-11-18
 

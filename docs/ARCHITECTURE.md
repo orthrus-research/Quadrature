@@ -874,7 +874,7 @@ holds, or in place of what has not arrived, is told two things.
   source's surface heights, surface version and cube content by name. Where they are
   present a column's band comes from the heights, a column is judged by the band's cubes,
   and emptiness is one look-up; where they are absent the scan above stands and emptiness
-  is asked of a snapshot. The cube source pinned has them. A column's heights are asked
+  is asked of a snapshot. The set's Cubature has them. A column's heights are asked
   for when a cube of it is meshed, beside the mesh, and kept until a cube of the column
   changes; the pass itself asks only for a column left without an answer, the nearest
   first, and stops asking after 0.15 ms. One ask is a call into the cube source and is
