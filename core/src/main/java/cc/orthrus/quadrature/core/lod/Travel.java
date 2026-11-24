@@ -61,6 +61,14 @@ public final class Travel {
         if (!settled || wanted <= 0 || stored < wanted || building != 0) {
             return false;
         }
+        return around(heldBox, cubeX, cubeY, cubeZ);
+    }
+
+    /**
+     * Whether the cube source's held box is the box of the viewer's place: its center within a cube
+     * of the viewer's on each axis ({@link #whole} says why). True for a server that states no box.
+     */
+    public static boolean around(int[] heldBox, int cubeX, int cubeY, int cubeZ) {
         return heldBox == null || Math.abs((long) cubeX - heldBox[0]) <= 1
             && Math.abs((long) cubeY - heldBox[1]) <= 1 && Math.abs((long) cubeZ - heldBox[2]) <= 1;
     }
