@@ -41,3 +41,8 @@ steps = [["{gradle}", "validateShaders", "--console=plain"]]
 description = "The Python tool tests, under {python}"
 inputs = ["tools/*.py", "tools/tests/*.py", "tools/requirements.txt"]
 steps = [["{python}", "-B", "-m", "unittest", "discover", "-s", "tools/tests", "-p", "test_*.py"]]
+
+# What Quadrature adds to any launch it is a member of, read at the commit the launch takes it from: it draws distant
+# terrain itself, which is off unless the client asks for it.
+[launch.member]
+jvm = { client = ["-Dquadrature.distant=own"] }
