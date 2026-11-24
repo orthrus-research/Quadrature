@@ -9,6 +9,7 @@ pluginManagement {
         dir = prop('set.home') + '/' + json.parse(mark).set
     }
     def set = json.parse(new File(dir, 'set.json'))
+    if (set.platform.logic == null && !new File(dir, 'build-logic').directory) throw new GradleException("The set at ${dir} names no build logic yet: land the Set's build-logic, then wb work sync")
     if (new File(dir, 'build-logic').directory) includeBuild(dir + '/build-logic')
     else repositories { maven { url = prop('set.plugins') } }
     repositories { set.platform.plugin_repositories.each { r -> maven { url = r } }; gradlePluginPortal() }
