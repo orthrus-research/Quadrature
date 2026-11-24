@@ -163,6 +163,18 @@ final class Distant {
     private boolean failed;
     private boolean depthWarned;
     private long frame;
+    /** The frame the last tile was stored in, from which it fades in. */
+    private long lastPlacedFrame = Long.MIN_VALUE / 2;
+
+    // What was still on its way to the picture in the last pass ({@link #settle}).
+    private long settledPasses;
+    private int waitingTiles;
+    private int buildingTiles;
+    private int keptTiles;
+    private boolean fadingTiles;
+    private int nearWaiting;
+    private boolean cubesSettled;
+    private boolean boxHere;
 
     // GPU time, from pairs of timestamps read a few frames later.
     private final int[] timerStart = new int[TIMERS];
@@ -235,6 +247,7 @@ final class Distant {
             cpuSamples++;
         } catch (RuntimeException failure) {
             DistantHook.sampling(false);
+            unsettle();
             // A shader that does not compile, a driver refusal: distant terrain stops, the game goes on.
             failed = true;
             Quadrature.LOGGER.error("Distant terrain failed and is off for the rest of this run.", failure);
@@ -247,11 +260,13 @@ final class Distant {
         boolean following = follow();
         DistantHook.sampling(following);
         if (!following) {
+            unsettle();
             return;
         }
         Minecraft minecraft = Minecraft.getMinecraft();
         Entity viewer = minecraft.getRenderViewEntity();
         if (viewer == null || minecraft.world == null) {
+            unsettle();
             return;
         }
         fillView(viewer, partialTicks, minecraft);
@@ -323,6 +338,7 @@ final class Distant {
         }
         lastFaces = draws.faces();
         arena.endFrame(frame);
+        settle(viewer);
         if (captured) {
             // Beside a travel capture: what was stored and covered when its frame was drawn.
             Quadrature.LOGGER.info(summary());
@@ -436,6 +452,51 @@ final class Distant {
             schedule.building());
     }
 
+    /**
+     * Whether the picture of this pass is the place's own and stays so while the viewer does: every
+     * tile the selection wants that can arrive is stored (a failed or spared tile will not), none is
+     * being built, none kept past the rings still waits for its replacement, the last tile stored
+     * has faded in, near terrain has meshed every cube it holds, and the cube source calls its view
+     * settled ({@code settled(20)}) for a held box around the viewer, so the box near terrain fills
+     * and distant terrain leaves out is whole. Counted in passes in a row and published through the
+     * hook, for a capture that is to repeat.
+     */
+    private void settle(Entity viewer) {
+        waitingTiles = schedule.waiting();
+        buildingTiles = schedule.building();
+        keptTiles = schedule.leaving();
+        fadingTiles = frame - lastPlacedFrame + 1 < DistantSettings.ARRIVAL_FRAMES;
+        TerrainHook.Probes near = TerrainHook.probes();
+        nearWaiting = near == null ? 0 : near.waiting();
+        cubesSettled = source.settled(20);
+        boxHere = Travel.around(source.heldBox(), (int) Math.floor(viewer.posX / 16),
+            (int) Math.floor(viewer.posY / 16), (int) Math.floor(viewer.posZ / 16));
+        boolean settled = waitingTiles == 0 && buildingTiles == 0 && keptTiles == 0 && !fadingTiles
+            && nearWaiting == 0 && cubesSettled && boxHere;
+        settledPasses = settled ? settledPasses + 1 : 0;
+        DistantHook.settledPasses(settledPasses);
+    }
+
+    /** A pass that draws nothing is not settled. */
+    private void unsettle() {
+        settledPasses = 0;
+        DistantHook.settledPasses(0);
+    }
+
+    /** What was still on its way to the picture in the last pass, as one line's part. */
+    String unsettled() {
+        if (failed) {
+            return "distant terrain failed";
+        }
+        if (preview == null) {
+            return "distant terrain has no terrain preview to draw from";
+        }
+        return String.format("tiles still to come %d, being built %d, kept past the rings %d, fading in %s; near terrain "
+                + "cubes waiting %d; cube source %s, held box %s; settled for %d passes", waitingTiles, buildingTiles,
+            keptTiles, fadingTiles ? "yes" : "no", nearWaiting, cubesSettled ? "settled" : "not settled",
+            boxHere ? "around the viewer" : "elsewhere", settledPasses);
+    }
+
     /** Tasks that ended without a tile: abandoned, withdrawn or failed. */
     private void takeEnded() {
         for (DistantWorkers.Ended end = workers.takeEnded(); end != null; end = workers.takeEnded()) {
@@ -487,6 +548,7 @@ final class Distant {
                     resident.minimumY = tile.minimumY();
                     resident.maximumY = tile.maximumY();
                     resident.placedFrame = frame;
+                    lastPlacedFrame = frame;
                     for (int group = 0; group < TileMesh.GROUPS; group++) {
                         resident.groupOffset[group] = tile.groupOffset(group);
                         resident.groupCount[group] = tile.groupCount(group);
