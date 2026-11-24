@@ -2,29 +2,35 @@
 allocation, compilation and waits to the mod whose code it was in.
 
     python tools/diagnostics.py check PLAN               # preflight, no game: exit 1 on any problem
-    python tools/diagnostics.py run PLAN [--dry-run]     # only under the GPU lease, as a Workbench lab.script
+    wb gpu run -- python tools/diagnostics.py run PLAN   # only under a Workbench GPU turn; --dry-run prints
     python tools/diagnostics.py attribute RUN_DIR [--cores N]
     python tools/diagnostics.py report RUN_DIR [RUN_DIR ...] [--markdown OUT.md] [--json OUT.json]
 
-``check`` reads a plan (below) and refuses what would waste a turn: a missing artifact, a Quadrature
-switch without the switches it needs, DLSS without its shim, runtime or module, distant terrain
-without a Riven that previews, a flight without a motion helper that flies routes or outside the
-helper's bounds or its run's limit, a tour with two consecutive views at one position, an instance
-name already taken, a removal that leaves a mod without one it requires, too little disk, no
-``jfr`` tool.
+``check`` reads a plan (below) and refuses what would waste a turn: no instance receipt, a missing
+client mod, a Quadrature switch without the switches it needs, DLSS without its shim, runtime or
+module, distant terrain without a Riven that previews, a flight without a motion helper that flies
+routes or outside the helper's bounds or its run's limit, a tour with two consecutive views at one
+position, a run directory in use, a removal that leaves a mod without one it requires, too little
+disk, no ``jfr`` tool.
 
-``run`` checks, prepares the plan's instance with Riven's ``tools/runtime.py``, removes the plan's
-``remove`` mods from both sides (an ablation: the instance's mod hashes are rewritten to match),
-indexes the instance's mods (``mod-index.json``) and plays each run in order: a tour, or a flight,
+The game is an instance Workbench built from Riven's launch file (``wb play riven`` builds it, at the
+set revision it resolves at, every mod by SHA-256): the plan names its receipt, ``instance.json``.
+``run`` holds no lease of its own: it runs under a Workbench GPU turn (``wb gpu run``, which gives it
+WB_TURN_TOKEN and WB_LEASE_FILE), and refuses to start outside one. It checks, makes a fresh copy of
+the instance in the run directory (``game_session``: no world, nothing earlier games left), adds
+the plan's ``clientMods`` to the client, removes the plan's ``remove`` mods from both sides (an
+ablation), indexes the copy's mods (``mod-index.json``) and plays each run in order on the copy,
+starting the server and client from the receipt's command lines: a tour, or a flight,
 which the motion helper (0.2.0 or later) flies along the plan's route at a player's pace, the
 player really moving, so the world loads ahead of it and unloads behind it as for a player; the
 helper waits wherever the next cube has not arrived, and closes the client when the route ends.
 Every run records both games under JFR with ``DebugNonSafepoints``, and clocks the plan's
 ``timed`` methods by JFR's method timing, since execution samples see a thread only while it runs
 Java code and so misstate threads that mix tight loops with VM-heavy work (the server thread
-among them); a tour's client recording is dumped with ``jcmd``
-once every view is captured, before the launcher kills the client, and 1 MiB recorder chunks are
-the fallback. It writes GC logs, samples the GPU with ``nvidia-smi``, and moves logs, recordings
+among them); a tour is driven by the launch's tour rules (its set-up commands, the client's capture
+switches and the line each captured view prints), and the client's recording is dumped with
+``jcmd`` once every view is captured, before the client is closed; 1 MiB recorder chunks are the
+fallback. It writes GC logs, samples the GPU with ``nvidia-smi``, and moves logs, recordings
 and the helper's frame records into ``RUN_DIR/<label>/``, with ``run.json`` beside them.
 
 ``attribute`` reads each recording with the JDK's ``jfr`` tool (``JAVA_HOME``) into windows:
@@ -48,9 +54,8 @@ clocks; and, for labels shared between run directories, the differences.
 
 Plan:
 
-    {"riven": RIVEN_ROOT, "artifact": FROZEN_RIVEN_JAR, "cubicArtifact": CUBATURE_JAR,
-     "clientMods": [JAR, ...], "instance": NAME, "seed": 8675309, "out": RUN_DIR,
-     "options": "-D... common to every run", "jvm": "zgc-fixed", "window": "1920x1080",
+    {"instance": INSTANCE_JSON, "cache": RUNTIME_CACHE (optional), "clientMods": [JAR, ...],
+     "out": RUN_DIR, "options": "-D... common to every run",
      "remove": ["GTCEu Reloaded"], "owners": {"PACKAGE.PREFIX.": "Owner name"},
      "runs": [
        {"label": "1-caves", "tour": TOUR_JSON, "options": "-D...", "limitSeconds": 1500},
@@ -58,6 +63,11 @@ Plan:
         "route": [[x, y, z], [x, y, z, DWELL_SECONDS], ...], "speed": 16, "acceleration": 16,
         "cornerRadius": 24, "turnRate": 120, "laps": 1, "settleSeconds": 60, "stationarySeconds": 5,
         "holdSeconds": 10}, "options": "-D..."}]}
+
+The seed, the layout scale and the JVM profile are the instance's (``wb play riven --param seed=N``
+builds another); a plan that still names ``riven``, ``artifact``, ``cubicArtifact``, ``seed`` or
+``jvm`` is refused, since the instance's launch file names every mod and its receipt every command
+line. ``window`` (the plan's or a run's, WIDTHxHEIGHT) sets the client's size.
 
 Exit 0, 1 on a failed check, run or analysis, 2 on a usage error or a run outside a GPU turn.
 """
@@ -887,24 +897,35 @@ def helper_routes(client_mods: list[Path]) -> bool:
     return False
 
 
+# What the instance's launch file and receipt name now; a plan that still gives one is refused.
+RETIRED = ("riven", "artifact", "cubicArtifact", "seed", "jvm")
+
+
+def instance_mods(instance: Path) -> list[Path]:
+    """The mod files of an instance (its client's and server's mods folders)."""
+    return sorted(p for side in ("client", "server") for p in (instance / side / "mods").glob("*.jar"))
+
+
 def check(plan: dict, plan_path: Path | None = None) -> list[str]:
     """Every problem that would waste a turn, or nothing."""
-    problems = []
-    riven = Path(plan.get("riven", ""))
-    for key in ("riven", "artifact", "cubicArtifact", "instance", "out", "runs"):
+    from game_session import GameError, read_receipt
+
+    problems = [f"plan key {key}: the instance's launch file names the mods, seed and JVM profile now; build the "
+                "instance with wb play riven and name its instance.json" for key in RETIRED if key in plan]
+    for key in ("instance", "out", "runs"):
         if key not in plan:
             problems.append(f"plan has no {key}")
     if problems:
         return problems
-    artifacts = [Path(plan["artifact"]), Path(plan["cubicArtifact"]), *map(Path, plan.get("clientMods", []))]
-    for artifact in artifacts:
+    receipt = Path(plan["instance"])
+    try:
+        read_receipt(receipt)
+    except (GameError, OSError, ValueError) as error:
+        problems.append(str(error))
+    instance = receipt.parent
+    for artifact in map(Path, plan.get("clientMods", [])):
         if not artifact.is_file():
-            problems.append(f"missing artifact {artifact}")
-    if not (riven / "tools" / "runtime.py").is_file():
-        problems.append(f"{riven} is not a Riven checkout (no tools/runtime.py)")
-    instance = riven / ".local" / "cubic-standalone" / plan["instance"]
-    if instance.exists():
-        problems.append(f"instance {plan['instance']} exists; a diagnostics run starts on a fresh world")
+            problems.append(f"missing client mod {artifact}")
     if Path(plan["out"]).exists() and any(Path(plan["out"]).iterdir()):
         problems.append(f"{plan['out']} is not empty; a run directory is never reused")
     client_mods = [Path(m) for m in plan.get("clientMods", [])]
@@ -935,7 +956,7 @@ def check(plan: dict, plan_path: Path | None = None) -> list[str]:
                 problems.append(f"{label}: DLSS needs the quadrature-nvidia module among the client mods")
         if "quadrature.distant" in options:
             try:
-                with zipfile.ZipFile(plan["artifact"]) as jar:
+                with zipfile.ZipFile(instance / "client" / "mods" / "riven.jar") as jar:
                     if not any("Preview" in n and n.startswith("cc/orthrus/riven/") for n in jar.namelist()):
                         problems.append(f"{label}: distant terrain needs a Riven with the client terrain preview")
             except (FileNotFoundError, zipfile.BadZipFile):
@@ -979,28 +1000,29 @@ def check(plan: dict, plan_path: Path | None = None) -> list[str]:
         else:
             problems.append(f"{label}: a run is a tour or a flight")
     if plan.get("remove"):
-        problems += removal_problems(plan, riven)
+        problems += removal_problems(plan, instance)
     try:
         jfr_tool()
     except SystemExit as error:
         problems.append(str(error))
-    free = shutil.disk_usage(riven).free / 2 ** 30 if riven.exists() else 0
+    beside = Path(plan["out"]).resolve()
+    while not beside.exists() and beside.parent != beside:
+        beside = beside.parent
+    free = shutil.disk_usage(beside).free / 2 ** 30
     if free < 30:
-        problems.append(f"{free:.0f} GiB free beside {riven}; a run needs 30")
+        problems.append(f"{free:.0f} GiB free beside {plan['out']}; a run needs 30")
     return problems
 
 
-def removal_problems(plan: dict, riven: Path) -> list[str]:
+def removal_problems(plan: dict, instance: Path) -> list[str]:
     """A removal must name mods the instance would hold, and leave none without a mod it requires."""
     from mod_index import index_jar
 
-    pins = riven / "dev" / "pins"
-    candidates = sorted(pins.glob("*.jar")) if pins.exists() else []
-    candidates += [Path(m) for m in plan.get("clientMods", [])]
+    candidates = instance_mods(instance) + [Path(m) for m in plan.get("clientMods", [])]
     records = [index_jar(path, owner_of) for path in candidates if path.is_file()]
     removed = set(plan["remove"])
     known = {r.mod for r in records}
-    problems = [f"remove: no mod named {name} among the pins and client mods" for name in removed - known]
+    problems = [f"remove: no mod named {name} among the instance's and the client mods" for name in removed - known]
     removed_ids = {i.lower() for r in records if r.mod in removed for i in r.mod_ids}
     for r in records:
         if r.mod in removed:
@@ -1086,40 +1108,19 @@ def record_options(plan: dict) -> str:
                           + ",jdk.MethodTiming#period=10s")
 
 
-def play_command(python: str, plan: dict, entry: dict) -> tuple[list[str], str]:
-    """A run's play command and its JVM options (the recorder's included): a tour keeps the motion
-    helper off; a flight is the helper's route."""
+def run_options(plan: dict, entry: dict) -> str:
+    """A run's JVM options for both games (JAVA_TOOL_OPTIONS), the recorder's included: a tour keeps
+    the motion helper off; a flight is the helper's route."""
     options = " ".join(filter(None, [plan.get("options", ""), entry.get("options", ""), record_options(plan)]))
-    command = [python, "tools/runtime.py", "play", "--name", plan["instance"]]
-    window = entry.get("window", plan.get("window"))
-    if window:
-        command += ["--window", window]
     if "tour" in entry:
-        command += ["--tour", entry["tour"]]
-        options += " -Driven.motion.enabled=false"
-    else:
-        options += " " + flight_options(entry["flight"])
-    return command, options
+        return options + " -Driven.motion.enabled=false"
+    return options + " " + flight_options(entry["flight"])
 
 
-def jcmd_tool(riven: Path) -> Path | None:
-    """jcmd of the game's own Java, else of JAVA_HOME's."""
-    name = "jcmd.exe" if os.name == "nt" else "jcmd"
-    for candidate in (riven / ".local" / "toolchains" / "java26" / "bin" / name,
-                      Path(os.environ.get("JAVA_HOME", "")) / "bin" / name):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def dump_client(riven: Path, instance: Path, target: Path) -> str:
-    """Ask the running client to write its recording now, before the launcher kills it."""
-    tool = jcmd_tool(riven)
-    try:
-        pid = json.loads((instance / "processes.json").read_text(encoding="utf-8"))["client"]
-    except (OSError, ValueError, KeyError):
-        return "client dump: no client pid in processes.json"
-    if tool is None:
+def dump_client(jdk: Path, pid: int, target: Path) -> str:
+    """Ask the running client to write its recording now, before it is closed."""
+    tool = jdk / "bin" / ("jcmd.exe" if os.name == "nt" else "jcmd")
+    if not tool.is_file():
         return "client dump: no jcmd"
     dumped = subprocess.run([str(tool), str(pid), "JFR.dump", "name=diagnostics",
                              f"filename={(target / 'client-dump.jfr').resolve()}"],
@@ -1128,40 +1129,70 @@ def dump_client(riven: Path, instance: Path, target: Path) -> str:
         else f"client dump failed: {(dumped.stdout + dumped.stderr).strip()[:200]}"
 
 
-def count_lines(path: Path, text: str, since: float) -> int:
-    """Lines holding text in a log written since a time (a log from an earlier start counts nothing)."""
+def position(pose) -> str:
+    """A tp command's position and look: x y z yaw pitch."""
+    if isinstance(pose, dict):
+        pose = [pose["x"], pose["y"], pose["z"], pose.get("yaw", 0), pose.get("pitch", 0)]
+    return " ".join(f"{float(v):g}" for v in pose)
+
+
+def play_entry(game, entry: dict, rules: dict, options: str, target: Path, window: str | None) -> tuple[int, list[str]]:
+    """One run on the game: the server to its ready line, then the client, until the run ends. A
+    tour: the launch's set-up commands, the player placed at each view in turn, and once the client
+    has captured every view its recording is dumped, before the client is closed. A flight: the
+    player placed at the flight's start in spectator mode; the motion helper flies its route and
+    closes the client itself, which writes the client's recording at exit. Then the server is asked
+    to stop. Returns the run's exit (0, 1 on a failure, 3 past the run's limit) and notes."""
+    from game_session import GameError
+
+    env = {"JAVA_TOOL_OPTIONS": options}
+    limit = float(entry.get("limitSeconds", 1500))
+    deadline = time.monotonic() + limit
+    notes, code = [], 0
+    views = tour_views(Path(entry["tour"])) if "tour" in entry else None
     try:
-        if path.stat().st_mtime < since:
-            return 0
-        return sum(1 for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if text in line)
-    except OSError:
-        return 0
-
-
-def drive(play: subprocess.Popen, entry: dict, riven: Path, instance: Path, target: Path, limit: float) -> tuple[int, list[str]]:
-    """Watch a run to its end. A tour: once the client has captured every view, its recording is
-    dumped, before the launcher kills the client. A flight: the motion helper flies its route and
-    closes the client itself, which writes the client's recording at exit, and the launcher then
-    stops the server. Returns the play's exit (3 past the limit) and notes."""
-    began, notes = time.time(), []
-    client_log = instance / "client" / "logs" / "latest.log"
-    deadline = began + limit
-    views = len(tour_views(Path(entry["tour"]))) if "tour" in entry else None
-    dumped = False
-    while play.poll() is None and time.time() < deadline:
-        if views is not None and not dumped and count_lines(client_log, "Riven view captured", began) >= views:
-            notes.append(dump_client(riven, instance, target))
-            dumped = True
-        time.sleep(0.5)
-    if play.poll() is None:
-        return 3, notes + ["past the run's limit"]
-    return play.returncode, notes
+        game.start("server", target / "server-console.log", env=env)
+        game.wait_for("server", game.ready, 1, 600, "server ready line")
+        if views:
+            for command in rules["setup"]:
+                game.send(command)
+            if rules["spawn"]:
+                game.send(rules["spawn"].format(**{k: views[0][k] for k in ("x", "y", "z")}))
+        client_jvm = list(rules["client_jvm"]) if views else []
+        game.start("client", target / "client-console.log", jvm=client_jvm, env=env, window=window)
+        game.wait_for("server", rules["joined"], 1, 300, "join of the player")
+        player = game.player
+        if views is None or rules["spectator"]:
+            game.send(f"gamemode spectator {player}")
+        if views is None:
+            game.send(f"tp {player} {position(entry['flight']['start'])}")
+            while game.alive("client") and time.monotonic() < deadline:
+                time.sleep(0.5)
+            if game.alive("client"):
+                code = 3
+                notes.append("past the run's limit")
+        else:
+            for index, view in enumerate(views):
+                for command in view.get("commands") or []:
+                    game.send(str(command).replace("{player}", player))
+                game.send(f"tp {player} {position(view)}")
+                remaining = max(1.0, min(float(rules["capture_timeout"]), deadline - time.monotonic()))
+                game.wait_for("client", rules["captured"], index + 1, remaining,
+                              f"capture of view {index + 1} ({view.get('label', index + 1)})")
+            notes.append(dump_client(game.jdk, game.processes["client"].pid, target))
+            for command in rules["leave"]:
+                game.send(command.replace("{player}", player))
+            time.sleep(float(rules["leave_seconds"]))
+    except GameError as error:
+        notes.append(str(error))
+        code = 3 if "within" in str(error) and time.monotonic() >= deadline else 1
+    exits = game.stop()
+    notes.append("exits: " + ", ".join(f"{side} {value}" for side, value in exits.items()))
+    return code, notes
 
 
 def ablate(instance: Path, remove: list[str]) -> list[str]:
-    """Move the named mods' jars out of both sides and rewrite the manifest's mod hashes to match."""
-    manifest_path = instance / "standalone.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    """Move the named mods' jars out of both sides of the instance copy."""
     moved = []
     for side in ("client", "server"):
         mods = instance / side / "mods"
@@ -1173,10 +1204,7 @@ def ablate(instance: Path, remove: list[str]) -> list[str]:
             target.mkdir(parents=True, exist_ok=True)
             for path in paths:
                 shutil.move(str(path), target / path.name)
-                manifest.get("modHashes", {}).get(side, {}).pop(path.name, None)
                 moved.append(f"{side}/{path.name}")
-    manifest["diagnosticNote"] = "mods removed for an ablation: " + ", ".join(remove)
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return moved
 
 
@@ -1235,42 +1263,46 @@ def collect(instance: Path, target: Path) -> list[str]:
     return notes
 
 
+def in_turn(environ=os.environ) -> bool:
+    """Whether this process runs under a Workbench GPU turn (wb gpu run, or a driver session)."""
+    return bool(environ.get("WB_TURN_TOKEN") and environ.get("WB_LEASE_FILE"))
+
+
 def run(plan_path: Path, dry: bool = False) -> int:
+    import game_session
+
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if dry:
         for entry in plan["runs"]:
-            command, options = play_command("python", plan, entry)
-            print(f"{entry['label']}: {' '.join(command)}\n  JAVA_TOOL_OPTIONS={options}")
+            print(f"{entry['label']}: JAVA_TOOL_OPTIONS={run_options(plan, entry)}")
         return 0
-    if not os.environ.get("CUBIC_LAB_TURN_LEASE"):
-        print("not inside a GPU turn (no CUBIC_LAB_TURN_LEASE); run it as a Workbench lab.script, "
-              "which holds the GPU lease")
+    if not in_turn():
+        print("not inside a Workbench GPU turn (no WB_TURN_TOKEN and WB_LEASE_FILE); run it as "
+              "wb gpu run -- python tools/diagnostics.py run PLAN, which holds the GPU lease")
         return 2
     problems = check(plan)
     if problems:
         print("check failed:\n  " + "\n  ".join(problems))
         return 1
-    riven = Path(plan["riven"]).resolve()
+    receipt_path = Path(plan["instance"]).resolve()
     out = Path(plan["out"]).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    artifacts = [Path(plan["artifact"]), Path(plan["cubicArtifact"]), *map(Path, plan.get("clientMods", []))]
-    record = {"plan": plan, "artifacts": {str(a): sha256(a) for a in artifacts}, "runs": []}
-    instance = riven / ".local" / "cubic-standalone" / plan["instance"]
-    python = sys.executable
-    command = [python, "tools/runtime.py", "prepare", "--name", plan["instance"], "--seed", str(plan.get("seed", 8675309)),
-               "--no-distant-horizons", "--capture-ticks", "900", "--cubic-artifact", plan["cubicArtifact"],
-               "--artifact", plan["artifact"]]
-    for mod in plan.get("clientMods", []):
-        command += ["--client-mod", mod]
-    if any("flight" in r for r in plan["runs"]):
-        command.append("--spectator")
-    env = {**os.environ, "CUBATURE_LAB_JVM": plan.get("jvm", "zgc-fixed")}
-    env.pop("JAVA_TOOL_OPTIONS", None)
-    prepared = subprocess.run(command, cwd=riven, env=env, capture_output=True, text=True)
-    (out / "prepare.log").write_text(prepared.stdout + prepared.stderr, encoding="utf-8")
-    if prepared.returncode != 0:
-        print(f"prepare {plan['instance']} failed; see prepare.log")
+    try:
+        receipt = game_session.read_receipt(receipt_path)
+        cache = game_session.runtime_cache(receipt, plan.get("cache"))
+        jdk = game_session.java_home(receipt)
+    except game_session.GameError as error:
+        print(f"refused: {error}")
         return 1
+    instance = game_session.copy_instance(receipt_path.parent, out / "instance")
+    launch = game_session.read_json(instance / game_session.LAUNCH)
+    rules = game_session.tour_rules(launch)
+    client_mods = [Path(m) for m in plan.get("clientMods", [])]
+    for mod in client_mods:
+        shutil.copy2(mod, instance / "client" / "mods" / mod.name)
+    record = {"plan": plan, "instance": {"receipt": str(receipt_path), "receipt_sha256": sha256(receipt_path),
+                                          "launch": receipt.get("launch"), "jdk": str(jdk), "cache": str(cache)},
+              "artifacts": {str(p): sha256(p) for p in instance_mods(instance)}, "runs": []}
     if plan.get("remove"):
         record["removed"] = ablate(instance, plan["remove"])
     from mod_index import MixinIndex, index_dirs, survey
@@ -1282,17 +1314,9 @@ def run(plan_path: Path, dry: bool = False) -> int:
     for entry in plan["runs"]:
         label = entry["label"]
         target = out / label
-        command, options = play_command(python, plan, entry)
-        if "flight" in entry:
-            manifest_path = instance / "standalone.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["inspectionStart"] = entry["flight"]["start"]
-            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-            started = instance / "inspection-started.json"
-            if started.exists():
-                started.rename(instance / f"inspection-started-before-{label}.json")
-        env = {**os.environ, "JAVA_TOOL_OPTIONS": options}
         target.mkdir(parents=True)
+        options = run_options(plan, entry)
+        game = game_session.Game(receipt_path, instance, cache, jdk)
         sampler = None
         if shutil.which("nvidia-smi"):
             sampler = subprocess.Popen(
@@ -1301,22 +1325,15 @@ def run(plan_path: Path, dry: bool = False) -> int:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         began = time.time()
         print(f"RUN {label} {time.strftime('%H:%M:%S')}", flush=True)
-        with (out / f"play-{label}.log").open("w", encoding="utf-8") as log:
-            play = subprocess.Popen(command, cwd=riven, env=env, stdout=log, stderr=subprocess.STDOUT)
-            result, notes = drive(play, entry, riven, instance, target, entry.get("limitSeconds", 1500))
-            if result == 3:
-                with (instance / "commands.txt").open("a", encoding="utf-8") as stream:
-                    stream.write("stop\n")
-                try:
-                    play.wait(timeout=120)
-                except subprocess.TimeoutExpired:
-                    play.kill()
-        if sampler:
-            sampler.terminate()
+        try:
+            result, notes = play_entry(game, entry, rules, options, target, entry.get("window", plan.get("window")))
+        finally:
+            if sampler:
+                sampler.terminate()
         notes += collect(instance, target)
         print(f"RUN {label} EXIT={result} {time.strftime('%H:%M:%S')} " + "; ".join(notes), flush=True)
         record["runs"].append({"label": label, "exit": result, "seconds": round(time.time() - began, 1),
-                               "options": options, "notes": notes})
+                               "options": options, "port": game.port, "notes": notes})
         (out / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
         if result != 0:
             code = 1

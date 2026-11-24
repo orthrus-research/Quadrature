@@ -1,6 +1,6 @@
 # Quadrature's checks and the file its build makes. Workbench runs them from a clean clone with the set's Gradle and
 # JDKs ({gradle}), with {python} the environment made from tools/requirements.txt; a push needs the gate's checks
-# passed. Nothing here starts the game or needs a GPU: game runs are Workbench plans of lab routines. Cubature and
+# passed. Nothing here starts the game or needs a GPU: game runs are Workbench sessions (wb play riven). Cubature and
 # OrthLib reach the build as the files the set names, from the Store by their SHA-256.
 schema = 1
 gate = ["build", "mixins", "shaders", "tools"]

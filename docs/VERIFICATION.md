@@ -24,34 +24,26 @@ wb run ci.status project=quadrature
 ```
 
 A changed program is validated this way before it runs on a GPU. Nothing in these jobs starts
-the game: game runs are plans on the GPU host.
+the game: game runs are Workbench sessions on the GPU host.
 
 ## Capturing
 
-Frames come from game runs on the host's GPU, which Workbench runs as plans of lab routines
-under the machine's one GPU lease (`wb run plan.check plan=<plan>`, then `wb run plan.run
-plan=<plan>`). The lab's launcher is Riven's (`../Riven`, `tools/runtime.py`), which Quadrature
-reuses instead of duplicating:
+Frames come from game runs on the host's GPU, which Workbench plays as sessions of Riven's launch
+under the machine's one GPU lease. Quadrature is one of that launch's members (`quadrature:mod`,
+the JAR the set's line names by SHA-256, the one CI built), so the game runs the bytes the build
+made and the instance's receipt records them:
 
-1. `lab.prepare` (`name`, `seed`, `scale`, and the launcher's arguments in `args`) builds an
-   instance and records its inputs; a play refuses the instance if they change. `lab.ensure`
-   builds the same instance from a template of its recipe and reuses one only for the same
-   recipe. Adding `--no-distant-horizons` to `args` leaves Distant Horizons out, so frames hold
-   near terrain only.
-2. `lab.play` (`name`, `tour` = `tools/tours/<tour>.json`, `window`, the client's JVM options
-   in `options`, a `label`) starts a server and a client, teleports through the tour's views,
-   saves one screenshot per view, and closes both. A tour fixes the time of day and the
-   weather with its first view's commands.
+```powershell
+wb play riven --tour tools/tours/<tour>.json --window 1920x1080 --jvm client:-Dquadrature.terrain=own
+```
 
-A play's frames, named by view, are its `<label>-captures` output, kept with the client's log.
-`lab.snapshot` keeps an instance's generated world and `lab.reset` puts it back, so that every
-run can start from one settled world.
-
-An instance that runs Quadrature is prepared with `--client-mod` naming Quadrature's built
-JAR and, for own terrain, `--cubic-artifact` naming the Cubature JAR `platform.json` pins by
-commit and hash, the one the build compiles against. A plan names every JAR it uses with its
-SHA-256 among its inputs, so `plan.check` refuses any other bytes. The game then runs the JAR
-the build read, and the instance records its hash.
+`wb play` resolves the launch at the set revision it stands on, builds the instance from the
+launch file (or reuses it), and plays the tour: a server and a client, the player teleported
+through the tour's views, one screenshot per view, filed by label as `tour/NN-<label>.png` in
+the session folder, and both games closed. A tour fixes the time of day and the weather with
+its first view's commands. The session's JVM options, window and views go into its
+`session.json`, never into the instance. `--fresh-world` starts a tour on a new world;
+`--measure` plays it as evidence on a fresh copy of the instance.
 
 ## Comparing
 

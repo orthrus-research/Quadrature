@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -481,7 +482,7 @@ class LogTest(unittest.TestCase):
     def test_a_flight_is_the_motion_helpers_route(self):
         flight = {"start": [100, 200, 300, 270, 30], "route": [[700, 200, 300], [700, 200, 700, 10]],
                   "speed": 16, "settleSeconds": 60, "holdSeconds": 10}
-        _, options = diagnostics.play_command("python", {"instance": "x"}, {"label": "f", "flight": flight})
+        options = diagnostics.run_options({"instance": "x"}, {"label": "f", "flight": flight})
         self.assertIn("-Driven.motion.enabled=true", options)
         self.assertIn("-Driven.motion.captureEnabled=false", options)
         self.assertIn("-Driven.motion.route=700,200,300;700,200,700@10", options)
@@ -493,7 +494,7 @@ class LogTest(unittest.TestCase):
         self.assertAlmostEqual(60 + 5 + 62.5 + 2 * 1.0 + 10 + 10, diagnostics.flight_seconds(flight))
 
     def test_a_tour_keeps_the_motion_helper_off(self):
-        _, options = diagnostics.play_command("python", {"instance": "x"}, {"label": "t", "tour": "t.json"})
+        options = diagnostics.run_options({"instance": "x"}, {"label": "t", "tour": "t.json"})
         self.assertIn("-Driven.motion.enabled=false", options)
         self.assertIn("name=diagnostics", options)
 
@@ -513,38 +514,104 @@ class LogTest(unittest.TestCase):
         self.assertIn("client: recording dumped before the end", notes)
 
 
+RECEIPT_BUILD = "26.0.2.1+1"
+
+
+def write_instance(root: Path) -> Path:
+    """An instance as Workbench builds one: client and server mods, the receipt and the launch file beside it, and
+    a runtime cache holding the receipt's asset index. Its games are fake_game.py, started by the receipt's command
+    lines with the roots filled in."""
+    instance = root / "instance"
+    for side in ("client", "server"):
+        (instance / side / "mods").mkdir(parents=True)
+        write_jar(instance / side / "mods" / "cubature.jar", {"io/github/opencubicchunks/A.class": b""})
+    write_jar(instance / "client" / "mods" / "riven.jar", {"cc/orthrus/riven/worldgen/TerrainPreview.class": b""})
+    write_jar(instance / "server" / "mods" / "riven.jar", {"cc/orthrus/riven/worldgen/TerrainPreview.class": b""})
+    write_jar(instance / "client" / "mods" / "quadrature.jar", {"cc/orthrus/quadrature/A.class": b""})
+    (instance / "server" / "server.properties").write_text("level-name=world\nserver-port=25565\n", encoding="utf-8")
+    (instance / "server" / "world").mkdir()
+    (instance / "server" / "world" / "level.dat").write_bytes(b"an earlier world")
+    (instance / "fake_game.py").write_text(FAKE_GAME, encoding="utf-8")
+    (root / "cache" / "assets" / "indexes").mkdir(parents=True)
+    (root / "cache" / "assets" / "indexes" / "1.12.json").write_text("{}", encoding="utf-8")
+    command = [sys.executable, "{instance}/fake_game.py"]
+    receipt = {"schema": "wb.lab.instance/1", "jdk": {"26": {"build": RECEIPT_BUILD}},
+               "launch": {"project": "riven", "launch": "default"},
+               "runtime": {"asset_index": {"path": "{cache}/assets/indexes/1.12.json"}},
+               "player": {"name": "CubicLab"}, "session": {"ready": ""},
+               "server": {"cwd": "{instance}/server", "command": command + ["server"], "jvm_at": 2},
+               "client": {"cwd": "{instance}/client", "command": command + ["client", "{port}", "--width", "854",
+                                                                            "--height", "480"], "jvm_at": 2}}
+    (instance / "instance.json").write_text(json.dumps(receipt), encoding="utf-8")
+    launch = {"tour": {"setup": ["time set 6000"], "client_jvm": ["-Driven.tour=true"],
+                       "captured": "Riven view captured", "leave_seconds": 0}}
+    (instance / "launch.json").write_text(json.dumps(launch), encoding="utf-8")
+    return instance
+
+
+# A server that prints its ready line, says when a client joins and hands every tp to it; a client that joins on
+# the port it is given and prints a captured view for each tp (a flight's client closes itself at once).
+FAKE_GAME = r"""
+import json, socket, sys, threading
+from pathlib import Path
+args = [a for a in sys.argv[1:] if not a.startswith("-D")]
+Path("argv.json").write_text(json.dumps(sys.argv))
+if args[0] == "server":
+    port = int(dict(l.split("=", 1) for l in Path("server.properties").read_text().splitlines() if "=" in l)["server-port"])
+    listener = socket.socket(); listener.bind(("127.0.0.1", port)); listener.listen(1)
+    print("[Server thread/INFO]: Done (0.1s)!", flush=True)
+    joined = []
+    def accept():
+        connection, _ = listener.accept(); joined.append(connection)
+        print("[Server thread/INFO]: CubicLab joined the game", flush=True)
+    threading.Thread(target=accept, daemon=True).start()
+    log = open("commands.log", "a")
+    for line in sys.stdin:
+        line = line.strip(); log.write(line + "\n"); log.flush()
+        if line == "stop":
+            break
+        if line.startswith("tp ") and joined:
+            joined[0].sendall(b"tp\n")
+    sys.exit(0)
+connection = socket.create_connection(("127.0.0.1", int(args[1])))
+if "-Driven.tour=true" not in sys.argv:
+    sys.exit(0)
+for line in connection.makefile():
+    print("[main/INFO]: Riven view captured", flush=True)
+"""
+
+
 class PlanTest(unittest.TestCase):
     def setUp(self):
         BUILD.mkdir(exist_ok=True)
-        self.dir = tempfile.TemporaryDirectory(dir=BUILD)
-        root = Path(self.dir.name)
-        (root / "riven" / "tools").mkdir(parents=True)
-        (root / "riven" / "tools" / "runtime.py").write_text("", encoding="utf-8")
+        root = Path(tempfile.mkdtemp(dir=BUILD))
+        self.addCleanup(shutil.rmtree, root, True)
         (root / "jdk" / "bin").mkdir(parents=True)
         (root / "jdk" / "bin" / ("jfr.exe" if os.name == "nt" else "jfr")).write_text("", encoding="utf-8")
-        self.saved_home = os.environ.get("JAVA_HOME")
+        (root / "jdk" / "release").write_text(f'JAVA_RUNTIME_VERSION="{RECEIPT_BUILD}"\n', encoding="utf-8")
+        self.saved = {k: os.environ.get(k) for k in ("JAVA_HOME", "WB_TURN_TOKEN", "WB_LEASE_FILE", "WB_SESSION",
+                                                     "WB_RUNTIME_CACHE")}
+        for key in self.saved:
+            os.environ.pop(key, None)
         os.environ["JAVA_HOME"] = str(root / "jdk")
-        write_jar(root / "riven.jar", {"cc/orthrus/riven/worldgen/TerrainPreview.class": b""})
-        write_jar(root / "cubature.jar", {"io/github/opencubicchunks/A.class": b""})
-        write_jar(root / "quadrature.jar", {"cc/orthrus/quadrature/A.class": b""})
+        self.instance = write_instance(root)
         write_jar(root / "motion.jar", {"dev/example/motion/MotionValidation.class": b"", "dev/example/motion/RoutePath.class": b""})
         write_jar(root / "motion-0.1.3.jar", {"dev/example/motion/MotionValidation.class": b"", "dev/example/motion/MotionPath.class": b""})
         tour = [{"x": 1, "y": 2, "z": 3}, {"x": 1, "y": 2, "z": 3}]
         (root / "tour.json").write_text(json.dumps(tour), encoding="utf-8")
         self.root = root
-        self.plan = {"riven": str(root / "riven"), "artifact": str(root / "riven.jar"),
-                     "cubicArtifact": str(root / "cubature.jar"), "clientMods": [str(root / "quadrature.jar")],
-                     "instance": "fresh", "out": str(root / "out"), "options": "-Dquadrature.terrain=own",
+        self.plan = {"instance": str(self.instance / "instance.json"), "clientMods": [],
+                     "out": str(root / "out"), "options": "-Dquadrature.terrain=own",
                      "runs": [{"label": "1", "tour": str(root / "tour.json"),
                                "options": "-Dquadrature.gbuffer=true -Dquadrature.reversedDepth=false"},
                               {"label": "2", "flight": {"start": [0, 0, 0, 0, 0], "route": [[600, 0, 0]]}}]}
 
     def tearDown(self):
-        if self.saved_home is None:
-            os.environ.pop("JAVA_HOME", None)
-        else:
-            os.environ["JAVA_HOME"] = self.saved_home
-        self.dir.cleanup()
+        for key, value in self.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
     def test_check_names_what_would_waste_a_turn(self):
         problems = "\n".join(diagnostics.check(self.plan))
@@ -559,6 +626,15 @@ class PlanTest(unittest.TestCase):
         problems = "\n".join(diagnostics.check(self.plan))
         self.assertIn("flight speed 500.0 outside 0.1..100", problems)
         self.assertIn("leaves no room for the flight", problems)
+
+    def test_a_plan_names_an_instance_receipt_not_a_checkout_and_jars(self):
+        self.plan.update(riven="../Riven", artifact="riven.jar")
+        problems = "\n".join(diagnostics.check(self.plan))
+        self.assertIn("plan key riven: the instance's launch file names the mods", problems)
+        self.assertIn("plan key artifact", problems)
+        del self.plan["riven"], self.plan["artifact"]
+        self.plan["instance"] = str(self.root / "nowhere" / "instance.json")
+        self.assertIn("no instance receipt", "\n".join(diagnostics.check(self.plan)))
 
     def test_own_terrain_reversed_depth_and_faces_are_on_unless_set_off(self):
         self.plan["options"] = ""
@@ -583,21 +659,76 @@ class PlanTest(unittest.TestCase):
         self.assertIn("no nvngx_dlss.dll", problems)
         self.assertIn("quadrature-nvidia module", problems)
 
-    def test_an_ablation_moves_a_mods_jars_and_rewrites_the_hashes(self):
-        instance = self.root / "instance"
+    def test_a_removal_names_a_mod_the_instance_holds(self):
+        self.plan["remove"] = ["Nothing Here"]
+        self.assertIn("remove: no mod named Nothing Here", "\n".join(diagnostics.check(self.plan)))
+
+    def test_an_ablation_moves_a_mods_jars_out_of_both_sides(self):
+        instance = self.root / "copy"
         for side in ("client", "server"):
             mods = instance / side / "mods"
             mods.mkdir(parents=True)
             write_jar(mods / "gtceu.jar", {"gregtech/api/A.class": b""})
             write_jar(mods / "riven.jar", {"cc/orthrus/riven/A.class": b""})
-        hashes = {side: {"gtceu.jar": "a", "riven.jar": "b"} for side in ("client", "server")}
-        (instance / "standalone.json").write_text(json.dumps({"modHashes": hashes}), encoding="utf-8")
         moved = diagnostics.ablate(instance, ["GTCEu Reloaded"])
-        manifest = json.loads((instance / "standalone.json").read_text(encoding="utf-8"))
         self.assertEqual(["client/gtceu.jar", "server/gtceu.jar"], moved)
-        self.assertEqual({"riven.jar": "b"}, manifest["modHashes"]["server"])
         self.assertTrue((instance / "removed-mods" / "client" / "gtceu.jar").exists())
-        self.assertIn("GTCEu Reloaded", manifest["diagnosticNote"])
+        self.assertTrue((instance / "server" / "mods" / "riven.jar").exists())
+
+    def test_a_run_is_refused_outside_a_workbench_turn(self):
+        path = self.root / "plan.json"
+        path.write_text(json.dumps(self.plan), encoding="utf-8")
+        self.assertEqual(2, diagnostics.run(path))
+        os.environ.update(WB_TURN_TOKEN="t", WB_LEASE_FILE=str(self.root / "gpu.lock"))
+        self.assertTrue(diagnostics.in_turn())
+
+    def test_a_fresh_copy_leaves_the_world_behind_and_shares_the_jars(self):
+        import game_session
+        copy = game_session.copy_instance(self.instance, self.root / "fresh")
+        self.assertFalse((copy / "server" / "world").exists())
+        self.assertTrue((copy / "client" / "mods" / "riven.jar").is_file())
+        with self.assertRaises(game_session.GameError):
+            game_session.copy_instance(self.instance, copy)
+
+    def test_the_cache_and_the_jdk_are_found_and_checked(self):
+        import game_session
+        receipt = game_session.read_receipt(self.instance / "instance.json")
+        os.environ["WB_RUNTIME_CACHE"] = str(self.root / "cache")
+        self.assertEqual(self.root / "cache", game_session.runtime_cache(receipt))
+        with self.assertRaisesRegex(game_session.GameError, "does not hold"):
+            game_session.runtime_cache(receipt, str(self.root))
+        self.assertEqual(self.root / "jdk", game_session.java_home(receipt))
+        (self.root / "jdk" / "release").write_text('JAVA_RUNTIME_VERSION="25.0.1+8"\n', encoding="utf-8")
+        with self.assertRaisesRegex(game_session.GameError, "build 25.0.1"):
+            game_session.java_home(receipt)
+
+    def test_a_tour_and_a_flight_play_on_a_copy_of_the_instance_from_its_receipt(self):
+        import game_session
+        receipt = self.instance / "instance.json"
+        copy = game_session.copy_instance(self.instance, self.root / "out" / "instance")
+        rules = game_session.tour_rules(game_session.read_json(copy / "launch.json"))
+        views = [{"x": 1, "y": 70, "z": 3, "label": "a"}, {"x": 9, "y": 72, "z": 3, "label": "b", "commands": ["weather clear"]}]
+        (self.root / "tour.json").write_text(json.dumps(views), encoding="utf-8")
+        target = self.root / "out" / "1"
+        target.mkdir(parents=True)
+        game = game_session.Game(receipt, copy, self.root / "cache", self.root / "jdk")
+        code, notes = diagnostics.play_entry(game, {"label": "1", "tour": str(self.root / "tour.json"),
+                                                    "limitSeconds": 120}, rules, "-Dx=1", target, "1280x720")
+        self.assertEqual(0, code, notes)
+        sent = (copy / "server" / "commands.log").read_text().splitlines()
+        self.assertEqual(["time set 6000", "setworldspawn 1 70 3", "gamemode spectator CubicLab", "tp CubicLab 1 70 3 0 0",
+                          "weather clear", "tp CubicLab 9 72 3 0 0", "kick CubicLab Tour finished", "stop"], sent)
+        argv = json.loads((copy / "client" / "argv.json").read_text())
+        self.assertEqual("-Driven.tour=true", argv[1])  # the tour's capture switch where a session's options go
+        self.assertEqual(["1280", "--height", "720"], argv[argv.index("--width") + 1:argv.index("--width") + 4])
+        self.assertIn(f"server-port={game.port}", (copy / "server" / "server.properties").read_text())
+        flight = self.root / "out" / "2"
+        flight.mkdir()
+        game = game_session.Game(receipt, copy, self.root / "cache", self.root / "jdk")
+        code, notes = diagnostics.play_entry(game, {"label": "2", "flight": {"start": [5, 80, 6, 90, 10], "route": []},
+                                                    "limitSeconds": 120}, rules, "", flight, None)
+        self.assertEqual(0, code, notes)
+        self.assertIn("tp CubicLab 5 80 6 90 10", (copy / "server" / "commands.log").read_text().splitlines())
 
 
 if __name__ == "__main__":
