@@ -20,7 +20,7 @@ public final class ModInterfaces {
 
     /**
      * The interface type the bridge implements, looked for as a resource before the bridge loads: an OrthLib from
-     * before the render interface (before commit e64ad72) lacks it.
+     * before the render interface lacks it.
      */
     private static final String INTERFACE = "dev/orthlib/api/render/RenderProvider.class";
 
@@ -48,8 +48,8 @@ public final class ModInterfaces {
         }
         if (ModInterfaces.class.getClassLoader().getResource(INTERFACE) == null) {
             Quadrature.LOGGER.error("OrthLib is installed but has no render interface, so Quadrature does not provide "
-                + "it: install OrthLib at commit e64ad72 or later (Quadrature builds against {}).",
-                Quadrature.ORTHLIB_COMMIT.substring(0, 8));
+                + "it: install an OrthLib that has the render interface (dev.orthlib.api.render), the one this "
+                + "Quadrature was released with or a later one.");
             return;
         }
         Object bridge;

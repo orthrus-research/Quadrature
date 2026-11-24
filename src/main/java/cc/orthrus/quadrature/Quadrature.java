@@ -31,9 +31,6 @@ public final class Quadrature {
     public static final String MOD_ID = "quadrature";
     public static final Logger LOGGER = LogManager.getLogger("Quadrature");
 
-    /** The OrthLib commit Quadrature's bridge to its render interface is built against (platform.json). */
-    public static final String ORTHLIB_COMMIT = QuadratureBuild.ORTHLIB_COMMIT;
-
     /**
      * Raises the GPU memory floor for a test run, so the stop screen can be exercised on a supported
      * card. A value below the built-in floor is ignored: the property can only make the gate stricter.
@@ -148,7 +145,7 @@ public final class Quadrature {
         }
         return new GateFailure("Distant Horizons is installed.",
             "Quadrature replaces the game's renderer, distant terrain included, and does not run beside another one.",
-            "Remove Distant Horizons (Riven's launcher: --no-distant-horizons) and start the game with "
+            "Remove Distant Horizons and start the game with "
                 + "-Dquadrature.distant=own for Quadrature's own distant terrain, or remove Quadrature to use "
                 + "Distant Horizons.");
     }

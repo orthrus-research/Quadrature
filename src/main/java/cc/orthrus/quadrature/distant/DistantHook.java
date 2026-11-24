@@ -34,6 +34,7 @@ public final class DistantHook {
     private static boolean shaded;
     private static int farthestGeneration;
     private static float nearestEdge;
+    private static long settledPasses;
 
     private DistantHook() {
     }
@@ -169,6 +170,40 @@ public final class DistantHook {
         return shaded;
     }
 
+    /** Told by distant terrain each world pass: how many passes in a row its picture has been settled. */
+    static void settledPasses(long passes) {
+        settledPasses = passes;
+    }
+
+    /**
+     * How many world passes in a row, ending with the last, drew a settled picture: one that is the
+     * place's own and stays so while the viewer stays. Distant terrain has every tile the selection
+     * wants that can arrive stored and faded in, none being built and none kept past its rings for a
+     * replacement; near terrain has meshed every cube it holds; and the cube source calls the box
+     * around the viewer settled ({@code settled(20)}), so the ground near terrain draws and distant
+     * terrain leaves out is whole. 0 after any pass in which something was still on its way, and
+     * while distant terrain draws nothing: not requested, off, failed, or without a terrain preview.
+     * A capture meant to repeat waits for some passes of it, then for nothing else; {@link #unsettled}
+     * says what it waits on. Client thread.
+     */
+    public static long settledPasses() {
+        return REQUESTED ? settledPasses : 0;
+    }
+
+    /** What the picture was still waiting on in the last world pass, as a line's part, for a log. Client thread. */
+    public static String unsettled() {
+        if (!REQUESTED) {
+            return "distant terrain is not requested (-Dquadrature.distant=own)";
+        }
+        if (distant == null) {
+            return decided ? "distant terrain is off" : "distant terrain has not drawn yet";
+        }
+        if (!TerrainHook.active()) {
+            return "near terrain is not drawing";
+        }
+        return distant.unsettled();
+    }
+
     /** Draws distant terrain. Called once a world pass, after the opaque layers of near terrain. */
     public static void draw(float partialTicks) {
         if (!REQUESTED) {
@@ -189,6 +224,7 @@ public final class DistantHook {
             distant.frame(partialTicks);
         } else {
             sampling = false;
+            settledPasses = 0;
         }
     }
 }

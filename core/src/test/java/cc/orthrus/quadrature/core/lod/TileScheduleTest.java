@@ -195,4 +195,40 @@ class TileScheduleTest {
         schedule.want(rings);
         assertEquals(rings.tile(0), schedule.next(8));
     }
+
+    @Test
+    void waitingCountsWhatIsStillToComeAndNotWhatFailedOrWasLetGo() {
+        Rings rings = new Rings(REACH, 1);
+        rings.select(0, 0);
+        TileSchedule schedule = new TileSchedule();
+        schedule.want(rings);
+        int all = rings.count();
+        assertEquals(all, schedule.waiting());
+        // Being built and built-but-not-stored still count; stored and failed do not.
+        long stored = schedule.next(8);
+        long built = schedule.next(8);
+        long failed = schedule.next(8);
+        assertEquals(all, schedule.waiting());
+        finish(schedule, stored);
+        assertTrue(schedule.built(built, schedule.generation()));
+        schedule.failed(failed, schedule.generation(), false);
+        assertEquals(all - 2, schedule.waiting());
+        schedule.placed(built);
+        assertEquals(all - 3, schedule.waiting());
+        for (long key = schedule.next(8); key != -1; key = schedule.next(8)) {
+            finish(schedule, key);
+        }
+        assertEquals(0, schedule.waiting());
+        // A tile being built when the selection moves away is not waited for. Back at the first
+        // place, the one that failed is queued again and is the only tile to come.
+        rings.select(1_000_000, 0);
+        schedule.want(rings);
+        long leftBehind = schedule.next(1);
+        rings.select(0, 0);
+        schedule.want(rings);
+        assertFalse(schedule.wanted(leftBehind));
+        assertEquals(1, schedule.building());
+        assertEquals(1, schedule.waiting());
+        assertEquals(failed, schedule.next(8));
+    }
 }

@@ -8,11 +8,11 @@ verification must eventually cover. The commands are Workbench's (`wb run <comma
 
 Workbench runs Quadrature's checks from a clean clone of a commit, on Temurin 26.0.2.1+1, and
 keeps the results; `ci.hook` installs a pre-push hook that refuses a commit whose tree has not
-passed them. The jobs are in [actions.toml](../actions.toml):
+passed them. The checks are in [project.toml](../project.toml):
 
 | Job | What it checks |
 |---|---|
-| `build` | The pinned OrthLib and Cubature JARs (built at their commits or taken from Workbench's pin cache, and refused unless they are the pinned bytes), the build, and the tests of every module |
+| `build` | The build against the OrthLib and Cubature files the set names (from the Store, re-hashed before any compile), and the tests of every module |
 | `mixins` | Quadrature's Mixins applied to the game's classes offline by OrthLib's `mixinkit`, strictly, so that an injector that hooks nothing fails: by development names, then from the shipped JAR through its refmap to the classes renamed to production names; no `@Shadow` (`tools/mixin_check.py --refmap`) |
 | `shaders` | Every GLSL stage the mod's classes hold, written out without a game (`./gradlew dumpShaders`) and compiled by glslang (`./gradlew validateShaders`) |
 | `tools` | The tests of the Python tools in `tools/` |
@@ -24,35 +24,30 @@ wb run ci.status project=quadrature
 ```
 
 A changed program is validated this way before it runs on a GPU. Nothing in these jobs starts
-the game: game runs are plans on the GPU host.
+the game: game runs are Workbench sessions on the GPU host.
 
 ## Capturing
 
-Frames come from game runs on the host's GPU, which Workbench runs as plans of lab routines
-under the machine's one GPU lease (`wb run plan.check plan=<plan>`, then `wb run plan.run
-plan=<plan>`). The lab's launcher is Riven's (`../Riven`, `tools/runtime.py`), which Quadrature
-reuses instead of duplicating:
+Frames come from game runs on the host's GPU, which Workbench plays as sessions of Riven's launch
+under the machine's one GPU lease. Quadrature is one of that launch's members (`quadrature:mod`,
+the JAR the set's line names by SHA-256, the one CI built), so the game runs the bytes the build
+made and the instance's receipt records them:
 
-1. `lab.prepare` (`name`, `seed`, `scale`, and the launcher's arguments in `args`) builds an
-   instance and records its inputs; a play refuses the instance if they change. `lab.ensure`
-   builds the same instance from a template of its recipe and reuses one only for the same
-   recipe. Adding `--no-distant-horizons` to `args` leaves Distant Horizons out, so frames hold
-   near terrain only. Since D29 a run that keeps Distant Horizons beside Quadrature needs
-   `-Dquadrature.test.allowDistantHorizons=true` in the play's `options`, or loading stops.
-2. `lab.play` (`name`, `tour` = `tools/tours/<tour>.json`, `window`, the client's JVM options
-   in `options`, a `label`) starts a server and a client, teleports through the tour's views,
-   saves one screenshot per view, and closes both. A tour fixes the time of day and the
-   weather with its first view's commands.
+```powershell
+wb play riven --tour tools/tours/<tour>.json --window 1920x1080 --jvm client:-Dquadrature.terrain=own
+```
 
-A play's frames, named by view, are its `<label>-captures` output, kept with the client's log.
-`lab.snapshot` keeps an instance's generated world and `lab.reset` puts it back, so that every
-run can start from one settled world.
+`wb play` resolves the launch at the set revision it stands on, builds the instance from the
+launch file (or reuses it), and plays the tour: a server and a client, the player teleported
+through the tour's views, one screenshot per view, filed by label as `tour/NN-<label>.png` in
+the session folder, and both games closed. A tour fixes the time of day and the weather with
+its first view's commands. The session's JVM options, window and views go into its
+`session.json`, never into the instance. `--fresh-world` starts a tour on a new world;
+`--measure` plays it as evidence on a fresh copy of the instance.
 
-An instance that runs Quadrature is prepared with `--client-mod` naming Quadrature's built
-JAR and, for own terrain, `--cubic-artifact` naming the Cubature JAR `platform.json` pins by
-commit and hash, the one the build compiles against. A plan names every JAR it uses with its
-SHA-256 among its inputs, so `plan.check` refuses any other bytes. The game then runs the JAR
-the build read, and the instance records its hash.
+Riven's launch has no Distant Horizons among its members. Since D29 a session that adds it beside
+Quadrature, to compare against it, needs `--jvm client:-Dquadrature.test.allowDistantHorizons=true`,
+or loading stops.
 
 ## Comparing
 
@@ -104,7 +99,8 @@ reference's.
 A client run with `-Dquadrature.frameLog=true` logs a stage report every five seconds: the
 median and 95th percentile of each stage's CPU and GPU time over the last 256 frames, about
 two seconds, and the terrain summary. A tour captures a view once the player has held still
-for the settle time, 400 ticks, so the last report before a capture is that view.
+for the settle time, 400 ticks, and with distant terrain once its picture has settled (Settled
+captures, below), so the last report before a capture is that view.
 
 ```sh
 python tools/stage_views.py views LOG [--tour TOUR] [--stage NAME]
@@ -222,6 +218,30 @@ What this establishes:
 - `near.json` passes run 2 against run 3 on the near-terrain instance and fails run 1
   against run 2 on view 16. `repeat.json` passes run 2 against run 3 with Distant Horizons
   and fails run 1 against run 2 on nine frames.
+
+### Settled captures
+
+With Quadrature's own distant terrain, a capture after the fixed hold alone does not repeat: tiles
+are still arriving when it fires. Measured 2026-11-24 on Riven's forest tour (`forest-8675309`,
+8 views, seed 8675309, view distance 12): a fresh join wants 912 to 1,008 tiles over seven levels,
+and the coarsest take about 5.5 s each to sample, so the first view's tiles are all stored about
+2,400 ticks after the 400-tick hold; later views took 0 to 370 ticks more. Captured after the hold
+alone, run 2 against fresh copies restoring its world passed `repeat` in 3 of 5 copies, failing on
+far terrain still arriving and on the line where near terrain meets distant terrain.
+
+`DistantHook.settledPasses()` counts the world passes in a row whose picture is settled: every tile
+the selection wants that can arrive is stored (a failed or spared tile will not), none is being
+built, none kept past its rings waits for its replacement, the last one stored has faded in, near
+terrain has no cube waiting to be meshed, and the cube source calls its view settled
+(`settled(20)`) for a held box around the viewer. `DistantHook.unsettled()` says what the last
+pass still waited on. A capture meant to repeat waits for some of these passes after its hold
+(Riven's tour waits for 40 and fails the view at 6,000 ticks). Captured so, on the same tour,
+run 1 on a fresh world, run 2 on its world and five fresh copies restoring run 2's kept world:
+every copy passed `repeat` against run 2 in all 8 views, 31 of the 40 frames byte-identical to
+run 2's, the worst changed fraction 0.0012% and the worst mean difference 0.14 (view 01, every
+changed pixel within 4 of run 2's). Run 1 against run 2 passed the same way. The first view waited
+2,308 to 2,442 ticks past the hold in every run, the others 0 to 367: the horizon noise of the
+captures after the hold alone was terrain still arriving.
 
 Animated textures break this for water. Measured 2026-11-20 on the water tour
 (`bricks-water-8675309`, seed 8675309, 7 views, no distant terrain): the game's terrain played twice

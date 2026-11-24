@@ -47,16 +47,22 @@ so support can widen later without rewriting what sits above it; see
 
 ## Building from source
 
-Run Gradle with the JDK named in [platform.json](platform.json) (Temurin 26.0.2.1+1):
+The build reads the set: [orthrus-set](https://github.com/orthrus-research/orthrus-set)'s `set.json` names the
+platform (the JDK, Cleanroom, CleanroomGradle) and the Cubature and OrthLib files it compiles against, by SHA-256.
+In a Workbench worktree the folder's `.set` says which revision, and `./gradlew build` just works. In a plain
+clone, clone the Set beside it and pass it:
 
 ```sh
-./gradlew build
+./gradlew build -Pset.dir=../orthrus-set -Pset.with.cubature=../Cubature -Pset.with.orthlib=../OrthLib
 ```
 
-Workbench runs the checks from a clean clone, `wb run ci.run project=quadrature`: the build
-with every module's tests, the offline Mixin check, shader validation and the tool tests
-([actions.toml](actions.toml); [VERIFICATION.md](docs/VERIFICATION.md#checks) says what each
-checks). `./gradlew validateShaders` compiles every GLSL stage the mod holds with glslang
+(`python ../orthrus-set/tools/checkout.py` checks the siblings out at the set's commits; a plain-clone build is a
+development build, its bytes not checked against the set). Run Gradle on the JDK the set's platform names
+(Temurin 26.0.2.1+1).
+
+Workbench runs the checks from a clean clone, `wb check` in a worktree: the build with every module's tests, the
+offline Mixin check, shader validation and the tool tests ([project.toml](project.toml);
+[VERIFICATION.md](docs/VERIFICATION.md#checks) says what each checks). `./gradlew validateShaders` compiles every GLSL stage the mod holds with glslang
 (`glslangValidator` on the path) without a game.
 
 `./gradlew runClient` starts a development client. Adding `-PdevWorld=<seconds>` enters a
@@ -70,22 +76,15 @@ development stage of Quadrature's own inside the world pass.
 
 Own terrain needs a cubic world, so it runs in an instance with Cubature, not in the development
 client; without Cubature the game stops at loading with a message, unless started with
-`-Dquadrature.terrain=game`. The build takes Cubature's API from one
-JAR, pinned in `platform.json` by commit and hash and kept in `pins/` (or the folder `-PpinsDir`
-names), which is not in the repository; the build stops if the file is missing or is not the
-one pinned. `./gradlew refreshCubature` builds that JAR at the pinned commit
-(`-PcubatureCommit=<commit>` to move the pin) in a worktree of the sibling checkout
-(`../Cubature`, or `-PcubatureCheckout`), with the commit's own compile-only inputs, so what
-the checkout has out plays no part; it prints the commit and hash to record. `./gradlew
-refreshOrthLib` does the same for OrthLib's JAR, which the bridge to OrthLib's render interface
-compiles against. Neither builds the pinned commit again while the pins folder holds its bytes,
-or while Workbench's pin cache (`WB_PIN_CACHE`) has them. Instances are prepared with the same
-file. Adding `-PtestMemoryFloorMiB=<n>`
+`-Dquadrature.terrain=game`. The build takes Cubature's API, and the bridge to OrthLib's render
+interface takes OrthLib, from the files the set names, re-hashed before any compile (`setVerify`); instances are
+prepared with the same files. A new Cubature or OrthLib reaches Quadrature by landing in the Set, with no commit
+here. Adding `-PtestMemoryFloorMiB=<n>`
 raises the GPU memory floor for that run, to see the stop screen on a supported card; the
 property can only raise the floor.
 
-`platform.json` is the one place platform versions are pinned: Java, Cleanroom,
-CleanroomGradle, OrthLib, Cubature and the graphics floor. The root module is the Minecraft host; `core` has
+[graphics.json](graphics.json) is Quadrature's own graphics floor (the API, the vendor, the driver branches). The
+root module is the Minecraft host; `core` has
 no Minecraft dependency.
 
 ## Documentation

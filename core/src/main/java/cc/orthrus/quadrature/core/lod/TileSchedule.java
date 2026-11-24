@@ -272,6 +272,22 @@ public final class TileSchedule {
     }
 
     /**
+     * Tiles of the selection still to come: waiting to be built, being built, or built and not yet
+     * stored. A tile that failed or is spared will not come and is not counted, nor is one being
+     * built that the selection let go. 0 once everything the selection asks for that can arrive has.
+     */
+    public int waiting() {
+        int count = 0;
+        for (int i = 0; i < wantedCount; i++) {
+            int[] state = states.get(wanted[i]);
+            if (state != null && (state[0] == QUEUED || state[0] == BUILDING || state[0] == BUILT)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
      * Tiles of the selection, and of them those placed, of one level: {@code [wanted, placed]}. A
      * spared tile is counted as neither.
      */

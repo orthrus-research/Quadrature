@@ -1,0 +1,48 @@
+# Quadrature's checks and the file its build makes. Workbench runs them from a clean clone with the set's Gradle and
+# JDKs ({gradle}), with {python} the environment made from tools/requirements.txt; a push needs the gate's checks
+# passed. Nothing here starts the game or needs a GPU: game runs are Workbench sessions (wb play riven). Cubature and
+# OrthLib reach the build as the files the set names, from the Store by their SHA-256.
+schema = 1
+gate = ["build", "mixins", "shaders", "tools"]
+
+[project]
+name = "quadrature"
+python = ["tools/requirements.txt"]
+
+[uses]
+cubature = "compile"
+orthlib = { artifacts = ["mod", "mixinkit"] }
+
+# What its build makes, kept by Workbench with its SHA-256 once the check passes; the lab takes these bytes.
+[artifacts.mod]
+check = "build"
+file = "build/libs/quadrature-*-dev.jar"
+
+[checks.build]
+description = "Build Quadrature and run every module's tests"
+locks = ["gradle"]
+memory = 6
+steps = [["{gradle}", "build", "--console=plain"]]
+
+[checks.mixins]
+description = "Apply Quadrature's Mixins to the game's classes offline with OrthLib's mixinkit (the set's file), strictly, by development names and through the shipped jar's refmap by production names, and refuse @Shadow"
+needs = ["build"]
+locks = ["gradle"]
+memory = 4
+steps = [["{python}", "-B", "tools/mixin_check.py", "--refmap"]]
+
+[checks.shaders]
+description = "Write every GLSL stage the mod's classes hold and compile each with glslang"
+needs = ["build"]
+locks = ["gradle"]
+steps = [["{gradle}", "validateShaders", "--console=plain"]]
+
+[checks.tools]
+description = "The Python tool tests, under {python}"
+inputs = ["tools/*.py", "tools/tests/*.py", "tools/requirements.txt"]
+steps = [["{python}", "-B", "-m", "unittest", "discover", "-s", "tools/tests", "-p", "test_*.py"]]
+
+# What Quadrature adds to any launch it is a member of, read at the commit the launch takes it from: it draws distant
+# terrain itself, which is off unless the client asks for it.
+[launch.member]
+jvm = { client = ["-Dquadrature.distant=own"] }

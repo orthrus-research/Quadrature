@@ -11,24 +11,30 @@ patch, the events they subscribe to and the threads they start.
 
 ```powershell
 python tools/diagnostics.py check PLAN
-wb run lab.script script=<checkout>\tools\diagnostics.py 'args=["run", "PLAN"]'
+wb gpu run -- python tools/diagnostics.py run PLAN
 python tools/diagnostics.py attribute RUN_DIR
 python tools/diagnostics.py report RUN_DIR [RUN_DIR ...] --markdown report.md
 python tools/mod_index.py MODS_DIR [MODS_DIR ...] --json mods.json
 ```
 
-`run` plays on the GPU host and refuses to start outside a GPU turn: Workbench runs it as a lab
-script, under the machine's one GPU lease, from a folder the machine's lab configuration allows
-(`modules.lab.scripts`), and keeps its output. `check`, `run` and `attribute` need `JAVA_HOME`
-set to a JDK whose `bin` holds `jfr` (Workbench's host routines set it to Temurin 26.0.2.1+1);
+`run` plays on the GPU host and refuses to start outside a Workbench GPU turn: `wb gpu run` holds
+the machine's one GPU lease for the whole plan and gives the command `WB_TURN_TOKEN` and
+`WB_LEASE_FILE`. The game is an instance Workbench built from Riven's launch file: `wb play riven`
+builds it (every mod by SHA-256 from the set, Riven's world settings by its configure script) and
+prints its folder; the plan names its receipt, `instance.json`. `run` plays on a fresh copy of it
+in the run directory, starting the server and the client from the receipt's command lines.
+`check`, `run` and `attribute` need `JAVA_HOME` set to a JDK whose `bin` holds `jfr`, and `run` the
+JDK build the receipt names (Temurin 26.0.2.1+1); the runtime cache comes from the plan's `cache`
+or `WB_RUNTIME_CACHE`;
 `--cores` is the logical processor count of the machine that ran it (default: this one's).
 
 ## Plans
 
-A plan is a JSON file, kept with the run's evidence outside the repository: the Riven checkout,
-the frozen Riven jar, the Cubature jar, the client mods (Quadrature, its NVIDIA module when DLSS
-runs, and the motion helper when a flight runs), a fresh instance name, the run directory, the
-switches common to every run, and the runs. A run is a tour (`"tour"`: a tour file) or a flight
+A plan is a JSON file, kept with the run's evidence outside the repository: the instance's
+receipt (`instance`; its launch file names Riven, Cubature, Quadrature and every other mod by
+SHA-256), the client mods the launch does not carry (Quadrature's NVIDIA module when DLSS runs,
+and the motion helper when a flight runs), the run directory, the switches common to every run,
+and the runs. A run is a tour (`"tour"`: a tour file) or a flight
 (`"flight"`: a start pose `[x, y, z, yaw, pitch]`, a route of waypoints `[x, y, z]` or
 `[x, y, z, dwell seconds]`, a speed and acceleration, a corner radius, a turn rate, laps, and the
 settle, stationary and hold seconds around it).
