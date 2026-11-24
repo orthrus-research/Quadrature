@@ -58,7 +58,7 @@ def compile_classpath() -> tuple[list[str], str | None]:
         script = Path(scratch) / "classpath.init.gradle"
         script.write_text(INIT_SCRIPT, encoding="utf-8")
         result = subprocess.run(
-            [*wrapper, "--no-daemon", "--console=plain", "-q", "--init-script", str(script), "printMainClasspath"],
+            [*wrapper, "--console=plain", "-q", "--init-script", str(script), "printMainClasspath"],
             cwd=ROOT,
             capture_output=True,
             text=True,
