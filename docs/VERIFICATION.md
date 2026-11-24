@@ -95,7 +95,8 @@ reference's.
 A client run with `-Dquadrature.frameLog=true` logs a stage report every five seconds: the
 median and 95th percentile of each stage's CPU and GPU time over the last 256 frames, about
 two seconds, and the terrain summary. A tour captures a view once the player has held still
-for the settle time, 400 ticks, so the last report before a capture is that view.
+for the settle time, 400 ticks, and with distant terrain once its picture has settled (Settled
+captures, below), so the last report before a capture is that view.
 
 ```sh
 python tools/stage_views.py views LOG [--tour TOUR] [--stage NAME]
@@ -213,6 +214,30 @@ What this establishes:
 - `near.json` passes run 2 against run 3 on the near-terrain instance and fails run 1
   against run 2 on view 16. `repeat.json` passes run 2 against run 3 with Distant Horizons
   and fails run 1 against run 2 on nine frames.
+
+### Settled captures
+
+With Quadrature's own distant terrain, a capture after the fixed hold alone does not repeat: tiles
+are still arriving when it fires. Measured 2026-11-24 on Riven's forest tour (`forest-8675309`,
+8 views, seed 8675309, view distance 12): a fresh join wants 912 to 1,008 tiles over seven levels,
+and the coarsest take about 5.5 s each to sample, so the first view's tiles are all stored about
+2,400 ticks after the 400-tick hold; later views took 0 to 370 ticks more. Captured after the hold
+alone, run 2 against fresh copies restoring its world passed `repeat` in 3 of 5 copies, failing on
+far terrain still arriving and on the line where near terrain meets distant terrain.
+
+`DistantHook.settledPasses()` counts the world passes in a row whose picture is settled: every tile
+the selection wants that can arrive is stored (a failed or spared tile will not), none is being
+built, none kept past its rings waits for its replacement, the last one stored has faded in, near
+terrain has no cube waiting to be meshed, and the cube source calls its view settled
+(`settled(20)`) for a held box around the viewer. `DistantHook.unsettled()` says what the last
+pass still waited on. A capture meant to repeat waits for some of these passes after its hold
+(Riven's tour waits for 40 and fails the view at 6,000 ticks). Captured so, on the same tour,
+run 1 on a fresh world, run 2 on its world and five fresh copies restoring run 2's kept world:
+every copy passed `repeat` against run 2 in all 8 views, 31 of the 40 frames byte-identical to
+run 2's, the worst changed fraction 0.0012% and the worst mean difference 0.14 (view 01, every
+changed pixel within 4 of run 2's). Run 1 against run 2 passed the same way. The first view waited
+2,308 to 2,442 ticks past the hold in every run, the others 0 to 367: the horizon noise of the
+captures after the hold alone was terrain still arriving.
 
 Animated textures break this for water. Measured 2026-11-20 on the water tour
 (`bricks-water-8675309`, seed 8675309, 7 views, no distant terrain): the game's terrain played twice
