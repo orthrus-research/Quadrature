@@ -35,18 +35,28 @@ import java.util.List;
  * shows there, with a mark for those the biome tints. No images are sampled when drawing.
  *
  * <p>Indices and kinds are asked for by the threads that sample tiles. Colors are worked out on the
- * client thread, which owns the models and the graphics context, for the indices it has not seen;
- * until then a material draws black, for at most a frame.
+ * client thread, which owns the models and the graphics context, for the indices it has not seen,
+ * {@link #COLORED_A_FRAME} a frame at most; until then a material draws black, for the frames its
+ * turn takes. Each new material's images are written with all their levels, and its entry into
+ * the table's buffer in place: nothing is generated or sent again over everything held.
  */
 final class DistantMaterials {
 
     private static final int BIOMES = 256;
     private static final int ENTRY_INTS = MaterialTable.ENTRY_WORDS;
+    /**
+     * New materials colored in one frame at most; the rest wait for the next frames, black until
+     * then. A refresh colors each, writes its two images with every level, and the table's new
+     * entries; bounding it keeps a frame in which tiles bring many new states short.
+     */
+    static final int COLORED_A_FRAME = Integer.getInteger("quadrature.distant.materialsAFrame", 32);
 
     private final MaterialTable<IBlockState> table = new MaterialTable<>();
     private int colored = 1;
     private ByteBuffer entries = ByteBuffer.allocateDirect(1024 * ENTRY_INTS * 4).order(ByteOrder.nativeOrder());
     private int materialBuffer;
+    /** Bytes the material buffer was made with; entries are written into it in place below this. */
+    private int materialCapacity;
     private int biomeBuffer;
     private boolean warned;
     /** The materials' images: an array texture, layer {@code 2 * index} a top and the next a side. */
@@ -128,18 +138,20 @@ final class DistantMaterials {
             MaterialTable.put(entries, 0, MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN),
                 MaterialTable.entry(0xFF00FF, MaterialTable.PLAIN), 0);
             colored = 1;
-            upload();
+            upload(0, 1);
         }
-        int size = table.size();
-        if (size == colored) {
+        int known = table.size();
+        if (known == colored) {
             return;
         }
+        int size = Math.min(known, colored + Math.max(1, COLORED_A_FRAME));
         if (entries.capacity() < size * ENTRY_INTS * 4) {
             ByteBuffer larger = ByteBuffer.allocateDirect(Math.max(entries.capacity() * 2, size * ENTRY_INTS * 4))
                 .order(ByteOrder.nativeOrder());
             larger.put(0, entries, 0, colored * ENTRY_INTS * 4);
             entries = larger;
         }
+        int from = colored;
         for (int index = colored; index < size; index++) {
             IBlockState state = table.key(index);
             int top;
@@ -165,11 +177,14 @@ final class DistantMaterials {
             MaterialTable.put(entries, index, top, side, number >= 0 ? number : Block.getStateId(state));
         }
         colored = size;
-        upload();
-        GL45.glGenerateTextureMipmap(images);
+        upload(from, size);
     }
 
-    /** Writes one layer of the images: a sprite's first frame, or gray for none. */
+    /**
+     * Writes one layer of the images, every level of it: a sprite's first frame, or gray for none.
+     * The smaller levels are box means made here ({@link MaterialTable#halve}), so no level is
+     * generated over the whole array when a material is added.
+     */
     private void image(int layer, TextureAtlasSprite sprite, int by) {
         if (layer >= imageLayers) {
             return;
@@ -177,19 +192,40 @@ final class DistantMaterials {
         int[] image = sprite == null || sprite.getFrameCount() == 0
             ? MaterialTable.image(new int[0], 0, 0, by)
             : MaterialTable.image(sprite.getFrameTextureData(0)[0], sprite.getIconWidth(), sprite.getIconHeight(), by);
-        texels.clear();
-        for (int pixel : image) {
-            texels.put((byte) (pixel >> 16)).put((byte) (pixel >> 8)).put((byte) pixel).put((byte) (pixel >>> 24));
+        int side = MaterialTable.IMAGE_SIDE;
+        for (int level = 0; level < MaterialTable.IMAGE_LEVELS; level++) {
+            if (level > 0) {
+                image = MaterialTable.halve(image, side);
+                side /= 2;
+            }
+            texels.clear();
+            for (int i = 0; i < side * side; i++) {
+                int pixel = image[i];
+                texels.put((byte) (pixel >> 16)).put((byte) (pixel >> 8)).put((byte) pixel).put((byte) (pixel >>> 24));
+            }
+            texels.flip();
+            GL45.glTextureSubImage3D(images, level, 0, 0, layer, side, side, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE,
+                texels);
         }
-        texels.flip();
-        GL45.glTextureSubImage3D(images, 0, 0, 0, layer, MaterialTable.IMAGE_SIDE, MaterialTable.IMAGE_SIDE, 1,
-            GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, texels);
     }
 
-    private void upload() {
+    /**
+     * Writes entries {@code from} to {@code to} into the material buffer in place. The buffer is
+     * made again, twice as large, only when the entries outgrow it; it is made zeroed, so an entry
+     * not yet colored reads as black.
+     */
+    private void upload(int from, int to) {
+        int bytes = to * ENTRY_INTS * 4;
+        if (bytes > materialCapacity) {
+            int capacity = Math.max(bytes, Math.max(materialCapacity * 2, 1024 * ENTRY_INTS * 4));
+            ByteBuffer zeroed = ByteBuffer.allocateDirect(capacity).order(ByteOrder.nativeOrder());
+            zeroed.put(0, entries, 0, Math.min(entries.capacity(), from * ENTRY_INTS * 4));
+            GL45.glNamedBufferData(materialBuffer, zeroed, GL15.GL_DYNAMIC_DRAW);
+            materialCapacity = capacity;
+        }
         ByteBuffer part = entries.duplicate().order(ByteOrder.nativeOrder());
-        part.position(0).limit(colored * ENTRY_INTS * 4);
-        GL45.glNamedBufferData(materialBuffer, part, GL15.GL_DYNAMIC_DRAW);
+        part.position(from * ENTRY_INTS * 4).limit(bytes);
+        GL45.glNamedBufferSubData(materialBuffer, (long) from * ENTRY_INTS * 4, part);
     }
 
     /**

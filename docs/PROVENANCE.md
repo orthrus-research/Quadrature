@@ -1097,6 +1097,21 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   ones with its content into another). No code from another renderer.
 - Added: 2026-11-21
 
+### Distant materials uploaded a layer at a time
+- Code: `core/src/main/java/cc/orthrus/quadrature/core/lod/MaterialTable.java` (`halve`, `IMAGE_LEVELS`),
+  `src/main/java/cc/orthrus/quadrature/distant/DistantMaterials.java` (`image`, `upload`, `COLORED_A_FRAME`)
+- Source: the box filter as the OpenGL 4.6 specification describes mipmap generation (8.14.4: each level from the one
+  above, a two by two mean for power-of-two sizes); `glTextureSubImage3D` and `glNamedBufferSubData` as the
+  specification defines them. The cause was measured, not read: DISTANT 23 (the whole-array regeneration in the
+  frames of a burst).
+- Taken: the box mean per level, rounded to nearest per channel; writing each new layer's levels and each new table
+  entry where it lies; a bound on new materials a frame, the rest left black for the frames their turn takes, as a
+  material not yet colored already was.
+- Not taken: regenerating levels on the GPU for the changed layers (a view per layer would be needed for each call);
+  persistent mapping of the table (a buffer drawn from is never kept mapped, AGENTS' driver facts). No code from
+  another renderer.
+- Added: 2026-11-25
+
 ## Design sources
 
 Techniques chosen in `docs/ARCHITECTURE.md` but not yet written have their sources listed

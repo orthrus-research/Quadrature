@@ -156,6 +156,39 @@ public final class MaterialTable<K> {
         return image;
     }
 
+    /** How many levels a material's image has: {@link #IMAGE_SIDE} texels a side down to one. */
+    public static final int IMAGE_LEVELS = Integer.numberOfTrailingZeros(IMAGE_SIDE) + 1;
+
+    /**
+     * The next smaller copy of a square {@code 0xAARRGGBB} image {@code side} texels a side: each
+     * texel the mean of the two by two below it, each channel rounded to nearest, as a box filter
+     * makes a mip level. The image repeats a block apart, and a power-of-two side halves onto
+     * whole texels, so no texel reads across an edge. Written from the CPU when a material's image
+     * is uploaded, every level in turn, so that no level is generated over the whole array.
+     */
+    public static int[] halve(int[] image, int side) {
+        if (side < 2 || (side & (side - 1)) != 0 || image.length < side * side) {
+            throw new IllegalArgumentException("a square power-of-two image of side 2 or more, not " + side);
+        }
+        int half = side / 2;
+        int[] out = new int[half * half];
+        for (int y = 0; y < half; y++) {
+            for (int x = 0; x < half; x++) {
+                int a = image[(2 * y) * side + 2 * x];
+                int b = image[(2 * y) * side + 2 * x + 1];
+                int c = image[(2 * y + 1) * side + 2 * x];
+                int d = image[(2 * y + 1) * side + 2 * x + 1];
+                int texel = 0;
+                for (int shift = 0; shift < 32; shift += 8) {
+                    int sum = (a >>> shift & 0xFF) + (b >>> shift & 0xFF) + (c >>> shift & 0xFF) + (d >>> shift & 0xFF);
+                    texel |= ((sum + 2) >> 2) << shift;
+                }
+                out[y * half + x] = texel;
+            }
+        }
+        return out;
+    }
+
     /** What the clear texels must hold for the whole image's mean to be {@code mean}. */
     private static int filling(int mean, long opaqueSum, int clear) {
         long value = Math.round((mean * (double) (IMAGE_SIDE * IMAGE_SIDE) - opaqueSum) / clear);
