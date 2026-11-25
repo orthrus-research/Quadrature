@@ -67,26 +67,32 @@ public final class MaterialTable {
         version++;
     }
 
+    /** The state's perceptual roughness, 0 to 1. */
     public float roughness(int state) {
         return (bytes[state * BYTES_A_STATE] & 0xFF) / 255f;
     }
 
+    /** The state's reflectance at normal incidence, 0 to 1. */
     public float reflectance(int state) {
         return (bytes[state * BYTES_A_STATE + 1] & 0xFF) / 255f;
     }
 
+    /** How much light the state passes beneath its surface, 0 to 1; foliage only. */
     public float subsurface(int state) {
         return (bytes[state * BYTES_A_STATE + 2] & 0xFF) / 255f;
     }
 
+    /** The state's emission strength, 0 to 1: its light value over 15, or lava's own. */
     public float emission(int state) {
         return (bytes[state * BYTES_A_STATE + 3] & 0xFF) / 255f;
     }
 
+    /** Whether the state is a metal, its reflectance colored by its albedo. */
     public boolean conductor(int state) {
         return (bytes[state * BYTES_A_STATE + 4] & CONDUCTOR) != 0;
     }
 
+    /** Whether the state is foliage. */
     public boolean foliage(int state) {
         return (bytes[state * BYTES_A_STATE + 4] & FOLIAGE) != 0;
     }

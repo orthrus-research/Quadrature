@@ -29,6 +29,7 @@ public final class ModInterfaces {
     private ModInterfaces() {
     }
 
+    /** The provider of the mod interface now installed; {@code ModInterface.NONE} where there is none. */
     public static ModInterface current() {
         return current;
     }

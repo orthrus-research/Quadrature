@@ -196,6 +196,7 @@ public final class TerrainHook {
         drawer = installed;
     }
 
+    /** Whether own terrain is installed and drawing in the current world. Client thread. */
     public static boolean active() {
         return drawer != null && drawer.active();
     }

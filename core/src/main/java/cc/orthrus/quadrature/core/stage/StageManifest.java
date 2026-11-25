@@ -225,6 +225,7 @@ public final class StageManifest {
         return name;
     }
 
+    /** The manifest's version as written in it. */
     public int version() {
         return version;
     }

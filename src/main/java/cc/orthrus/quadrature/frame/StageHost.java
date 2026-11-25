@@ -53,8 +53,11 @@ import javax.imageio.ImageIO;
  */
 public final class StageHost {
 
+    /** {@code -Dquadrature.stage=true}: the stage named by {@code quadrature.stage.dir} is run. */
     public static final boolean REQUESTED = Boolean.getBoolean("quadrature.stage");
+    /** {@code -Dquadrature.stage.show=true}, with the stage requested: its display pass is shown on screen. */
     public static final boolean SHOW = REQUESTED && Boolean.getBoolean("quadrature.stage.show");
+    /** {@code -Dquadrature.stage.image=true}, with the stage requested: its output is written as an image. */
     public static final boolean IMAGES = REQUESTED && Boolean.getBoolean("quadrature.stage.image");
     /**
      * {@code -Dquadrature.stage.targetsRaw=true}, with images on: targets B, C and D of the frame each

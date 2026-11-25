@@ -303,3 +303,15 @@ What gameplay or the server reads, the light levels 0 to 15, is Cubature's and i
 Quadrature produces every shadow and every source of rays, near and distant; a shader draws no shadow pass of its
 own. Riven supplies facts, emitters included, in the preview as in generated cubes. Distant shadows are not a parity
 item of Phase 4, since Distant Horizons draws none: their data form is decided in P4-R2 and built in Phase 5.
+
+**D31. How the picture is lit, near and far.**
+The user's answers of 2026-11-25 to the questions D30 left open.
+- Near shadows come from the light's depth view; rays through the occupancy bricks add contact detail and reach
+  beyond the view's box.
+- Cubature's light levels 0 to 15 are the picture's base input. Higher tiers add Quadrature's own colored light
+  from emitters, traced as rays, for the picture only; what play reads does not change.
+- Distant shadows lean to a height field per tile, confirmed or replaced in P4-R2.
+- Riven adds an emitter kind to the preview's runs, and the edit overlay's patches carry emitters (DISTANT 22).
+- No stage draws a shadow pass. Quadrature publishes the light's depth view and the ray results as stage
+  resources.
+- Picture light needs nothing from a server beyond the edit overlay.

@@ -251,16 +251,17 @@ line of earlier budgets is reopened.
 | S10 | Reach and quality settings tied to the tier benchmark | Reach only |
 | S11 | Robustness: leaving and rejoining, a change of dimension, teleports, a short view distance, motion and the hand, underground | Not run |
 
-**Lighting (D30).** What gameplay or the server reads is Cubature's; Quadrature produces every shadow and ray source,
-near and distant; Riven supplies facts, emitters included. Distant shadows are not a parity item, since Distant
-Horizons draws none: their data form is decided in P4-R2 and built in Phase 5.
+**Lighting (D30, D31).** What gameplay or the server reads is Cubature's; Quadrature produces every shadow and ray
+source, near and distant, and publishes the light's depth view and the ray results as stage resources; Riven supplies
+facts, emitters included. Distant shadows are not a parity item, since Distant Horizons draws none: a height field per
+tile is the lean, confirmed in P4-R2 and built in Phase 5.
 
 | ID | Work | Done when |
 |---|---|---|
 | P4-0 | Land `fix/launch-2026-11-22`: Distant Horizons refused beside Quadrature (D29), the OrthLib the render interface needs named | Done |
 | P4-1 | Distant terrain registered as a writer of near terrain's targets (DISTANT 16.9), rebased onto main | Done |
 | P4-R1 | Research the overlay of edits (S2, S3): what the server marks as edited, how runs reach clients in single player and on a dedicated server, how tiles merge them, the tick and bandwidth cost | A design in DISTANT and a requisition to Cubature for what it must record |
-| P4-R2 | The data form far shadows read from distant tiles (a coarse light layer from the tiles, a march over run columns, or a height field) and distant emitters from the preview | A DISTANT section naming the form, its frame and video memory reserve counted in P4-V3, and that the tile store of P4-B2 can serve it; nothing built in Phase 4 |
+| P4-R2 | The data form far shadows read from distant tiles, a height field per tile as D31 leans, weighed against a coarse light layer and a march over run columns; distant emitters as an emitter kind in the preview's runs and in overlay patches (D31) | A DISTANT section confirming or replacing the height field, its frame and video memory reserve counted in P4-V3, that the tile store of P4-B2 can serve it, and the emitter kind asked of Riven; nothing built in Phase 4 |
 | P4-B1 | The overlay built | A structure built in a world shows from 2 km within a stated time; the server's tick measured against Distant Horizons' feed |
 | P4-B2 | The tile store on disk | The first picture after a join compared with a cold start and with Distant Horizons |
 | P4-B3 | Water's side faces, and the water set at the join | The water tour passes at the join |
@@ -284,7 +285,10 @@ side, then the builds; P4-V3 before P4-B6.
 - *P4-R1, design written:* DISTANT 22. The edited bit, its index, the reduction with the exposure rule and the
   messages are Cubature's, asked of it by requisition; the open question is the rule for cells wider than a block.
 - *P4-V1, measured:* DISTANT 23 (ledger run 466). The spikes follow new materials, not tiles: each refresh regenerates
-  the mip levels of the whole material image array. Fixes are ranked there; P4-B4 builds them.
+  the mip levels of the whole material image array. Fixes are ranked there.
+- *P4-B4, built (fixes 1, 3 and 4):* DISTANT 23. Over the arrival's first 75 seconds, windows with a frame at or over
+  25 ms fell from 33 to 2 and the worst frame from 121.1 to 65.6 ms, every view unchanged on every pixel. Fix 2,
+  filling the table at the join, waits on the preview listing its states.
 
 ## Capability and tier work
 

@@ -184,6 +184,7 @@ Off unless `-Dquadrature.distant=own`, which needs `-Dquadrature.terrain=own`.
 | `quadrature.distant.detail` | `images` | `images`: level 0's faces show their materials' images near the join. `flat`: flat colors everywhere |
 | `quadrature.distant.detailStart` | 224 | Up to this distance from the eye, in blocks, a level 0 face shows its image whole |
 | `quadrature.distant.detailEnd` | 352 | From this distance on, flat color only |
+| `quadrature.distant.materialsAFrame` | 32 | New materials colored in one frame at most; the rest draw black for the frames their turn takes (section 23) |
 | `quadrature.distant.travelCapture` | none | Delays in milliseconds, `500,2000,5000,12000`: after every jump of the viewer a frame is saved at each, as `travel-<jump>-<delay>ms.png` in the game's screenshots, with the log's summary beside it, and one more when the place is whole, `travel-<jump>-whole-<ms>ms.png` (section 17) |
 | `quadrature.distant.writerAudit` | off | A diagnostic: reads a wide list of the driver's state before and after the first three passes into the targets and logs what was left changed (section 16.9) |
 | `quadrature.distant.frameTail` | off | A diagnostic: once a second, the tail of the last 120 whole frame intervals as Cubature's preview governor reads it, and what made the long ones (section 19.2) |
@@ -2313,7 +2314,7 @@ ground, which is a burst.
 driver message of moved memory or of performance came in the spike seconds. No slow placement of near terrain was
 logged then. Client ticks were 0.1 ms.
 
-**Fixes, ranked by what they should save; none built.**
+**Fixes, ranked by what they should save** (1, 3 and 4 built since, below):
 
 1. Write each new layer's five levels from the CPU at upload (16 by 16 texels and its halvings) and drop
    `glGenerateTextureMipmap`. Removes the whole-array regeneration that runs with every burst.
@@ -2323,6 +2324,26 @@ logged then. Client ticks were 0.1 ms.
    does not reallocate it.
 4. Bound `refresh` to a number of new states a frame, the rest the next frame, should states still arrive late.
 
-After 1 and 2 the run is repeated with the same switches; P4-V1 is done when the 99th percentile on arrival is under
-the bar from Distant Horizons' run (P4-V3). The entity passes' walk over loaded cubes is a steady cost, not a spike,
-and is left to near terrain.
+P4-V1 is done when the 99th percentile on arrival is under the bar from Distant Horizons' run (P4-V3). The entity
+passes' walk over loaded cubes is a steady cost, not a spike, and is left to near terrain.
+
+**Built (P4-B4, 2026-11-25): fixes 1, 3 and 4.** Each new material's two images are written with all five levels,
+the smaller ones box means made on the CPU (`MaterialTable.halve`); `glGenerateTextureMipmap` is gone. The table's
+buffer is written in place and made again, zeroed, only when it outgrows its capacity. A frame colors at most 32 new
+materials (`quadrature.distant.materialsAFrame`); the rest draw black for the frames their turn takes. Fix 2 needs the
+preview to list the states it can emit, which Cubature's interface does not: asked of Cubature and the world
+generator, not built.
+
+**The run again,** with the same switches, the recording included, on a fresh copy of the same instance:
+
+| Over the first 75 frame-tail lines after the join | Before (4d1480e) | After |
+|---|---|---|
+| Lines whose window holds a frame at or over 25 ms | 33 | 2 |
+| Most such frames in one window of 120 | 18 | 2 |
+| Worst frame | 121.1 ms | 65.6 ms |
+| Highest 95th percentile | 58.8 ms | 20.3 ms |
+| The first view settled, after the join | 107 s | 94 s |
+
+The two left are the join's first frames. Later single frames of 180 to 320 ms fall at each view's capture, which
+collects the heap and writes the image, in both runs alike. All four views are identical to the run before on every
+pixel.

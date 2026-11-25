@@ -39,6 +39,7 @@ import java.util.ServiceLoader;
 public final class HandoffHost {
 
     static final String SWITCH = "quadrature.handoff";
+    /** Whether {@code -Dquadrature.handoff} asks for the handoff to Vulkan. */
     public static final boolean REQUESTED = requested(System.getProperty(SWITCH));
 
     private static Handoff handoff;

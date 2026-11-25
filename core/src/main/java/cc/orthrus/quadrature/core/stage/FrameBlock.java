@@ -34,6 +34,7 @@ import java.nio.ByteOrder;
  */
 public final class FrameBlock {
 
+    /** The frame block's size in bytes, as a uniform block of the std140 layout. */
     public static final int BYTES = 592;
     public static final int LIGHT_VIEWS = 4;
     /** Seconds at which the block's time starts again. */

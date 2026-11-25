@@ -123,6 +123,7 @@ public final class ShadowMaps {
 
     // What a sampler reads.
 
+    /** How many layers the light's depth array holds. */
     public int layers() {
         return layers;
     }
@@ -177,6 +178,7 @@ public final class ShadowMaps {
         return origin;
     }
 
+    /** {@link #origin()} as it was in the previous frame. */
     public double[] previousOrigin() {
         return previousOrigin;
     }

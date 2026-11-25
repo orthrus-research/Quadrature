@@ -124,6 +124,7 @@ public final class PublishedScene {
 
     // What a shader's host reads.
 
+    /** The buffer of the lookup: an entry for each cube of the box, as the class comment gives it. */
     public int lookupBuffer() {
         return lookupBuffer;
     }
@@ -133,6 +134,7 @@ public final class PublishedScene {
         return lookupTexture;
     }
 
+    /** The buffer of the occupancy bricks, one a slot. */
     public int brickBuffer() {
         return brickBuffer;
     }
@@ -182,14 +184,17 @@ public final class PublishedScene {
         return clampedCubes;
     }
 
+    /** The box's size in cubes along x. */
     public int sizeX() {
         return sizeX;
     }
 
+    /** The box's size in cubes along y. */
     public int sizeY() {
         return sizeY;
     }
 
+    /** The box's size in cubes along z. */
     public int sizeZ() {
         return sizeZ;
     }
@@ -199,10 +204,12 @@ public final class PublishedScene {
         return originX;
     }
 
+    /** See {@link #originX()}. */
     public int originY() {
         return originY;
     }
 
+    /** See {@link #originX()}. */
     public int originZ() {
         return originZ;
     }

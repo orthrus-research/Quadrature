@@ -125,14 +125,17 @@ public final class LightScene {
         return (states[state] & DEFINED) != 0;
     }
 
+    /** The light the state gives, 0 to 15. */
     public int emission(int state) {
         return states[state] >> 4 & 15;
     }
 
+    /** How much light passes through the state, 0 to 15. */
     public int transmission(int state) {
         return states[state] & 15;
     }
 
+    /** Whether the state stops light. */
     public boolean blocksLight(int state) {
         return (states[state] & BLOCKS) != 0;
     }

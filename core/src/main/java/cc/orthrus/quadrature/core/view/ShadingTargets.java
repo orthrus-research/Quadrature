@@ -67,10 +67,12 @@ public final class ShadingTargets {
         return depth;
     }
 
+    /** The targets' width in pixels, the window's. */
     public int width() {
         return width;
     }
 
+    /** The targets' height in pixels, the window's. */
     public int height() {
         return height;
     }

@@ -1108,8 +1108,8 @@ License 2.0 (D15). Material under another party's terms is kept apart and listed
   entry where it lies; a bound on new materials a frame, the rest left black for the frames their turn takes, as a
   material not yet colored already was.
 - Not taken: regenerating levels on the GPU for the changed layers (a view per layer would be needed for each call);
-  persistent mapping of the table (a buffer drawn from is never kept mapped, AGENTS' driver facts). No code from
-  another renderer.
+  persistent mapping of the table (a buffer drawn from is not kept mapped: the driver then places it in system memory,
+  as measured for near terrain's arena, ARCHITECTURE 6.3). No code from another renderer.
 - Added: 2026-11-25
 
 ## Design sources
