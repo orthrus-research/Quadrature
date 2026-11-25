@@ -1386,6 +1386,19 @@ frames came 66 and 67 s after the joins, 22 s after the jump of 2 km and a littl
 after the steps. Distant terrain took 2.0 ms of GPU time forward and 2.3 ms in the writers'
 stretch; the stage's own passes 0.28 ms.
 
+**The thirteenth run, with the forward layers in front of the stage.** The same two runs on
+a fresh instance. Neither had an error, and the audit, which now brackets the forward draw
+too, again found none of 94 items changed in each of the first three passes. In every
+summary after the first tile the forward layers were drawn in the writer's call; the game's
+fog there and in front of entities read the same (on, linear, 384 to 20,480 blocks). With
+the stage off the far-jump view is the twelfth run's on every pixel of sky and distant
+ground. With the stage shown distant ground is lit by the stage as near ground is: the rows
+that were the forward picture in the twelfth run now differ from the stage-off run on every
+pixel. Distant water is still the forward draw's, unlit by the stage (21.1). The forward
+step took 2.0 ms of GPU time as before; the writers' stretch, which now holds it and the
+pass into the targets, 4.3 ms; the stage's passes 0.28 ms. Whole frames 64 to 69 s after
+the joins, 21 to 22 s after the jump, 2.1 to 2.8 s after the steps.
+
 **Emission.** Target B's green is near terrain's rule in near terrain's own text
 (`KindEmission.GLSL`, included in the targets step as near terrain's stage includes it):
 from the surface's kind, byte 5 of its row in near terrain's material table, and the linear
