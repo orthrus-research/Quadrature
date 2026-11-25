@@ -226,6 +226,62 @@ Order: P3-R1 and P3-R2, then P3-A1, P3-B1, then P3-B2 and P3-B3 side by side, P3
   calibration; the glow costs less than GTCEu: Reloaded's own pass at 10 of 11 views, more at the one where its pass is
   at its least; D25's fallback is seen without Quadrature. The interface's first version is D28.
 
+## Phase 4 work orders
+
+Phase 4 closes when two things hold. First, Distant Horizons is gone from every launch, Cubature's integration with
+it is deleted, and D29's test switch (`quadrature.test.allowDistantHorizons`) is removed. Second, every service below
+is met and measured on the RTX 3060 in Workbench sessions, each against Distant Horizons on the same instance and
+world, measured before the first. Parity is a whole system of levels of detail that replaces Distant Horizons entirely
+with the same service or better; none of its code is read or used (PROVENANCE holds). Where a result can overperform
+and look better or use less memory, it overperforms (the user's priority, 2026-11-25): frame cost is held
+conservatively, memory is spent where it buys picture and speed and is not minimized for its own sake, and the 512 MiB
+line of earlier budgets is reopened.
+
+| Service | What it is | State (2026-11-25) |
+|---|---|---|
+| S1 | Terrain to the horizon, unvisited land included: rings to level 7 sampled from the client's terrain preview (D12) | Built |
+| S2 | What players change shows from afar: cubes that differ from generation, reduced to runs and merged into tiles | Not built |
+| S3 | A dedicated server: it sends the overlay of S2 only, clients sample the rest from the seed, and its tick costs less than Distant Horizons' feed on the same server | Not built; in scope |
+| S4 | Tiles kept on disk per world, checked against the overlay's and the preview's versions | Not built |
+| S5 | No popping, hole or wall: crossfade, the near join, arrival, kept tiles | Built; parts not run in a game (DISTANT 18.4) |
+| S6 | Water's side faces, distant water meeting near water at the join, leaves as cutout | Partly built (DISTANT 4, 21) |
+| S7 | Lit as the near world is, through the same stage | Built (4d1480e; DISTANT 16.9) |
+| S8 | Frame cost: Distant Horizons' reference run on the baseline flight (frame time, 99th percentile) is the starting point; no spikes while tiles fill; the final bar is set conservatively from it | Not measured against Distant Horizons |
+| S9 | Memory: Distant Horizons' reference run gives video memory and heap as the starting point | Not measured against Distant Horizons |
+| S10 | Reach and quality settings tied to the tier benchmark | Reach only |
+| S11 | Robustness: leaving and rejoining, a change of dimension, teleports, a short view distance, motion and the hand, underground | Not run |
+
+**Lighting (D30).** What gameplay or the server reads is Cubature's; Quadrature produces every shadow and ray source,
+near and distant; Riven supplies facts, emitters included. Distant shadows are not a parity item, since Distant
+Horizons draws none: their data form is decided in P4-R2 and built in Phase 5.
+
+| ID | Work | Done when |
+|---|---|---|
+| P4-0 | Land `fix/launch-2026-11-22`: Distant Horizons refused beside Quadrature (D29), the OrthLib the render interface needs named | Done |
+| P4-1 | Distant terrain registered as a writer of near terrain's targets (DISTANT 16.9), rebased onto main | Done |
+| P4-R1 | Research the overlay of edits (S2, S3): what the server marks as edited, how runs reach clients in single player and on a dedicated server, how tiles merge them, the tick and bandwidth cost | A design in DISTANT and a requisition to Cubature for what it must record |
+| P4-R2 | The data form far shadows read from distant tiles (a coarse light layer from the tiles, a march over run columns, or a height field) and distant emitters from the preview | A DISTANT section naming the form, its frame and video memory reserve counted in P4-V3, and that the tile store of P4-B2 can serve it; nothing built in Phase 4 |
+| P4-B1 | The overlay built | A structure built in a world shows from 2 km within a stated time; the server's tick measured against Distant Horizons' feed |
+| P4-B2 | The tile store on disk | The first picture after a join compared with a cold start and with Distant Horizons |
+| P4-B3 | Water's side faces, and the water set at the join | The water tour passes at the join |
+| P4-V1 | Fill spikes: the frame thread profiled while tiles fill, timed to the settled signal | The 99th percentile on arrival under the bar from Distant Horizons' run |
+| P4-B4 | Fixes from P4-V1 | P4-V1's bar met |
+| P4-V2 | Robustness tours (S11), and the items of DISTANT 18.4 and 21.2 not yet run in a game | Each passes, with ledger evidence |
+| P4-B5 | Settings and tiers (S10) | The tier benchmark sets reach and quality |
+| P4-V3 | Parity runs, Distant Horizons against Quadrature on one instance (S8, S9) | Every row recorded |
+| P4-B6 | Retirement: Distant Horizons out of Riven's launches, Cubature's integration with it deleted (a requisition), D29's switch and the baselines that load Distant Horizons removed, D10 updated | No code or launch of Distant Horizons remains |
+
+Order: the Distant Horizons reference part of P4-V3 first, since it sets the bars of S8 and S9; P4-R1 and P4-V1 side by
+side, then the builds; P4-V3 before P4-B6.
+
+## Phase 4 status
+
+- *P4-0, done:* `fix/launch-2026-11-22` landed on main as ac42ffc (2026-11-25).
+- *P4-1, done:* landed on main as 4d1480e (2026-11-25), rebased from `feat/lod-writer`. On the arrival tour with the
+  targets made, the picture with the stage off is unchanged against ac42ffc on every pixel, and with the stage shown
+  distant ground is lit by the stage; the writer's audit finds none of 94 items changed (Workbench ledger runs 464 and
+  465).
+
 ## Capability and tier work
 
 Decisions D20 to D23 (2026-11-18). Every supported card has one capability set, so what is

@@ -295,3 +295,11 @@ intended state (D4). So loading stops naming Distant Horizons, as for the render
 that keeps Cubature's Distant Horizons integration supported now holds for the game's renderer only.
 `-Dquadrature.test.allowDistantHorizons=true` lets it load beside Quadrature, with a warning, for
 verification runs that compare against it (the baseline flight, the `repeat` profile) until Phase 4 closes.
+
+## 2026-11-25
+
+**D30. Light that play reads is Cubature's; every shadow and ray source is Quadrature's.**
+What gameplay or the server reads, the light levels 0 to 15, is Cubature's and is never overridden by the picture.
+Quadrature produces every shadow and every source of rays, near and distant; a shader draws no shadow pass of its
+own. Riven supplies facts, emitters included, in the preview as in generated cubes. Distant shadows are not a parity
+item of Phase 4, since Distant Horizons draws none: their data form is decided in P4-R2 and built in Phase 5.

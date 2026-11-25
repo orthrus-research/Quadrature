@@ -12,8 +12,8 @@ Quadrature is a rendering pipeline for Minecraft 1.12.2 cubic worlds on
 
 ## Status
 
-In development: Phase 1 is closed and Phase 2 is in progress, with work on distant terrain and
-shading begun. By default the mod checks the platform, stops with a message where it is not
+In development: Phases 0 to 3 are closed and Phase 4, distant terrain replacing Distant
+Horizons, is in progress. By default the mod checks the platform, stops with a message where it is not
 supported, draws near terrain meshed from Cubature's cube source in the whole frame's reversed
 depth, and times each stage of the frame on the CPU and the GPU; `-Dquadrature.terrain=game`
 leaves terrain to the game. Behind switches, off by default, it draws distant terrain sampled

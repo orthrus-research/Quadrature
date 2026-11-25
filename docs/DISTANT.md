@@ -4,16 +4,17 @@ Status: the part with no graphics in it is built and tested, in `core`
 (`cc.orthrus.quadrature.core.lod`): the run tile, the run mesher, the face record, the ring
 selection, the schedule and the draw list. The first frames are written and compile, in
 `cc.orthrus.quadrature.distant` (section 8): sampling, materials, an arena and the draw.
-They have run six times in a game (sections 9 to 13 and 15): tiles are sampled on Cubature's client
+They have run in a game since (sections 9 to 13, 15, 16.9 and 17): tiles are sampled on Cubature's client
 preview pool, stored and drawn in the right places; land shows beyond near terrain to the
 horizon under one fog; distant land begins where near land ends with no band of sky; near and
 distant water meet at one level and in one color; on land and over the sea the near box does
 not stand open; an entity 150 blocks out is drawn in front of distant land; near terrain's
 coverage map stands in for the box with no hole; levels fade into each other with no line;
-distant crowns have near crowns' color. **Untested still:**
+distant crowns have near crowns' color; with the shading stage shown, distant ground is lit by
+it as near ground is (16.9). **Untested still:**
 the pool's threads when a world is left, whether images near the join show, a tile arriving
-in view, anything in motion, the hand, a short view distance, and the rest of section 14;
-the first three steps of section 16.6 are built and have not run in a game.
+in view, anything in motion, the hand, a short view distance, and the rest of section 14.
+Phase 4's services and work orders are in [PLAN.md](PLAN.md).
 Section 7 of
 [ARCHITECTURE.md](ARCHITECTURE.md) states the structure this fills in.
 
