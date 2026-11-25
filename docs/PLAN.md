@@ -281,6 +281,10 @@ side, then the builds; P4-V3 before P4-B6.
   targets made, the picture with the stage off is unchanged against ac42ffc on every pixel, and with the stage shown
   distant ground is lit by the stage; the writer's audit finds none of 94 items changed (Workbench ledger runs 464 and
   465).
+- *P4-R1, design written:* DISTANT 22. The edited bit, its index, the reduction with the exposure rule and the
+  messages are Cubature's, asked of it by requisition; the open question is the rule for cells wider than a block.
+- *P4-V1, measured:* DISTANT 23 (ledger run 466). The spikes follow new materials, not tiles: each refresh regenerates
+  the mip levels of the whole material image array. Fixes are ranked there; P4-B4 builds them.
 
 ## Capability and tier work
 

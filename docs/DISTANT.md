@@ -2157,3 +2157,172 @@ which the targets were not drawn. With the shaded path off, one draw holds all t
 with the same state as before; that code is not touched. The pass's own timer ends before
 the targets are written and so no longer counts the water on the shaded path. Not yet run in
 the game.
+
+## 22. Edits from afar: design
+
+Work order P4-R1, for services S2 and S3 ([PLAN.md](PLAN.md)). Distant tiles are sampled from the terrain
+preview, which is a pure function of the seed and the world's definitions; terrain that differs from it is not seen
+from afar. This section says what counts as different, where it is recorded, how it reaches a client, how a tile
+takes it in, and what it costs. Nothing here is built.
+
+### 22.1 What exists, 2026-11-25
+
+Read in the main checkouts of Cubature, Riven and Quadrature; nothing was changed.
+
+- **No record of difference from generation.** A cube's `isModified` (Cubature's `Cube.java`) means changed since
+  it was read from disk; saving clears it and it is not written. The cube's record holds `populated`,
+  `isSurfaceTracked`, `fullyPopulated` and `initLightDone` (`IONbtWriter`), none of which says whether blocks changed
+  after generation. `ICubeClassification` and `regeneratesUnchanged` only let untouched empty cubes go unsaved, so a
+  cube's presence in `region3d` means generated or touched, not edited.
+- **What a client receives is the held box.** Whole cubes, block changes, light and heightmap updates are sent for
+  cubes in the held box only. Outside it a client has the preview and `surfaceHeights` with the preview allowed.
+  Cubature lists server tiles for far terrain as not built (its `CUBE-SOURCE.md`, `CLIENT-PREVIEW-DRAFT.md`).
+- **Change hooks.** The client has the cube source's listener (loaded, unloaded, changed, with kinds and bounds).
+  The server has Forge's cube load and save events and the watcher's block changes, which cover watched cubes only.
+- **Riven** has no notion of edits and builds no structures; the preview differs from generated cubes only where it
+  shows rock for what is buried (lava, air under water, deep realms). Other mods' generation the client cannot
+  evaluate is the second source of difference.
+- **Quadrature** is a client mod (`clientSideOnly`). A tile is filled by `DistantWorkers` through a column consumer
+  into `RunTile`, which takes runs from any source in column order; it is not kept after meshing. `TileSchedule`
+  builds a wanted tile once; its generation is the whole world's. `RunMesher`'s exposure rule is built and unused.
+  No reducer from cubes to runs exists.
+
+So the server side is Cubature's, which already serves the preview's vocabulary of runs, and the client side is
+Quadrature's.
+
+### 22.2 What counts as edited
+
+A cube is **edited** when a block in it changes after the cube is fully populated, by any cause: a player, a
+machine, an explosion, a command, another mod. Generation, population and light do not count, nor do entities or
+block entities' own data. The mark is a bit of the cube's record, written with it, never cleared by saving. It is
+cleared only where the server establishes that the cube equals generation again (a later refinement; not needed for
+S2).
+
+Beside the bit, each region file keeps an **index of its edited cubes** with a version for each, so the server can
+answer "what is edited here, and since when" without reading cubes. The version is the world time of the last
+change. Edits outside a fully populated cube, which generation will overwrite, are not marked.
+
+### 22.3 Runs of an edited cube
+
+The server reduces an edited cube to the preview's vocabulary: for each of its 16 by 16 columns, the runs of its
+16-block span (a top, a block state, a kind), the same calls a preview sampler makes. The reduction is cached beside
+the index, so a join or a far request reads no cube.
+
+A reduction applies the exposure rule before it is sent (`RunMesher`'s rule, run on the server): space counts only
+where it is reachable from the open sky or the tile's sides. A sealed room is sent as rock. So a buried base is not
+shown to every client of the server, which is also the multiplayer answer to who may see what (22.7).
+
+### 22.4 How it reaches a client
+
+One path for single player and a dedicated server: the integrated server answers through the same messages, which
+stay in the process.
+
+1. **Index at join and on approach.** The client asks for the edited index of the area its rings reach, by level 0
+   tile (64 by 64 blocks): for each tile with edits, the highest version in it. The answer for an untouched world is
+   empty, and for a built-up one a few kilobytes.
+2. **Patches on demand.** For each wanted tile whose index version is newer than what it holds, the client asks for
+   that tile's patch at the tile's level: the server reduces the edited cubes' runs to the level's cells (22.5) and
+   sends only cells that hold an edit. A patch is bounded by the tile's 64 by 64 cells whatever the number of edits
+   under it.
+3. **Changes while playing.** When a block changes in a fully populated cube, the server marks it and bumps the
+   index, and once a second sends the changed tile keys and versions to clients whose rings reach them. Clients ask
+   for the patches as in 2. Inside the held box nothing changes: near terrain already has the cubes.
+
+Requests are queued like tile builds: the nearest wanted tile first, a budget of messages a second, and a patch is
+dropped when its tile stops being wanted.
+
+### 22.5 Merging into a tile
+
+A patch replaces vertical spans: for each patched cell, the runs between the bottom and the top of the edited cubes
+under it replace the preview's runs there, and above and below the preview stands. At level 0 a span is a cube's 16
+blocks; at a coarser level the cell's span is the union of the edited cubes' spans in its footprint.
+
+Reducing a cell wider than a block needs a rule for which block stands for the cell. The preview's footprint rule is
+Riven's own; the overlay's is Cubature's server code and must give the same answer where an edited cell meets an
+unedited one, or the seam shows. **Open:** take Riven's rule through the preview interface (a call that reduces
+given columns as the sampler would), or define one rule both use. This is the one question P4-B1 must answer first.
+
+Tiles are kept, not sampled again: a collapsed `RunTile` is small (2.7 to 4.6 runs a column, section 1) and is kept
+in memory beside each resident tile, and on disk with the store of S4. A patch splits runs at the span's ends,
+replaces, collapses again and meshes: about a millisecond, against 340 ms to sample a tile. An edit invalidates one
+tile at each level whose tile covers it, eight at most, through a version kept per tile key in `TileSchedule` in
+place of the whole world's generation. A tile on disk is valid while its preview version and its overlay version
+match the index's.
+
+### 22.6 Cost
+
+- **Server tick.** Marking is a bit and an index entry per changed cube, done at the change. Reduction runs off the
+  tick on a cube copy: 4,096 cells and the exposure walk, estimated at tens of microseconds a cube (near terrain
+  meshes a cube in about 1 ms with block models). Patches at coarse levels reduce cached runs, not cubes. To be
+  measured in P4-B1 against Distant Horizons' server feed on the same server, which feeds whole loaded columns
+  (Cubature's `DISTANT-HORIZONS.md`).
+- **Bandwidth.** An untouched world sends nothing but empty index answers. A patch is at most 64 by 64 cells of a few
+  runs each, a few kilobytes compressed; a client's ring of about 900 tiles over a large build is bounded by the tiles
+  that hold edits, not by the number of edited cubes.
+- **Client.** Kept run tiles cost memory where they buy rebuilds without sampling (the memory priority of Phase 4);
+  a patch costs a re-mesh.
+
+### 22.7 Who may see what
+
+The server is the only source of edits; a client sends none. The exposure rule (22.3) keeps sealed space out of
+patches. A server may also limit the reach of the index it answers or leave the overlay off; a client then shows
+generation, as today.
+
+### 22.8 What Cubature must add
+
+Written as a requisition for the user to take to Cubature: the edited bit and its index (22.2), the cached
+reduction with the exposure rule (22.3), the index and patch messages and the change notices (22.4), and a client
+call through which Quadrature receives patches in the preview's run vocabulary. Quadrature adds per-tile versions,
+kept run tiles, the merge and the request queue (22.5).
+
+## 23. Fill spikes, measured
+
+Work order P4-V1. The eleventh run found bursts of 7 to 10 frames of 57 to 104 ms while tiles filled, outside every
+stage of the world pass, not ticks and not collector pauses (19.2). Measured again on 4d1480e, 2026-11-25: the arrival
+tour on a fresh copy of the instance (seed 2485331, scale 4, 1280 by 720, the targets made, the shaded path on), with
+the frame tail (`quadrature.distant.frameTail`), the driver's messages (`quadrature.glDebug`) and a flight recording
+of the client thread (`-XX:+DebugNonSafepoints`). The recording's first 100 s hold the join and the fill; the
+second chunk was cut by the client's exit and is not read.
+
+**When.** Spike seconds came in two stretches, 12:17:03 to 12:17:23 and 12:17:36 to 12:18:01 (the join at 12:16:53),
+bursts of up to 18 frames at or over 25 ms in a window of 120, the worst 113.6 and 121.1 ms. Between them, 12:17:24 to
+12:17:35, no frame reached 20 ms although tiles were stored at the fastest rate of the fill (54 to 183 stored).
+
+**What runs with them: new materials.** The materials met (the summary's count) rose from 70 to 245 in the first
+stretch, stood at 246 through the quiet one, and rose from 268 to 308 in the second; after 12:18:03 they stood and the
+spikes stopped. Tiles stored do not follow the spikes; materials do.
+
+**Where the client thread is.** Client samples were sorted by the first frame outside the GL binding and the JDK, and
+spike seconds compared with quiet ones (the recording read through the JDK's `jdk.jfr.consumer`, a second counted
+as a spike second when its frame tail shows new frames at or over 33 ms):
+
+| Where | Spike seconds | Quiet seconds |
+|---|---|---|
+| The swap (`Display.update`, `SDL_GL_SwapWindow`), waiting in the driver | 24% | 14% |
+| `DistantMaterials.refresh`, in `glGenerateTextureMipmap` | 12 native samples, about 240 ms | none |
+| Near terrain's frame (search, commands, translucent, the entity passes) | 20% | 25% |
+| Cubature's loaded-cube lookups, called from the entity passes | 18% | 19% |
+
+The swap waits for work the GPU was given outside the timed stages. `refresh` runs in `Distant.prepare` whenever a
+tile brings states not met before: it colors them, writes their two image layers, sends the whole table again with
+`glNamedBufferData` and then calls `glGenerateTextureMipmap` on the whole image array, 2,048 layers of five levels,
+whatever number of layers changed. Arriving tiles bring new states frame after frame while the fill reaches new
+ground, which is a burst.
+
+**Ruled out.** No collector pause reached 5 ms (ZGC's cycles ran every 3 s through the fill, concurrently). No
+driver message of moved memory or of performance came in the spike seconds. No slow placement of near terrain was
+logged then. Client ticks were 0.1 ms.
+
+**Fixes, ranked by what they should save; none built.**
+
+1. Write each new layer's five levels from the CPU at upload (16 by 16 texels and its halvings) and drop
+   `glGenerateTextureMipmap`. Removes the whole-array regeneration that runs with every burst.
+2. Fill the table before tiles arrive: the preview's states are known at a join (Riven's material kinds list them),
+   so `refresh` meets them once, in the frame of the join, and none during the fill.
+3. Keep the table's buffer at its capacity and write only the new entries (`glNamedBufferSubData`), so a refresh
+   does not reallocate it.
+4. Bound `refresh` to a number of new states a frame, the rest the next frame, should states still arrive late.
+
+After 1 and 2 the run is repeated with the same switches; P4-V1 is done when the 99th percentile on arrival is under
+the bar from Distant Horizons' run (P4-V3). The entity passes' walk over loaded cubes is a steady cost, not a spike,
+and is left to near terrain.
